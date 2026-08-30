@@ -1,0 +1,24 @@
+# Local third-party research, including nested repositories and personal notes.
+/三方调研/
+# Temporary location until the running TRAECNclaw gateway releases this directory.
+/traecnclaw/
+
+# Local state and generated dependencies/output must never ship with the plugin.
+/.local/
+node_modules/
+dist/
+coverage/
+*.log
+*.bak
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Machine-local configuration and credentials.
+config.local.json
+auth.json
+credentials.json
+Thumbs.db
+.DS_Store
