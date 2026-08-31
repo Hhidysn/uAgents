@@ -1,7 +1,7 @@
 {
   "name": "uagents",
-  "version": "0.1.0-alpha.1",
-  "description": "Codex-led agent dispatch preview with guarded agy preflight and local task tracking.",
+  "version": "0.1.0-alpha.2",
+  "description": "Codex-led agy dispatch with native permissions, task tracking and artifact checks.",
   "author": {
     "name": "uAgents contributors"
   },
@@ -9,10 +9,10 @@
   "interface": {
     "displayName": "uAgents",
     "shortDescription": "Inspect agy readiness and track bounded agent tasks.",
-    "longDescription": "Development preview: validates native agy identity and tool restrictions before sending text. Real agy task acceptance is still blocked; other adapters and MCP servers are not included.",
+    "longDescription": "Development preview: dispatches agy tasks with native permissions, validates session identity and checks expected output files. No hard read-only or path isolation. Other adapters and MCP servers are not included.",
     "developerName": "uAgents contributors",
     "category": "Productivity",
     "capabilities": [],
-    "defaultPrompt": "检查 agy 的调用能力，并明确报告尚未通过的限制。"
+    "defaultPrompt": "通过 agy 委派一个有明确交付标准的小任务，跟进结果并检查产物。"
   }
 }

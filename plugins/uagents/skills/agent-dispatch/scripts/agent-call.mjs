@@ -10,9 +10,11 @@ try {
   const [verb, ...extra] = positionals;
   if (extra.length || !['capabilities', 'probe', 'submit', 'status', 'result', 'cancel'].includes(verb)) fail('usage', 'Use capabilities | probe/submit --request FILE --state-dir ABS_PATH | status/result/cancel --id UUID --state-dir ABS_PATH.');
   if (verb === 'capabilities') {
-    console.log(JSON.stringify({ target: 'agy', maturity: 'guarded-preview', mode: 'text-analysis',
-      enforced_gate: 'native init must report zero tools and exact model/agent/workspace',
-      implementation: false, file_access: false, resume: false, native_cancel_confirmation: false,
+    console.log(JSON.stringify({ target: 'agy', maturity: 'native-permissions-preview', modes: ['analysis', 'implementation'],
+      enforced_gate: 'exact model/workspace and matching native session', permission_policy: 'native',
+      implementation: true, file_access: 'native permissions', hard_readonly: false, hard_path_isolation: false,
+      edit_mode: 'implementation uses native accept-edits; analysis inherits settings',
+      expected_output_check: true, skip_all_permissions: false, resume: false, native_cancel_confirmation: false,
       lifecycle: 'one detached worker per task; application-exit survival unverified', other_targets: 'not implemented' }));
   } else {
     const starts = ['submit', 'probe'].includes(verb);

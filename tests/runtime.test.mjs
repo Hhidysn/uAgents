@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { submit, cancel, result } from '../plugins/uagents/skills/agent-dispatch/scripts/task.mjs';
-import { atomicJson, digest, normalizeRequest, pluginRoot, stateRoot, status, terminalStates } from '../plugins/uagents/skills/agent-dispatch/scripts/store.mjs';
+import { atomicJson, digest, inspectOutputs, normalizeRequest, pluginRoot, stateRoot, status, terminalStates } from '../plugins/uagents/skills/agent-dispatch/scripts/store.mjs';
 
 const root = path.resolve('.local/test-runs', randomUUID(), '任务 state');
 fs.mkdirSync(root, { recursive: true });
@@ -53,7 +53,8 @@ test('background completion, stable task ID and concurrent duplicate suppression
 test('invalid paths and unsupported permission requests fail before launch', () => {
   assert.throws(() => normalizeRequest(request('success', { request_id: '../outside' })), { code: 'invalid_request_id' });
   assert.throws(() => normalizeRequest(request('success', { owned_paths: ['src'] })), { code: 'unsupported_field' });
-  assert.throws(() => normalizeRequest(request('success', { mode: 'implementation' })), { code: 'unsupported_capability' });
+  assert.throws(() => normalizeRequest(request('success', { mode: 'invalid' })), { code: 'unsupported_capability' });
+  assert.throws(() => normalizeRequest(request('success', { permission_policy: 'readonly' })), { code: 'unsupported_permission_policy' });
   assert.throws(() => stateRoot(path.join(pluginRoot, 'forbidden-state'), true), { code: 'invalid_state_dir' });
   assert.equal(fs.existsSync(path.join(pluginRoot, 'forbidden-state')), false);
   if (process.platform === 'win32') {
@@ -64,7 +65,7 @@ test('invalid paths and unsupported permission requests fail before launch', () 
 });
 
 for (const [scenario, expected, error] of [
-  ['unsafe', 'blocked', 'text_only_permissions_unverified'], ['wrong-model', 'blocked', 'identity_unverified'],
+  ['tool-denied', 'needs_user', undefined], ['wrong-model', 'blocked', 'identity_unverified'],
   ['wrong-session', 'unknown', 'missing_or_mismatched_result'], ['error-zero', 'failed', undefined],
   ['truncated', 'unknown', 'missing_or_mismatched_result'], ['malformed', 'unknown', 'malformed_stream'],
   ['large', 'unknown', 'output_limit'], ['waiting', 'needs_user', undefined],
@@ -79,13 +80,51 @@ for (const [scenario, expected, error] of [
   if (expected === 'blocked') assert.equal(fs.existsSync(received(input.request_id)), false);
 });
 
-test('probe checks native identity and permissions without sending a prompt', async () => {
+test('probe checks native identity and reports permissions without sending a prompt', async () => {
   const input = request('success'); delete input.prompt;
   await submit(root, input, { worker, kind: 'probe' });
   const done = await wait(input.request_id);
   assert.equal(done.status, 'succeeded');
   assert.equal(done.scope, 'preflight_only');
+  assert.equal(done.tool_count, 2);
+  assert.equal(done.permission_policy, 'native');
   assert.equal(fs.existsSync(received(input.request_id)), false);
+});
+
+test('implementation accepts native tools and retrieves the final result without logging arguments', async () => {
+  const input = request('tool', { mode: 'implementation', expected_outputs: ['artifact.txt'] });
+  await submit(root, input, { worker });
+  const done = await wait(input.request_id);
+  assert.equal(done.status, 'succeeded');
+  assert.equal(done.last_tool, 'write_to_file');
+  assert.equal(done.native_permission_mode, 'request-review');
+  assert.equal(done.artifact_check, 'passed');
+  assert.match(result(root, input.request_id).result.artifacts[0].sha256, /^[a-f0-9]{64}$/);
+  assert.equal(fs.readFileSync(path.join(root, input.request_id, 'workspace', 'artifact.txt'), 'utf8'), 'created with native permissions');
+  assert.equal(JSON.stringify(result(root, input.request_id)).includes('do not persist tool arguments'), false);
+  assert.equal(fs.existsSync(path.join(root, input.request_id, 'workspace', '.agents')), false);
+});
+
+test('native success with a missing promised artifact fails acceptance', async () => {
+  const input = request('success', { mode: 'implementation', expected_outputs: ['missing.html'] });
+  await submit(root, input, { worker });
+  const done = await wait(input.request_id);
+  assert.equal(done.native_status, 'SUCCESS');
+  assert.equal(done.status, 'failed');
+  assert.equal(done.error, 'expected_output_validation_failed');
+  assert.equal(result(root, input.request_id).result.artifacts[0].error, 'missing');
+});
+
+test('artifact paths cannot escape through traversal, absolute paths or a junction', () => {
+  for (const name of ['../outside', '/absolute', 'C:/absolute', 'x\\y', 'NUL', 'x:stream', 'folder/..', 'file.']) {
+    assert.throws(() => normalizeRequest(request('success', { expected_outputs: [name] })), { code: 'invalid_outputs' });
+  }
+  assert.throws(() => normalizeRequest(request('success', { mode: 'implementation' })), { code: 'invalid_outputs' });
+  if (process.platform === 'win32') {
+    const directory = path.join(root, 'artifact-check'); fs.mkdirSync(directory);
+    fs.symlinkSync(pluginRoot, path.join(directory, 'linked'), 'junction');
+    assert.equal(inspectOutputs(directory, ['linked/.codex-plugin/plugin.json'])[0].error, 'outside_workspace');
+  }
 });
 
 test('probe does not ignore a native error during shutdown', async () => {
@@ -187,5 +226,5 @@ test('packaged scripts load from a different working directory without research 
   const copied = path.join(root, '独立 plugin'); await fs.promises.cp(pluginRoot, copied, { recursive: true });
   const execution = spawnSync(process.execPath, [path.join(copied, 'skills/agent-dispatch/scripts/agent-call.mjs'), 'capabilities'], { cwd: root, encoding: 'utf8', windowsHide: true });
   assert.equal(execution.status, 0, execution.stderr);
-  assert.equal(JSON.parse(execution.stdout).maturity, 'guarded-preview');
+  assert.equal(JSON.parse(execution.stdout).maturity, 'native-permissions-preview');
 });

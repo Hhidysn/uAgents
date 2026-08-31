@@ -20,7 +20,7 @@ export async function submit(root, input, { kind = 'run', worker = workerFile } 
     return { ...current, duplicate: true };
   }
   atomicJson(path.join(directory, 'state.json'), {
-    task_id: request.request_id, target: request.target, model_requested: request.model, mode: request.mode,
+    task_id: request.request_id, target: request.target, model_requested: request.model, mode: request.mode, permission_policy: request.permission_policy,
     kind, digest: requestDigest, status: 'starting', submission: 'not_sent', registration_complete: false, updated_at_ms: Date.now(),
   });
   // The short-lived inbox is removed by the worker; prompts are not copied to logs.

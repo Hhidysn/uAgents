@@ -8,7 +8,7 @@ const session = 'fixture-session';
 const emit = value => process.stdout.write(JSON.stringify(value) + '\n');
 const start = () => emit({ event: 'init', conversation_id: session, init: {
   cwd: process.cwd(), model: scenario === 'wrong-model' ? 'gemini-another-route' : model,
-  agent: 'uagents-text', tools: scenario === 'unsafe' ? ['write_to_file'] : [], permission_mode: 'request-review',
+  tools: ['write_to_file', 'run_command'], permission_mode: 'request-review',
 } });
 if (scenario === 'object-error-before') emit({ event: 'result', result: { conversation_id: '', status: 'ERROR', error: { message: 'fixture failure' } } });
 else if (scenario === 'slow-init') setTimeout(start, 2000); else start();
@@ -18,6 +18,11 @@ createInterface({ input: process.stdin }).on('line', line => {
   if (message.event !== 'user') return;
   received = true;
   fs.appendFileSync('received.txt', 'submitted\n');
+  if (scenario === 'tool' || scenario === 'tool-denied') {
+    emit({ event: 'step_update', step_update: { step_type: 'tool', tool_name: 'write_to_file',
+      tool_info: { error: scenario === 'tool-denied' ? { type: 'permission', message: 'Permission denied: requires approval' } : null, parameters: { sensitive: 'do not persist tool arguments' } } } });
+    if (scenario === 'tool') fs.writeFileSync('artifact.txt', 'created with native permissions');
+  }
   if (scenario === 'pipe-held') spawn(process.execPath, ['-e', 'setTimeout(() => {}, 8000)'], { stdio: ['ignore', 'inherit', 'inherit'], windowsHide: true }).unref();
   if (scenario === 'hang' || scenario === 'pipe-held') { setTimeout(() => process.exit(0), 15000); return; }
   setTimeout(() => {

@@ -54,17 +54,35 @@ export function taskDirectory(root, id) {
 }
 export function normalizeRequest(value, kind = 'run') {
   if (!value || Array.isArray(value) || typeof value !== 'object') fail('invalid_request', 'Expected a request object.');
-  const allowed = new Set(['request_id', 'target', 'model', 'mode', 'prompt', 'timeout_ms']);
+  const allowed = new Set(['request_id', 'target', 'model', 'mode', 'prompt', 'timeout_ms', 'permission_policy', 'expected_outputs']);
   for (const key of Object.keys(value)) if (!allowed.has(key)) fail('unsupported_field', `Unsupported request field: ${key}`);
   if (!uuidPattern.test(value.request_id ?? '')) fail('invalid_request_id', 'request_id must be a UUID.');
-  if (value.target !== 'agy' || value.mode !== 'analysis') fail('unsupported_capability', 'This preview only supports agy text analysis; file access and implementation are unavailable.');
+  if (value.target !== 'agy' || !['analysis', 'implementation'].includes(value.mode)) fail('unsupported_capability', 'This preview supports agy analysis or implementation in a task workspace.');
+  if (value.permission_policy !== undefined && value.permission_policy !== 'native') fail('unsupported_permission_policy', 'Only native agy permissions are supported; read-only enforcement is unavailable.');
   if (typeof value.model !== 'string' || !/^gemini-[a-z0-9.-]+$/.test(value.model)) fail('invalid_model', 'Specify an explicit Gemini model slug; no default or fallback model.');
   if (!['run', 'probe'].includes(kind)) fail('invalid_kind', 'Unsupported invocation kind.');
   if (kind === 'run' && (typeof value.prompt !== 'string' || !value.prompt.trim() || Buffer.byteLength(value.prompt) > 65536)) fail('invalid_prompt', 'Provide 1–65536 bytes of text.');
   if (kind === 'probe' && value.prompt !== undefined) fail('invalid_prompt', 'A probe cannot include a prompt.');
+  const outputs = value.expected_outputs ?? [];
+  if (!Array.isArray(outputs) || outputs.length > 16 || outputs.some(name => typeof name !== 'string' || !name || name.length > 240 ||
+      name.includes('\\') || /[\x00-\x1f<>:"|?*]/.test(name) || name.split('/').some(part => !part || part === '.' || part === '..' || /[. ]$/.test(part) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part))) ||
+      new Set(outputs.map(name => name.toLowerCase())).size !== outputs.length) fail('invalid_outputs', 'expected_outputs must list up to 16 distinct relative file paths with forward slashes.');
+  if (kind === 'run' && value.mode === 'implementation' && !outputs.length) fail('invalid_outputs', 'Implementation tasks require at least one expected output file.');
   const timeout = value.timeout_ms ?? 120000;
   if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 300000) fail('invalid_timeout', 'timeout_ms must be 1000–300000.');
-  return { request_id: value.request_id.toLowerCase(), target: 'agy', model: value.model, mode: 'analysis', kind, ...(kind === 'run' ? { prompt: value.prompt } : {}), timeout_ms: timeout };
+  return { request_id: value.request_id.toLowerCase(), target: 'agy', model: value.model, mode: value.mode, permission_policy: 'native', expected_outputs: outputs, kind, ...(kind === 'run' ? { prompt: value.prompt } : {}), timeout_ms: timeout };
+}
+export function inspectOutputs(workspace, names) {
+  return names.map(name => {
+    const file = path.join(workspace, name);
+    try {
+      const real = fs.realpathSync(file);
+      if (!isWithin(fs.realpathSync(workspace), real)) return { path: name, error: 'outside_workspace' };
+      const info = fs.statSync(real);
+      if (!info.isFile() || info.size === 0 || info.size > 10485760) return { path: name, error: 'invalid_artifact' };
+      return { path: name, bytes: info.size, sha256: createHash('sha256').update(fs.readFileSync(real)).digest('hex') };
+    } catch (error) { return { path: name, error: error.code === 'ENOENT' ? 'missing' : 'unreadable' }; }
+  });
 }
 export function digest(request) { return createHash('sha256').update(JSON.stringify(request)).digest('hex'); }
 export function status(root, id) {
