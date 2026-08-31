@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { StringDecoder } from 'node:string_decoder';
 import { atomicJson, digest, inspectOutputs, normalizeRequest, readJson } from './store.mjs';
+import { invokeCli } from './cli-adapters.mjs';
 
 export async function work(directory, testDriver) {
   let state = readJson(path.join(directory, 'state.json'));
@@ -22,7 +23,7 @@ export async function work(directory, testDriver) {
     fs.mkdirSync(workspace, { recursive: true });
     publish({ status: 'preflight', workspace, worker_pid: process.pid, worker_started_at_ms: Date.now() });
     heartbeat = setInterval(() => publish({}), 1000);
-    const outcome = await invoke(directory, workspace, request, publish, testDriver);
+    const outcome = await (request.target === 'agy' ? invoke : invokeCli)(directory, workspace, request, publish, testDriver);
     if (outcome.status === 'succeeded' && request.kind === 'run') {
       const artifacts = inspectOutputs(workspace, request.expected_outputs);
       outcome.result.artifacts = artifacts;
@@ -71,7 +72,7 @@ function invoke(directory, workspace, request, publish, testDriver) {
       if (fs.existsSync(path.join(directory, 'cancel.json'))) stop(sent ? 'unknown' : 'cancelled', sent ? 'cancel_remote_state_unknown' : 'cancelled_before_send');
     }, 100);
     child.stdin.on('error', () => stop(sent ? 'unknown' : 'failed', 'stdin_failed'));
-    child.on('error', () => { outcome = { status: sent ? 'unknown' : 'failed', error: 'native_process_error', retry_safe: false }; });
+    child.on('error', () => { if (!stopped && !finished) outcome = { status: sent ? 'unknown' : 'failed', error: 'native_process_error', retry_safe: false }; });
     child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString('utf8')).slice(-8192); });
     const line = text => {
       if (!text.trim() || stopped || finished) return;

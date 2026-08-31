@@ -5,18 +5,23 @@ import { fail, readJson, stateRoot, status } from './store.mjs';
 
 try {
   const { values, positionals } = parseArgs({ options: {
-    'state-dir': { type: 'string' }, request: { type: 'string' }, id: { type: 'string' },
+    'state-dir': { type: 'string' }, request: { type: 'string' }, id: { type: 'string' }, target: { type: 'string' },
   }, allowPositionals: true });
   const [verb, ...extra] = positionals;
   if (extra.length || !['capabilities', 'probe', 'submit', 'status', 'result', 'cancel'].includes(verb)) fail('usage', 'Use capabilities | probe/submit --request FILE --state-dir ABS_PATH | status/result/cancel --id UUID --state-dir ABS_PATH.');
   if (verb === 'capabilities') {
-    console.log(JSON.stringify({ target: 'agy', maturity: 'native-permissions-preview', modes: ['analysis', 'implementation'],
-      enforced_gate: 'exact model/workspace and matching native session', permission_policy: 'native',
-      implementation: true, file_access: 'native permissions', hard_readonly: false, hard_path_isolation: false,
-      edit_mode: 'implementation uses native accept-edits; analysis inherits settings',
+    const target = values.target ?? 'agy';
+    if (!['agy', 'workbuddy', 'opencode'].includes(target)) fail('unsupported_target', 'Supported: agy, workbuddy, opencode.');
+    console.log(JSON.stringify({ target, maturity: 'native-permissions-preview', modes: target === 'opencode' ? ['analysis'] : ['analysis', 'implementation'],
+      identity: target === 'agy' ? 'pre-send model/cwd handshake and matching native session' : target === 'workbuddy' ? 'caller-assigned native UUID and reported cwd after submission' : 'matching session and final message parts; selected model is not echoed by this stream',
+      permission_policy: 'native', implementation: target !== 'opencode', hard_readonly: false, hard_path_isolation: false,
+      edit_mode: target === 'opencode' ? 'inherited; no auto approval' : 'implementation enables native file edit mode; analysis inherits settings',
+      models: target === 'workbuddy' ? ['workbuddy-default'] : target === 'opencode' ? ['opencode-go/deepseek-v4-flash', 'opencode-go/glm-5.2'] : 'explicit Gemini slug',
+      probe_scope: target === 'agy' ? 'preflight_only' : 'version_only',
       expected_output_check: true, skip_all_permissions: false, resume: false, native_cancel_confirmation: false,
-      lifecycle: 'one detached worker per task; application-exit survival unverified', other_targets: 'not implemented' }));
+      lifecycle: 'one detached worker per task; application-exit survival unverified', desktop_mcp: 'not implemented' }));
   } else {
+    if (values.target) fail('usage', '--target is only used with capabilities; use target in the request JSON for submit/probe.');
     const starts = ['submit', 'probe'].includes(verb);
     if (starts ? (!values.request || values.id) : (!values.id || values.request)) fail('usage', 'Provide only the arguments required for this verb.');
     const root = stateRoot(values['state-dir'], starts);

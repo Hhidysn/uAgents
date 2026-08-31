@@ -1,18 +1,18 @@
 {
   "name": "uagents",
-  "version": "0.1.0-alpha.2",
-  "description": "Codex-led agy dispatch with native permissions, task tracking and artifact checks.",
+  "version": "0.1.0-alpha.3",
+  "description": "Codex-led agy, WorkBuddy and OpenCode dispatch with task tracking and artifact checks.",
   "author": {
     "name": "uAgents contributors"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "uAgents",
-    "shortDescription": "Inspect agy readiness and track bounded agent tasks.",
-    "longDescription": "Development preview: dispatches agy tasks with native permissions, validates session identity and checks expected output files. No hard read-only or path isolation. Other adapters and MCP servers are not included.",
+    "shortDescription": "Dispatch CLI agent tasks and independent model proposals.",
+    "longDescription": "Development preview: agy and WorkBuddy file tasks, plus independent OpenCode text proposals. Tracks native sessions and expected artifacts. No hard read-only/path isolation, automatic quota fallback or desktop MCP servers.",
     "developerName": "uAgents contributors",
     "category": "Productivity",
     "capabilities": [],
-    "defaultPrompt": "通过 agy 委派一个有明确交付标准的小任务，跟进结果并检查产物。"
+    "defaultPrompt": "选择适合的已接入 Agent，委派一个有明确交付标准的任务，跟进结果并检查产物。"
   }
 }

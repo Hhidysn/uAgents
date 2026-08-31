@@ -22,7 +22,7 @@ Codex 是主力开发者和编排入口。用户希望在 Codex 实际决定委�
 5. 安装、环境准备、执行任务分开；安装不会自动启动桌面应用、开启 CDP、发送模型请求或修改全局路由。
 6. 新机器在完成显式环境准备后可以运行，发行版不依赖本机 `third-part-research/` 或原来的绝对源码路径。
 
-当前实施范围限于首个 CLI 切片及所需验证。非目标包括双向 Agent 通信平台、自动消耗每日额度的定时任务、统一聊天 UI、云端控制桌面、多租户任务服务、修改供应商登录或绕过权限。
+当前实施已推进到三个 CLI 的基础切片：agy/WorkBuddy 文件任务、OpenCode 独立文本提案；验证结果见[CLI 接入记录](../../verification/2026-08-31-cli-adapters.md)。非目标包括双向 Agent 通信平台、自动消耗每日额度的定时任务、统一聊天 UI、云端控制桌面、多租户任务服务、修改供应商登录或绕过权限。
 
 ## 2. 方案比较和决定
 
@@ -59,7 +59,7 @@ uAgents/
    │  │  ├─ opencode-council.md
    │  │  ├─ trae.md
    │  │  └─ doubao-work.md
-   │  └─ scripts/                  # agent-call、task、store、worker；按发行文件位置定位
+   │  └─ scripts/                  # agent-call、task、store、worker、cli-adapters；相对发行位置定位
    ├─ servers/trae/                 # 保持独立启动与版本记录
    ├─ servers/doubao-work/
    └─ THIRD_PARTY_NOTICES.md        # 实际引入第三方代码后添加
@@ -67,7 +67,7 @@ uAgents/
 
 发行包采用显式文件清单。不得包含研究归档、嵌套 `.git`、真实提示词日志、账号信息、个人路径配置、临时截图和开发缓存。依赖安装使用固定版本/锁文件；平台运行时先检查再准备，不能仅靠安装一个 Skill 假定 Node 或桌面应用已经存在。
 
-当前 skills-only 预览 manifest 为 0.1.0-alpha.2；不创建 MCP 配置或个人市场条目，不自动安装。manifest 和 Skill 格式校验与真实目标能力验收分别报告。
+当前 skills-only 预览 manifest 为 0.1.0-alpha.3；不创建 MCP 配置或个人市场条目，不自动安装。manifest 和 Skill 格式校验与真实目标能力验收分别报告。
 
 ## 4. 按需加载与职责
 
@@ -114,7 +114,7 @@ MCP 元数据保持简洁。优先面向任务暴露接口，不把任意 CDP �
 | `prompt` / `context_files` | 最小必要任务说明和已授权文件，不传整个聊天历史或秘密 |
 | `workspace` / `owned_paths` | 绝对工作目录与允许修改范围 |
 | `mode` | `analysis` 或 `implementation`；表达任务意图，不代表硬性只读 |
-| `permission_policy` / `expected_outputs` | 当前 agy 使用 native；implementation 单次启用 accept-edits，并验收相对产物路径 |
+| `permission_policy` / `expected_outputs` | 当前均使用 native；agy/WorkBuddy implementation 单次启用原生文件修改模式，并验收相对产物路径 |
 | `timeout` | 截止条件；超时后还要区分本地等待停止与远端任务停止 |
 | `acceptance` | 能够检查的交付标准 |
 | `session_id` | 仅在明确续接某一任务时传入；默认创建独立会话 |
@@ -181,7 +181,7 @@ TRAE 与豆包使用不同端口和明确的应用/窗口标识，不能因都�
 | --- | --- | --- |
 | 0：设计与会审 | 仓库、资料归档、设计与评审文档 | 已完成整理和会审；用户已授权推进首个切片 |
 | 1a：运行验证与 agy | 模拟 worker、一个 Skill、agy 原生权限入口、产物验收、skills-only 预览包 | 运行机制测试与格式检查；真实 agy 完成指定目录内的可归属任务并检查产物；证据见实施记录 |
-| 1b：其余 CLI | WorkBuddy 与 OpenCode 适配，扩展 agy 已证实能力 | 优先复用各自原生后台/会话机制，各路线独立真实验收；不要求先统一全部 CLI |
+| 1b：其余 CLI | WorkBuddy 与 OpenCode 适配，扩展 agy 已证实能力 | 基础验收已通过：WorkBuddy 文件落盘与回收、OpenCode DPF/GLM 同题独立返回；原生后台及自动恢复不扩大承诺 |
 | 2：TRAE | 接入现有 MCP、可分发依赖/补丁与来源记录 | Windows 下任务提交→完成→提取答案可靠；遇到审批会停下；窗口串行和重复提交保护有效 |
 | 3：豆包工作 | 独立 MCP 和配套参考文件 | 从历史“输入框能写字”推进到真实完整任务闭环；旧回复不串入结果；无法确认取消时正确报告未知状态 |
 | 4：一体分发 | Skill + 两个 MCP 的完整 Plugin | 干净安装路径验证；归档缺席仍可运行；缺一个应用不拖垮其余组件；更新不丢本机配置或任务记录 |
@@ -207,7 +207,14 @@ TRAE 与豆包使用不同端口和明确的应用/窗口标识，不能因都�
 - 使用 UUID 独占任务目录与规范化有效输入摘要去重，同 ID 不同内容冲突；先保存发送意图再写 stdin。发送后中断不自动重发，即使请求状态未知。
 - 取消通过任务目录内的控制标记交给持有 ChildProcess 的 worker，避免根据保存的 PID 去结束其他进程；缺少原生确认时不宣称远端已取消。
 - 当前保存必要结果与状态，临时 inbox 在 worker 读取后删除；调用方原请求文件及异常留下的 inbox 不自动删除。无自动清理与保留期管理，暂不面向多用户或不可信本机进程。
-- WorkBuddy 已有原生后台、查询、取消和服务接口的帮助证据，后续优先验证复用，不将当前 agy worker 强制推广给所有目标。
+- WorkBuddy 原生 --bg 已实测返回启动信息，但稍后 logs 找不到会话且专属日志为空，未形成可靠闭环。因此当前选择单次 print + stream-json，复用已有 worker；不把“有原生命令”当成已验证生命周期。OpenCode run 内置进程内服务与原生 session，直接消费其 JSON 流，无需额外 serve 守护进程。
+
+## 11.2 其余 CLI 的实际契约
+
+- WorkBuddy 接入现有安装里的 codebuddy.js；workbuddy-default 表示不覆盖既有默认模型，本次报告 auto，具体底层模型与免费额度未知。显式 UUID 传 --session-id，匹配 init cwd 与终态 result；单次使用 acceptEdits 时不跳过命令审批。
+- OpenCode 当前只接受 DPF/GLM-5.2 两条常用路线的 analysis。每次独立 run --pure --format json，不自动续接或自动审批。按照 sessionID/part/messageID 关联结果，最后 stop + 对应文本 + 正常退出才成功；model_reported=null 明确标记流不回显实际模型。
+- 两种 CLI 都需要先送入 stdin 再拿原生事件，不能套用 agy 的发送前身份门禁；先落盘可能已发送状态，再做事后归属检查，异常按 unknown，不自动重发。
+- 两个模型的会审由 Codex/已有调度助手执行逐任务提交与结果综合。共用 brief，独立 UUID/session，先记主线程方案；当前不引入自动多轮争论服务或共享会话。
 
 ## 12. 依据
 

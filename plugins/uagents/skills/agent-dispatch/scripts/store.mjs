@@ -57,9 +57,13 @@ export function normalizeRequest(value, kind = 'run') {
   const allowed = new Set(['request_id', 'target', 'model', 'mode', 'prompt', 'timeout_ms', 'permission_policy', 'expected_outputs']);
   for (const key of Object.keys(value)) if (!allowed.has(key)) fail('unsupported_field', `Unsupported request field: ${key}`);
   if (!uuidPattern.test(value.request_id ?? '')) fail('invalid_request_id', 'request_id must be a UUID.');
-  if (value.target !== 'agy' || !['analysis', 'implementation'].includes(value.mode)) fail('unsupported_capability', 'This preview supports agy analysis or implementation in a task workspace.');
-  if (value.permission_policy !== undefined && value.permission_policy !== 'native') fail('unsupported_permission_policy', 'Only native agy permissions are supported; read-only enforcement is unavailable.');
-  if (typeof value.model !== 'string' || !/^gemini-[a-z0-9.-]+$/.test(value.model)) fail('invalid_model', 'Specify an explicit Gemini model slug; no default or fallback model.');
+  if (!['agy', 'workbuddy', 'opencode'].includes(value.target) || !['analysis', 'implementation'].includes(value.mode)) fail('unsupported_capability', 'Supported targets: agy, workbuddy, opencode; modes: analysis, implementation.');
+  if (value.permission_policy !== undefined && value.permission_policy !== 'native') fail('unsupported_permission_policy', 'Only native permissions are supported; read-only enforcement is unavailable.');
+  const validModel = value.target === 'agy' ? typeof value.model === 'string' && /^gemini-[a-z0-9.-]+$/.test(value.model)
+    : value.target === 'workbuddy' ? value.model === 'workbuddy-default'
+    : ['opencode-go/deepseek-v4-flash', 'opencode-go/glm-5.2'].includes(value.model);
+  if (!validModel) fail('invalid_model', 'Select an explicit supported route; there is no automatic model or provider fallback.');
+  if (value.target === 'opencode' && value.mode !== 'analysis') fail('unsupported_capability', 'OpenCode currently supports independent text analysis only.');
   if (!['run', 'probe'].includes(kind)) fail('invalid_kind', 'Unsupported invocation kind.');
   if (kind === 'run' && (typeof value.prompt !== 'string' || !value.prompt.trim() || Buffer.byteLength(value.prompt) > 65536)) fail('invalid_prompt', 'Provide 1–65536 bytes of text.');
   if (kind === 'probe' && value.prompt !== undefined) fail('invalid_prompt', 'A probe cannot include a prompt.');
@@ -70,7 +74,7 @@ export function normalizeRequest(value, kind = 'run') {
   if (kind === 'run' && value.mode === 'implementation' && !outputs.length) fail('invalid_outputs', 'Implementation tasks require at least one expected output file.');
   const timeout = value.timeout_ms ?? 120000;
   if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 300000) fail('invalid_timeout', 'timeout_ms must be 1000–300000.');
-  return { request_id: value.request_id.toLowerCase(), target: 'agy', model: value.model, mode: value.mode, permission_policy: 'native', expected_outputs: outputs, kind, ...(kind === 'run' ? { prompt: value.prompt } : {}), timeout_ms: timeout };
+  return { request_id: value.request_id.toLowerCase(), target: value.target, model: value.model, mode: value.mode, permission_policy: 'native', expected_outputs: outputs, kind, ...(kind === 'run' ? { prompt: value.prompt } : {}), timeout_ms: timeout };
 }
 export function inspectOutputs(workspace, names) {
   return names.map(name => {
@@ -94,7 +98,7 @@ export function status(root, id) {
   }
   const state = readJson(file);
   if (!terminalStates.has(state.status) && Date.now() - state.updated_at_ms > 15000) {
-    return { ...state, status: 'unknown', error: 'worker_heartbeat_stale', retry_safe: false };
+    return { ...state, status: 'unknown', error: state.status === 'starting' && !state.worker_started_at_ms ? 'worker_launch_unconfirmed' : 'worker_heartbeat_stale', retry_safe: false };
   }
   const recorded = fs.existsSync(path.join(directory, 'cancel.json'));
   return { ...state, cancel_recorded: recorded, cancel_requested: recorded && !terminalStates.has(state.status) };

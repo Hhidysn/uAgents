@@ -17,6 +17,7 @@ export async function submit(root, input, { kind = 'run', worker = workerFile } 
     if (!current.digest) fail('registration_incomplete', 'Existing task registration is incomplete; do not resubmit.');
     if (current.digest !== requestDigest) fail('request_conflict', 'The request_id already belongs to a different effective request.');
     if (current.registration_complete !== true) fail('registration_incomplete', 'Existing registration has not committed its inbox; do not resubmit.');
+    if (current.error === 'worker_launch_unconfirmed') fail('worker_launch_unconfirmed', 'Registration exists but worker startup was never confirmed; inspect this task, do not replay it.');
     return { ...current, duplicate: true };
   }
   atomicJson(path.join(directory, 'state.json'), {

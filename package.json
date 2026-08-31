@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/runtime.test.mjs"
+    "test": "node --test tests/runtime.test.mjs tests/cli-adapters.test.mjs"
   },
   "engines": { "node": ">=22" }
 }
