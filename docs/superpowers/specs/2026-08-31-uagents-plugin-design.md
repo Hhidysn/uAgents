@@ -1,6 +1,6 @@
 # uAgents 插件设计
 
-日期：2026-08-31，2026-09-01 更新。状态：CLI 阶段与豆包 MCP 最小闭环已完成；TRAE 路线及插件安装未完成。最新证据见[CLI 实施记录](../../verification/2026-08-31-cli-runtime.md)和[豆包 MCP 验证](../../verification/2026-09-01-doubao-mcp.md)。
+日期：2026-08-31，2026-09-02 更新。状态：CLI、豆包 MCP 与 TRAE MCP 的仓库内实现已完成；插件安装未执行。最新证据见[CLI 实施记录](../../verification/2026-08-31-cli-runtime.md)、[豆包 MCP 验证](../../verification/2026-09-01-doubao-mcp.md)和[TRAE MCP 验证](../../verification/2026-09-02-trae-mcp.md)。
 
 ## 1. 目标、范围和成功标准
 
@@ -15,7 +15,7 @@ Codex 是主力开发者和编排入口。用户希望在 Codex 实际决定委�
 
 设计验收标准：
 
-1. 一个 Codex 插件安装单元包含一个调度 Skill、CLI 适配器和两个桌面 MCP 服务；具体阶段只声明已实现的组件。豆包 MCP 已实现，TRAE MCP 下一阶段复用已验证的 TRAECNclaw 路线。
+1. 一个 Codex 插件安装单元包含一个调度 Skill、CLI 适配器和两个桌面 MCP 服务；当前已声明 `doubao_work` 与 `trae_cn`。
 2. 只调用 agy 时，不读取 WorkBuddy、TRAE、豆包或多模型讨论的完整说明。
 3. 每个任务能明确关联调用方、目标路线、原生会话/任务 ID、工作目录、结果和产物，不能把其他会话或 UI 文本当成答案。
 4. 长任务不依赖主模型一直阻塞在一次工具调用中；能够查询、跟进、处理审批、取消和无法确认的执行状态。
@@ -29,7 +29,7 @@ Codex 是主力开发者和编排入口。用户希望在 Codex 实际决定委�
 | 方案 | 收益 | 代价 | 结论 |
 | --- | --- | --- | --- |
 | 普通 Skill 仓库，附 MCP 源码和安装脚本 | 最少包装，容易直接阅读 | Skill 安装不保证 MCP 注册；升级、依赖、路径需要额外处理 | 适合原型，不作为最终一体安装方式 |
-| 一个 Plugin，包含一个 Skill 和两个桌面 MCP | 一次分发；通用 Agent CLI 保持直接；TRAE 与豆包分别维护任务语义 | 需管理插件打包和 MCP 生命周期 | 采用；当前只声明已完成的豆包 MCP |
+| 一个 Plugin，包含一个 Skill 和两个桌面 MCP | 一次分发；通用 Agent CLI 保持直接；TRAE 与豆包分别维护任务语义 | 需管理插件打包和 MCP 生命周期 | 采用；两个 MCP 均已声明 |
 | 一个统一 MCP 包装全部 Agent | 单一工具入口 | 额外引入调度服务，把成熟 CLI 也重新包装；故障面和维护范围扩大 | 当前不采用 |
 
 最终边界是两个桌面 MCP。豆包需要自有 CDP 适配；TRAE 为了复用已登录 TRAE CN Solo 的免费账号积分，需要 TRAECNclaw 的 CDP/网关路线。`trae-cn` 只是 IDE CLI，独立 `traecli` 不使用这条桌面额度，因此不作为本需求的执行路线。
@@ -38,7 +38,7 @@ Codex 是主力开发者和编排入口。用户希望在 Codex 实际决定委�
 
 工作仓库保留用户指定的 `uAgents` 目录名；计划把实际插件根放到 `plugins/uagents/`，使插件目录名与 manifest 名 `uagents` 一致，也避免把研究资料带进安装包。
 
-以下是完整目标结构；没有实现的目标不生成占位服务或清单。当前代码和运行机制放在 Skill 的 scripts 内，保持组件自包含：
+以下是当前主要结构。CLI 代码位于 Skill，桌面服务各自保留源码、构建和许可证：
 
 ```text
 uAgents/
@@ -48,26 +48,26 @@ uAgents/
 │  ├─ research-index.md
 │  └─ superpowers/specs/2026-08-31-uagents-plugin-design.md
 ├─ third-part-research/             # 本机归档；Git 忽略，不发布
-└─ plugins/uagents/                 # 未来插件发行根
+└─ plugins/uagents/                 # 插件发行根
    ├─ .codex-plugin/plugin.json
-   ├─ .mcp.json                     # 首个服务就绪后只声明它；当前不创建
+   ├─ .mcp.json                     # 声明 doubao_work 与 trae_cn
    ├─ skills/agent-dispatch/
    │  ├─ SKILL.md
    │  ├─ references/
    │  │  ├─ agy.md
    │  │  ├─ workbuddy.md
    │  │  ├─ opencode-council.md
-   │  │  ├─ trae.md
+   │  │  ├─ trae-cn.md
    │  │  └─ doubao-work.md
    │  └─ scripts/                  # agent-call、task、store、worker、cli-adapters；相对发行位置定位
-   ├─ servers/trae/                 # 保持独立启动与版本记录
-   ├─ servers/doubao-work/
-   └─ THIRD_PARTY_NOTICES.md        # 实际引入第三方代码后添加
+   └─ mcp/
+      ├─ trae/                      # stdio 入口、网关 bundle、来源与补丁记录
+      └─ doubao/                    # 独立 stdio/CDP 适配
 ```
 
 发行包采用显式文件清单。不得包含研究归档、嵌套 `.git`、真实提示词日志、账号信息、个人路径配置、临时截图和开发缓存。依赖安装使用固定版本/锁文件；平台运行时先检查再准备，不能仅靠安装一个 Skill 假定 Node 或桌面应用已经存在。
 
-当前预览 manifest 为 0.1.0-alpha.4，声明已实现的豆包 MCP；不创建个人市场条目，不自动安装。manifest、协议格式与真实目标能力验收分别报告。
+当前预览 manifest 为 0.1.0-alpha.5，声明两个已实现的桌面 MCP；不创建个人市场条目，不自动安装。manifest、协议格式与真实目标能力验收分别报告。
 
 ## 4. 按需加载与职责
 
@@ -90,7 +90,7 @@ SKILL.md 只包含：适用边界、参数交接、对应参考文件入口、�
 - `agy.md`：项目选择、实际可用模型、图像输入/输出能力、多轮会话、CLI 超时；输出美术建议不等于生成了图片文件。
 - `workbuddy.md`：内嵌入口发现、JSON 结果形状、工具限制、审批状态、原生 session ID；不得默认加 `-y`。
 - `opencode-council.md`：显式 provider/model、独立上下文、共同题目和评价维度、分歧讨论与综合；`--pure` 仅禁用外部插件，不等同于只读。
-- `trae.md`：现有 MCP 的准确工具映射、窗口归属、任务 ID、Windows 适配与结果证据；不另造同名伪兼容契约。
+- `trae-cn.md`：四工具薄接口、显式网关准备、窗口身份、任务 ID、Windows 适配与结果证据。
 - `doubao-work.md`：对应 MCP 工具、受控窗口/会话、哪些状态需要用户处理、尚不支持的动作。
 
 暂不拆独立的 council Skill：目前它是委派的一种模式。只有未来需要独立触发、维护和发布时再拆。
@@ -155,11 +155,11 @@ TRAE 与豆包使用不同端口和明确的应用/窗口标识，不能因都�
 | --- | --- | --- |
 | agy / WorkBuddy / OpenCode 调用 | 已安装 CLI、原生 session 和结构化输出 | 以本机帮助与小范围集成验证为准；不把历史清单当兼容性保证 |
 | 基础文件、JSON、进程操作 | Node 标准库 | 正确处理 Windows 路径、参数、取消和进程生命周期 |
-| TRAE 桥接 | 现有 TRAECNclaw 的实现和契约 | 核实来源与许可证，提取必要补丁，保留上游通知，验证 Windows |
+| TRAE 桥接 | TRAECNclaw 0.6.0 网关 + 官方 MCP SDK 薄入口 | 已锁定 npm tarball 完整性与许可证；补 Windows fsync/Lexical、严格端口、关闭自动审批与重试 |
 | 豆包 MCP 协议层 | `@modelcontextprotocol/server` 2.0.0、zod 4.5.4 | 已锁定版本、锁文件、许可证与预构建 bundle |
 | 豆包 UI 自动化 | Node 内置 WebSocket 与受控 CDP 页面操作 | 已实现最小应用适配，不复制私有应用内部实现 |
 
-豆包依赖已经锁定并验证。TRAE MCP 下一阶段应先决定复用 TRAECNclaw 现有协议实现还是仅保留网关并编写薄 stdio 入口，再单独记录对应版本、来源和许可证。
+豆包与 TRAE 依赖均已锁定。TRAE 保留上游 HTTP 网关作为内部实现，只向 Codex 暴露四个受控 stdio 工具；来源、完整性、许可证与补丁写入发行目录。
 
 现有 TRAECNclaw 的本地工作区包含重要未提交内容，不能直接作为“干净 v0.6.0 上游”发布。README、package 元数据、Git HEAD 与本地许可证的来源记录见资料索引。
 
@@ -182,7 +182,7 @@ TRAE 与豆包使用不同端口和明确的应用/窗口标识，不能因都�
 | 0：设计与会审 | 仓库、资料归档、设计与评审文档 | 已完成整理和会审；用户已授权推进首个切片 |
 | 1a：运行验证与 agy | 模拟 worker、一个 Skill、agy 原生权限入口、产物验收、skills-only 预览包 | 运行机制测试与格式检查；真实 agy 完成指定目录内的可归属任务并检查产物；证据见实施记录 |
 | 1b：其余 CLI | WorkBuddy 与 OpenCode 适配，扩展 agy 已证实能力 | 基础验收已通过：WorkBuddy 文件落盘与回收、OpenCode DPF/GLM 同题独立返回；原生后台及自动恢复不扩大承诺 |
-| 2：TRAE | 接入现有 MCP、可分发依赖/补丁与来源记录 | Windows 下任务提交→完成→提取答案可靠；遇到审批会停下；窗口串行和重复提交保护有效 |
+| 2：TRAE | 薄 stdio MCP、可分发网关、补丁与来源记录 | 实现和协议测试完成；真实提交与原生失败回收完成。当前账户积分不足，无法在本轮重新取得成功回答；2026-08-30 的同路线历史成功证据保留 |
 | 3：豆包工作 | 独立 MCP 和配套参考文件 | 最小闭环已完成：真实发送、原生会话 ID、边界后回复和完成控件一致；取消仍不暴露，审批仅上报 |
 | 4：一体分发 | Skill + CLI + 所需 MCP 的完整 Plugin | 干净安装路径验证；归档缺席仍可运行；缺一个应用不拖垮其余组件；更新不丢本机配置或任务记录 |
 
@@ -196,8 +196,8 @@ TRAE 与豆包使用不同端口和明确的应用/窗口标识，不能因都�
 - Skill 只负责委派流程，Codex 保持主控；引用既有个人路由而非私自更新全局规则。
 - 按需读取参考文件与 MCP 宿主何时加载工具 schema 分开，不作未经验证的延迟加载承诺。
 - 日志、配置、运行状态与发行内容分开；历史研究不作为默认运行依赖。
-- 豆包完整调用闭环已完成；Windows 子进程生存期和 TRAE Windows 可分发适配仍须验收。
-- 用户已授权切片与文件写入；预览代码、模拟通过和真实调用分开记录，不因豆包跑通而声称 TRAE 或安装分发已完成。
+- 豆包完整调用闭环已完成；TRAE 的可分发 Windows 适配、真实提交和失败回收已完成，当前额度阻止本轮成功回答复验。
+- 用户已授权切片与文件写入；预览代码、模拟通过和真实调用分开记录，不把历史成功或当前失败写成完整成功验收，也不声称插件已安装。
 
 ## 11.1 首个切片的具体约束
 

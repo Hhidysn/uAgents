@@ -1,7 +1,7 @@
 {
   "name": "uagents",
-  "version": "0.1.0-alpha.4",
-  "description": "Codex-led CLI agent dispatch plus a local Doubao Work MCP with task tracking.",
+  "version": "0.1.0-alpha.5",
+  "description": "Codex-led CLI agent dispatch plus tracked local MCP bridges for Doubao Work and TRAE CN.",
   "author": {
     "name": "uAgents contributors"
   },
@@ -9,8 +9,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "uAgents",
-    "shortDescription": "Dispatch CLI agents and a tracked Doubao Work desktop task.",
-    "longDescription": "Development preview: agy and WorkBuddy file tasks, independent OpenCode text proposals, and a local Doubao Work MCP over an explicitly prepared CDP connection. Tracks native sessions, task ownership and expected artifacts without quota fallback.",
+    "shortDescription": "Dispatch CLI agents and tracked desktop tasks.",
+    "longDescription": "Development preview: agy and WorkBuddy file tasks, independent OpenCode text proposals, plus local Doubao Work and TRAE CN MCP bridges over explicitly prepared CDP connections. Tracks native task identity and terminal evidence without quota fallback or automatic model-error replay.",
     "developerName": "uAgents contributors",
     "category": "Productivity",
     "capabilities": ["Interactive", "Write"],

@@ -6,6 +6,12 @@
       "command": "node",
       "args": ["./mcp/doubao/dist/server.mjs"],
       "cwd": "./"
+    },
+    "trae_cn": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["./mcp/trae/dist/server.mjs"],
+      "cwd": "./"
     }
   }
 }

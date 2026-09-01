@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f4f5f7" />
+    <title>TRAECNclaw · Web Control Console</title>
+    <link rel="stylesheet" href="/assets/web-console/styles.css" />
+    <script src="/assets/web-console/state.js" defer></script>
+    <script src="/assets/web-console/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
+
+    <div class="console-shell" data-app-state="booting">
+      <header class="app-header">
+        <div class="brand-lockup" aria-label="TRAECNclaw Web Control Console">
+          <span class="brand-mark" aria-hidden="true">TC</span>
+          <span class="brand-copy">
+            <strong>TRAECNclaw</strong>
+            <small>Web Control Console</small>
+          </span>
+        </div>
+
+        <div class="header-runtime" aria-label="运行时状态">
+          <span class="status-pill" data-tone="neutral" id="runtime-status">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="runtime-status-label">正在连接</span>
+          </span>
+          <span class="header-workspace" id="header-workspace">工作区尚未验证</span>
+        </div>
+
+        <nav class="header-actions" aria-label="控制台操作">
+          <button class="button button-quiet" type="button" id="refresh-console">刷新</button>
+          <button
+            class="button button-quiet"
+            type="button"
+            id="open-advanced"
+            aria-controls="advanced-drawer"
+          >
+            Advanced
+          </button>
+          <button
+            class="button button-primary"
+            type="button"
+            id="open-connection"
+            aria-controls="connection-dialog"
+          >
+            连接
+          </button>
+        </nav>
+      </header>
+
+      <section
+        class="connection-banner"
+        id="connection-banner"
+        aria-labelledby="connection-banner-title"
+      >
+        <div>
+          <strong id="connection-banner-title">连接本机网关以加载操作上下文</strong>
+          <p id="connection-banner-copy">令牌只保存在当前标签页，会话关闭后自动清除。</p>
+        </div>
+        <button class="button button-primary" type="button" data-open-connection>输入令牌</button>
+      </section>
+
+      <section class="context-strip" aria-labelledby="context-heading">
+        <div class="section-kicker">
+          <span id="context-heading">提交上下文</span>
+          <span id="context-freshness">等待验证</span>
+        </div>
+
+        <div class="context-grid">
+          <div class="context-control context-workspace">
+            <span class="control-label">Workspace</span>
+            <strong id="workspace-name">未选择</strong>
+            <small id="workspace-path">请先连接网关</small>
+            <button
+              class="text-action"
+              type="button"
+              id="open-workspace"
+              aria-controls="workspace-dialog"
+            >
+              打开工作区…
+            </button>
+          </div>
+
+          <label class="context-control" for="model-select">
+            <span class="control-label">Model</span>
+            <select id="model-select" disabled>
+              <option value="">等待网关</option>
+            </select>
+            <small id="model-hint">当前 TraeCN 模型</small>
+          </label>
+
+          <label class="context-control" for="mode-select">
+            <span class="control-label">Mode</span>
+            <select id="mode-select" disabled>
+              <option value="">等待网关</option>
+            </select>
+            <small id="mode-hint">Agent / SOLO</small>
+          </label>
+
+          <label class="context-control" for="conversation-select">
+            <span class="control-label">Conversation</span>
+            <select id="conversation-select" disabled>
+              <option value="">等待网关</option>
+            </select>
+            <small id="conversation-hint">任务绑定的对话</small>
+          </label>
+        </div>
+      </section>
+
+      <main class="workspace-layout" id="main-content">
+        <div class="operations-column">
+          <section class="composer-panel" aria-labelledby="composer-heading">
+            <div class="panel-heading">
+              <div>
+                <span class="eyebrow">NEW WORK</span>
+                <h1 id="composer-heading">让 TraeCN 完成什么？</h1>
+              </div>
+              <span class="context-lock" id="composer-context-lock">上下文未就绪</span>
+            </div>
+
+            <form id="task-form">
+              <label class="sr-only" for="task-message">任务内容</label>
+              <textarea
+                id="task-message"
+                name="message"
+                rows="5"
+                maxlength="100000"
+                placeholder="描述目标、约束与验收标准。⌘ Enter 提交。"
+                disabled
+              ></textarea>
+              <div class="composer-footer">
+                <label class="check-control">
+                  <input type="checkbox" id="review-required" checked />
+                  <span>完成后等待人工审查</span>
+                </label>
+                <div class="composer-submit">
+                  <span id="submit-hint">连接并验证工作区后可提交</span>
+                  <button
+                    class="button button-primary button-submit"
+                    type="submit"
+                    id="submit-task"
+                    disabled
+                  >
+                    提交任务
+                  </button>
+                </div>
+              </div>
+            </form>
+          </section>
+
+          <section class="notice-stack" id="notice-stack" aria-label="操作提示"></section>
+
+          <section
+            class="attention-section"
+            id="attention-section"
+            aria-labelledby="attention-heading"
+            hidden
+          >
+            <div class="section-heading">
+              <div>
+                <span class="eyebrow eyebrow-attention">NEEDS YOU</span>
+                <h2 id="attention-heading">需要处理</h2>
+              </div>
+              <span class="count-badge" id="attention-count">0</span>
+            </div>
+            <div class="task-list" id="attention-list"></div>
+          </section>
+
+          <section class="work-section" aria-labelledby="active-heading">
+            <div class="section-heading">
+              <div>
+                <span class="eyebrow">IN FLIGHT</span>
+                <h2 id="active-heading">进行中的工作</h2>
+              </div>
+              <span class="count-badge" id="active-count">0</span>
+            </div>
+            <div class="task-list" id="active-task-list">
+              <article class="empty-card" id="active-empty">
+                <span class="empty-glyph" aria-hidden="true">↗</span>
+                <div>
+                  <strong>没有进行中的任务</strong>
+                  <p>提交后，这里会持续显示网关的真实任务状态与精确任务 ID。</p>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="work-section" aria-labelledby="results-heading">
+            <div class="section-heading">
+              <div>
+                <span class="eyebrow">RESULTS</span>
+                <h2 id="results-heading">最近结果</h2>
+              </div>
+              <button class="text-action" type="button" id="refresh-history">刷新历史</button>
+            </div>
+            <div class="task-list" id="result-task-list">
+              <article class="empty-card" id="results-empty">
+                <span class="empty-glyph" aria-hidden="true">✓</span>
+                <div>
+                  <strong>尚无结果</strong>
+                  <p>完成、失败、取消与审查结果会保留在精确任务卡中。</p>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+
+        <aside class="history-rail" aria-labelledby="history-heading">
+          <div class="history-header">
+            <div>
+              <span class="eyebrow">DURABLE</span>
+              <h2 id="history-heading">任务历史</h2>
+            </div>
+            <span id="history-health" class="history-health">未加载</span>
+          </div>
+          <div class="history-list" id="history-list">
+            <p class="rail-empty">连接后加载最近任务。</p>
+          </div>
+          <button
+            class="button button-quiet button-full"
+            type="button"
+            id="load-more-history"
+            disabled
+          >
+            加载更多
+          </button>
+        </aside>
+      </main>
+    </div>
+
+    <dialog
+      class="sheet connection-sheet"
+      id="connection-dialog"
+      aria-labelledby="connection-title"
+    >
+      <form method="dialog" class="sheet-frame" id="connection-form">
+        <div class="sheet-header">
+          <div>
+            <span class="eyebrow">PRIVATE CONNECTION</span>
+            <h2 id="connection-title">连接 TRAECNclaw 网关</h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            data-close-dialog
+            aria-label="关闭连接面板"
+            title="关闭"
+          >
+            ×
+          </button>
+        </div>
+        <div class="sheet-body">
+          <p class="sheet-lead">
+            令牌只进入 Authorization 请求头和专用 WebSocket 子协议，不会写入
+            URL、页面文本或永久存储。
+          </p>
+          <label class="field-label" for="gateway-token">Gateway token</label>
+          <input
+            id="gateway-token"
+            name="token"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="TRAECN_GATEWAY_TOKEN"
+          />
+          <p class="field-hint">
+            本机无令牌模式可留空连接。远程使用必须配置令牌、允许来源和私有网络或有意设置的 HTTPS
+            隧道。
+          </p>
+          <p class="inline-error" id="connection-error" role="alert" hidden></p>
+        </div>
+        <div class="sheet-footer">
+          <button class="button button-quiet" type="button" id="disconnect-gateway">
+            断开并清除
+          </button>
+          <button class="button button-primary" type="submit">连接</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="sheet" id="workspace-dialog" aria-labelledby="workspace-dialog-title">
+      <form method="dialog" class="sheet-frame" id="workspace-form">
+        <div class="sheet-header">
+          <div>
+            <span class="eyebrow">WORKSPACE GUARD</span>
+            <h2 id="workspace-dialog-title">打开并验证工作区</h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            data-close-dialog
+            aria-label="关闭工作区面板"
+            title="关闭"
+          >
+            ×
+          </button>
+        </div>
+        <div class="sheet-body">
+          <label class="field-label" for="workspace-input">绝对路径</label>
+          <input
+            id="workspace-input"
+            name="projectPath"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="/path/to/project"
+            required
+          />
+          <p class="field-hint">
+            切换完成后，网关会用 TraeCN 当前界面再次核对精确路径；文件夹名称相同不算验证成功。
+          </p>
+          <p class="inline-error" id="workspace-error" role="alert" hidden></p>
+        </div>
+        <div class="sheet-footer">
+          <button class="button button-quiet" type="button" data-close-dialog>取消</button>
+          <button class="button button-primary" type="submit">打开并验证</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="detail-dialog" id="task-detail-dialog" aria-labelledby="task-detail-title">
+      <div class="detail-frame">
+        <div class="sheet-header">
+          <div>
+            <span class="eyebrow" id="task-detail-state">TASK</span>
+            <h2 id="task-detail-title">任务详情</h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            data-close-dialog
+            aria-label="关闭任务详情"
+            title="关闭"
+          >
+            ×
+          </button>
+        </div>
+        <div class="detail-body" id="task-detail-body"></div>
+        <div class="sheet-footer" id="task-detail-actions">
+          <button class="button button-quiet" type="button" data-close-dialog>关闭</button>
+        </div>
+      </div>
+    </dialog>
+
+    <aside class="drawer" id="advanced-drawer" aria-labelledby="advanced-title" aria-hidden="true">
+      <div class="drawer-backdrop" data-close-advanced></div>
+      <div class="drawer-panel" role="dialog" aria-modal="true">
+        <div class="sheet-header">
+          <div>
+            <span class="eyebrow">DIAGNOSTICS</span>
+            <h2 id="advanced-title">Advanced</h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            data-close-advanced
+            aria-label="关闭 Advanced"
+            title="关闭"
+          >
+            ×
+          </button>
+        </div>
+        <div class="drawer-content">
+          <section class="diagnostic-section" aria-labelledby="runtime-diagnostic-title">
+            <h3 id="runtime-diagnostic-title">运行时与适配器</h3>
+            <dl class="diagnostic-grid" id="runtime-diagnostics"></dl>
+          </section>
+          <section class="diagnostic-section" aria-labelledby="durability-diagnostic-title">
+            <h3 id="durability-diagnostic-title">持久化</h3>
+            <dl class="diagnostic-grid" id="durability-diagnostics"></dl>
+          </section>
+          <section class="diagnostic-section" aria-labelledby="metrics-diagnostic-title">
+            <h3 id="metrics-diagnostic-title">指标与配置审计</h3>
+            <div class="diagnostic-copy" id="metrics-diagnostics">连接后加载。</div>
+          </section>
+          <section class="diagnostic-section" aria-labelledby="logs-diagnostic-title">
+            <h3 id="logs-diagnostic-title">日志与 API</h3>
+            <p>完整日志生命周期仍由 CLI 管理。</p>
+            <code class="command-copy">traecnclaw logs 100</code>
+            <div class="diagnostic-links">
+              <a href="/openapi.json" id="openapi-link" target="_blank" rel="noreferrer"
+                >OpenAPI JSON</a
+              >
+              <a href="/metrics" target="_blank" rel="noreferrer">Prometheus metrics</a>
+            </div>
+          </section>
+        </div>
+      </div>
+    </aside>
+
+    <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <div class="sr-only" id="live-region" aria-live="polite" aria-atomic="true"></div>
+  </body>
+</html>

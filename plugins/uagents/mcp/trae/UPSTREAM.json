@@ -1,0 +1,15 @@
+{
+  "name": "@luckycat133/traecnclaw",
+  "version": "0.6.0",
+  "license": "MIT",
+  "tarball": "https://registry.npmjs.org/@luckycat133/traecnclaw/-/traecnclaw-0.6.0.tgz",
+  "integrity": "sha512-4wCZmtskz5Cge/rF474OxsfAvTux1ln0Ry63V9JW3vLS8mcZMjivO69UZ4gHJ9rHy5rEJ9UeGzMrhdO4RC5DcA==",
+  "shasum": "d61700fe037a504b17060ec99337021e72698a1f",
+  "patches": [
+    "Windows durable-copy handles use r+ for FlushFileBuffers",
+    "Lexical composer replacement uses DOM selection before Backspace and Input.insertText",
+    "TRAECN_STRICT_CDP_PORT=1 disables fallback port scanning to isolate TRAE from other Electron apps",
+    "Unified task submission disables automatic continuation and dialog approval",
+    "Background model-error, result, and completion-check retries default to zero"
+  ]
+}
