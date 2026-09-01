@@ -1,11 +1,11 @@
 ---
 name: agent-dispatch
-description: Delegate tasks to agy/Gemini or WorkBuddy, collect independent OpenCode proposals, or call Doubao Work through its local MCP. Track native sessions, completion and output artifacts. Use for actual external-agent delegation or connection checks. TRAE is not yet integrated.
+description: Delegate tasks to agy/Gemini or WorkBuddy, collect independent OpenCode proposals, or call Doubao Work through its local MCP. Track native sessions, completion and output artifacts. Use for actual external-agent delegation or connection checks. TRAE's verified CDP/MCP route is planned but not yet packaged.
 ---
 
 # Agent dispatch
 
-Codex 保留任务拆分、模型选择、结果判断和最终答复。当前支持 agy、WorkBuddy 的文本/文件任务、OpenCode 独立文本提案，以及豆包工作的本地桌面任务。任务使用独立目录和原生权限；图片专用适配、TRAE 接入尚未实现。
+Codex 保留任务拆分、模型选择、结果判断和最终答复。当前支持 agy、WorkBuddy 的文本/文件任务、OpenCode 独立文本提案，以及豆包工作的本地桌面任务。任务使用独立目录和原生权限；图片专用适配、TRAE 的 TRAECNclaw/CDP 接入尚未打包。
 
 选择目标后才读取对应说明：
 

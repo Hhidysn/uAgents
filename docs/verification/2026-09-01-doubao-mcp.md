@@ -33,6 +33,6 @@ MCP 使用官方 `@modelcontextprotocol/server` 2.0.0 与 zod 4.5.4，构建为�
 
 当前 OpenAI Codex 源码的 Agent Plugins 解析器会把 `cwd: "./"` 解析到插件根，并注入 `PLUGIN_ROOT` / `PLUGIN_DATA`；服务将任务数据放到后者。`.mcp.json` 使用发布的 Agent Plugins v1 `$schema`。本机 plugin-creator 校验器仍只允许旧 companion 顶层字段，可能对标准 `$schema` 报过时错误；运行时协议与打包结构分别验证，不删除标准 schema 来迁就旧校验器。
 
-本轮没有注册 marketplace、安装插件、修改全局 Codex 配置或全局 `AGENTS.md`。TRAE 官方 CLI/MCP 是独立入口，本机正在运行的 TRAE SOLO CN 2.3.78099 安装与 PATH 均未发现该命令；是否可用当前账号/每日额度仍未证实。
+本轮没有注册 marketplace、安装插件、修改全局 Codex 配置或全局 `AGENTS.md`。TRAE 的本地调研已证明独立 CLI 不适用于复用 TRAE CN Solo 免费账号积分；后续接入应整理已端到端跑通的 TRAECNclaw CDP/MCP 路线。
 
 来源：[OpenAI Agent Plugins MCP 解析器](https://github.com/openai/codex/blob/main/codex-rs/codex-mcp/src/agent_plugin_config.rs)、[MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)、[TRAE CLI 参数](https://docs.trae.cn/cli_command-line-parameters)。

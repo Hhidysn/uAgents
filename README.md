@@ -4,10 +4,10 @@
 
 目标是把“具体怎样调用某个 Agent”从常驻全局指令中拆出，实际委派时按需读取；Codex 保留主力开发、任务编排、结果评估与最终决策。
 
-计划以一个 Plugin 分发一个 `agent-dispatch` Skill、已有 CLI 适配器和最终确有需要的本地 MCP 服务：
+计划以一个 Plugin 分发一个 `agent-dispatch` Skill、已有 CLI 适配器和两个本地桌面 MCP 服务：
 
 - agy、WorkBuddy、OpenCode：优先使用现有 CLI，由 Skill 按需读取对应调用说明。
-- TRAE：先核实独立发布的官方 `traecli` / `mcp-server` 是否适用当前 Windows 账号与额度；本机桌面安装未携带该入口。不适用时再修补、复用 TRAECNclaw。
+- TRAE：当前目标是复用已登录 TRAE CN Solo 的免费账号积分；本机 `trae-cn` 只是 IDE 启动器，独立 `traecli` 不适用这条额度路线。下一阶段把已经真实跑通的 TRAECNclaw CDP/网关能力整理成插件内第二个 MCP，不从归档目录直接发布。
 - 豆包工作：已实现一个独立 stdio MCP，通过用户明确准备的回环 CDP 端口创建专属会话、跟踪结果；当前不自动启动应用或批准操作。
 
 ## 设计与资料
@@ -16,7 +16,7 @@
 - [多模型会审](docs/reviews/2026-08-31-uagents-council-review.md)：Codex、DeepSeek Flash、GLM-5.2 的独立意见与修订建议；后续落实情况见实施记录。
 - [agy 实施与验证](docs/verification/2026-08-31-cli-runtime.md)：首个 worker、真实 agy 调用及产物证据；页面逻辑检查通过，浏览器验收未完成。
 - [WorkBuddy / OpenCode 验证](docs/verification/2026-08-31-cli-adapters.md)：原生后台试验、真实写文件、双模型会审、结果协议与已知边界。
-- [桌面 MCP 选型](docs/reviews/2026-09-01-desktop-mcp-options.md)：TRAE 官方入口、TRAEclaw 复用审查、豆包适配边界。
+- [桌面 MCP 选型](docs/reviews/2026-09-01-desktop-mcp-options.md)：TRAE CLI 排除理由、TRAECNclaw 复用审查、豆包适配边界。
 - [豆包 MCP 实施验证](docs/verification/2026-09-01-doubao-mcp.md)：真实提交、原生会话归属、生产入口、协议和回归测试。
 - [调研资料索引](docs/research-index.md)：原始资料、已知证据、归档状态与复用限制。
 - `third-part-research/`：本机历史资料与第三方代码归档，不进入本仓库版本控制或插件发布包。

@@ -14,7 +14,7 @@
 | `agents.md.before-uagents-20260831-010818.bak` | 上述清单的旧备份 |
 | `个人订阅和agent配置方案.md` | 用户当时的订阅与分工想法；不是当前余额或价格证明 |
 | `workbuddy-调用调研.md` | 内嵌 CLI 的调用记录；审批绕过示例不是默认授权 |
-| `trae-调用调研.md` | TRAECNclaw 的历史实测与 Windows 适配记录；不使用提取登录凭据或内部私有 API 的备选路线 |
+| `trae-调用调研.md` | 已区分三种同名 CLI，并实测 TRAECNclaw 经 CDP 调用 TRAE CN Solo、消耗桌面账号积分；正式实现不使用其中提取登录凭据或直调私有 API 的备选路线 |
 | `豆包工作-调用调研.md` | 早期 CDP 页面发现、输入框写入与清除记录；后续真实闭环与正式实现另见 `docs/verification/2026-09-01-doubao-mcp.md` |
 
 ## 目录移动已完成
