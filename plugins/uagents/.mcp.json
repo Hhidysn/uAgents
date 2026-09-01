@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agentplugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "doubao_work": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["./mcp/doubao/dist/server.mjs"],
+      "cwd": "./"
+    }
+  }
+}

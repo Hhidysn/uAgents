@@ -1,17 +1,18 @@
 ---
 name: agent-dispatch
-description: Delegate tasks to agy/Gemini or WorkBuddy and collect independent OpenCode model proposals. Track native sessions, completion and output artifacts. Use for actual external-agent delegation or connection checks, not discussion of plugin architecture. TRAE and Doubao MCP adapters are not yet implemented.
+description: Delegate tasks to agy/Gemini or WorkBuddy, collect independent OpenCode proposals, or call Doubao Work through its local MCP. Track native sessions, completion and output artifacts. Use for actual external-agent delegation or connection checks. TRAE is not yet integrated.
 ---
 
 # Agent dispatch
 
-Codex 保留任务拆分、模型选择、结果判断和最终答复。当前支持 agy、WorkBuddy 的文本/文件任务，以及 OpenCode 独立文本提案。任务使用独立目录和原生权限；图片专用适配、TRAE/豆包 MCP 尚未实现。
+Codex 保留任务拆分、模型选择、结果判断和最终答复。当前支持 agy、WorkBuddy 的文本/文件任务、OpenCode 独立文本提案，以及豆包工作的本地桌面任务。任务使用独立目录和原生权限；图片专用适配、TRAE 接入尚未实现。
 
 选择目标后才读取对应说明：
 
 - **agy / Gemini：** 读取 [references/agy.md](references/agy.md)，再执行该目标的脚本。
 - **WorkBuddy：** 读取 [references/workbuddy.md](references/workbuddy.md)。使用内嵌 CLI 的既有默认路线，不宣称无限免费。
 - **OpenCode / 多模型讨论：** 读取 [references/opencode-council.md](references/opencode-council.md)。固定已授权模型，各自独立上下文。
+- **豆包工作：** 读取 [references/doubao-work.md](references/doubao-work.md)。使用 `doubao_work` MCP 的任务接口，不使用任意页面脚本工具。
 - **其他目标：** 明确说明未接入，不猜工具名，也不自动改供应商或模型路线。
 
 仅传递任务需要且已授权的文本，不转发整个历史或凭据。此版本不接受外部项目目录、context_files、owned_paths 或会话续接。`analysis` 仅表达任务意图，不限制原生工具；用户明确要求强制只读或路径隔离时，说明本版无法保证，不冒充支持。

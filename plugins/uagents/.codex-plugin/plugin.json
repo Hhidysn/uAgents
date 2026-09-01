@@ -1,18 +1,19 @@
 {
   "name": "uagents",
-  "version": "0.1.0-alpha.3",
-  "description": "Codex-led agy, WorkBuddy and OpenCode dispatch with task tracking and artifact checks.",
+  "version": "0.1.0-alpha.4",
+  "description": "Codex-led CLI agent dispatch plus a local Doubao Work MCP with task tracking.",
   "author": {
     "name": "uAgents contributors"
   },
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "uAgents",
-    "shortDescription": "Dispatch CLI agent tasks and independent model proposals.",
-    "longDescription": "Development preview: agy and WorkBuddy file tasks, plus independent OpenCode text proposals. Tracks native sessions and expected artifacts. No hard read-only/path isolation, automatic quota fallback or desktop MCP servers.",
+    "shortDescription": "Dispatch CLI agents and a tracked Doubao Work desktop task.",
+    "longDescription": "Development preview: agy and WorkBuddy file tasks, independent OpenCode text proposals, and a local Doubao Work MCP over an explicitly prepared CDP connection. Tracks native sessions, task ownership and expected artifacts without quota fallback.",
     "developerName": "uAgents contributors",
     "category": "Productivity",
-    "capabilities": [],
-    "defaultPrompt": "选择适合的已接入 Agent，委派一个有明确交付标准的任务，跟进结果并检查产物。"
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": ["选择适合的已接入 Agent，委派任务并检查结果。"]
   }
 }

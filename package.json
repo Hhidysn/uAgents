@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/runtime.test.mjs tests/cli-adapters.test.mjs"
+    "test": "node --test tests/runtime.test.mjs tests/cli-adapters.test.mjs tests/plugin-package.test.mjs && npm --prefix plugins/uagents/mcp/doubao test"
   },
   "engines": { "node": ">=22" }
 }

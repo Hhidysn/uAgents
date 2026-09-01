@@ -1,0 +1,19 @@
+{
+  "name": "@uagents/doubao-work-mcp",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/server.mjs --bundle --platform=node --format=esm --target=node22 --minify-whitespace --legal-comments=eof --outfile=dist/server.mjs && node scripts/normalize-bundle.mjs",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "esbuild": "0.28.2",
+    "zod": "4.5.4"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
