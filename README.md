@@ -1,6 +1,6 @@
 # uAgents
 
-供 Codex 使用的本地 Agent 调度插件。当前为仓库内 `0.1.0-alpha.5` 预览源码，已接入 agy/Gemini、WorkBuddy、OpenCode，以及豆包工作与 TRAE CN 两个桌面 MCP。尚未安装。
+供 Codex 使用的本地 Agent 调度插件。当前为 `0.1.0-alpha.6` 本机预览，已接入 agy/Gemini、WorkBuddy、OpenCode，以及豆包工作与 TRAE CN 两个桌面 MCP，并已通过个人 marketplace 干净安装。当前任务不会热加载新插件；需要新建 Codex 任务完成宿主拾取验收。
 
 目标是把“具体怎样调用某个 Agent”从常驻全局指令中拆出，实际委派时按需读取；Codex 保留主力开发、任务编排、结果评估与最终决策。
 
@@ -14,6 +14,7 @@
 
 - [当前进度与下一步](docs/status/2026-09-02-current-progress.md)：五条已接入路线、仍缺能力、未接入 CLI 与按优先级排列的后续验收。
 - [sub-agents-skills 功能对比](docs/reviews/2026-09-02-sub-agents-skills-comparison.md)：固定提交的源码/测试对照、可复用设计与不宜直接照搬的部分。
+- [干净安装验证](docs/verification/2026-09-02-clean-plugin-install.md)：个人 marketplace、安装缓存、Skill 校验、MCP 握手与五条无额度 probe/capability 证据。
 - [插件设计草案](docs/superpowers/specs/2026-08-31-uagents-plugin-design.md)：模块边界、按需加载、调用契约、分阶段验收。
 - [多模型会审](docs/reviews/2026-08-31-uagents-council-review.md)：Codex、DeepSeek Flash、GLM-5.2 的独立意见与修订建议；后续落实情况见实施记录。
 - [agy 实施与验证](docs/verification/2026-08-31-cli-runtime.md)：首个 worker、真实 agy 调用及产物证据；页面逻辑检查通过，浏览器验收未完成。

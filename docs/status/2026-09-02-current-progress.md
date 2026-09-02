@@ -1,18 +1,18 @@
 # uAgents 当前进度与预计下一步
 
-日期：2026-09-02。代码基线：`4a5efbd`。插件版本：`0.1.0-alpha.5`，仓库内预览，尚未安装。
+日期：2026-09-02。安装实施起点：`492ff4d`。插件版本：`0.1.0-alpha.6`，已通过默认个人 marketplace 安装并启用。
 
 ## 当前结论
 
 最初确定的拆分已经落地：一个按需加载的 `agent-dispatch` Skill 负责选择和解释调用方式，两个独立 MCP 分别承接豆包工作与 TRAE CN 的桌面任务。agy、WorkBuddy、OpenCode 继续走各自 CLI，不再为成熟 CLI 套一层 MCP。
 
-当前已经具备可测试的五条调用路线，但还不是可日常安装使用的发布版。最近一步应先完成干净安装验证，再扩展通用 Agent 定义和更多 CLI；不应立即增加第三个 MCP。
+当前已经具备可测试的五条调用路线，并完成了不含研究资料和 `node_modules` 的干净复制、Codex CLI 安装、Skill 格式检查、两个 MCP stdio 握手以及三个 CLI 的无提示词检查。当前任务不会热加载新插件，因此还需要在新建 Codex 任务中确认 Skill 与 MCP 真正进入宿主上下文；之后再扩展通用 Agent 定义和更多 CLI，不应立即增加第三个 MCP。
 
 ## 已完成
 
 | 模块 | 已有能力 | 已验证边界 |
 | --- | --- | --- |
-| Plugin 外壳 | `plugins/uagents/` 内包含 manifest、一个 Skill、CLI 运行时与两个 MCP 声明 | 发行目录不依赖 `third-part-research/`；尚未安装或注册 marketplace |
+| Plugin 外壳 | `plugins/uagents/` 内包含 manifest、一个 Skill、CLI 运行时与两个 MCP 声明 | 已创建默认个人 marketplace，Codex 报告 `uagents@personal` installed/enabled；安装缓存仅含 55 个跟踪文件 |
 | 按需 Skill | 实际选择目标后，只读取该目标的一份 reference | 已有 agy、WorkBuddy、OpenCode、豆包工作、TRAE CN 五份说明 |
 | CLI 任务运行时 | UUID 去重、原子任务记录、detached worker、状态/result 查询、超时和取消请求、预期产物路径/大小/摘要验收 | worker 退出、陈旧心跳和发送状态未知不会自动重放；尚未证明 Codex 退出、重启或休眠后仍可恢复 |
 | agy / Gemini | analysis 与 implementation；implementation 使用原生 `accept-edits`，已完成真实文件产出 | 仅接文本任务；图片输入、图片产物和视觉验收尚未打包 |
@@ -39,7 +39,7 @@
 
 ## 还缺的产品能力
 
-- 分发：没有在干净目录安装插件，也没有验证宿主能发现 Skill 与两个 MCP；尚未建立个人 marketplace 或更新流程。
+- 分发：干净安装、CLI 列表和缓存内 MCP 握手已通过；当前任务无法热加载安装后的工具，仍需用新 Codex 任务做一次宿主拾取验证。尚未验证升级、卸载和公开 marketplace。
 - 通用 Agent 定义：当前按“目标路线”保存调用说明，没有可复用的 `.agents/*.md` 角色定义、列表和 frontmatter 解析。
 - 多模态：agy 尚未支持图片输入、截图上下文、图片文件回收或视觉质量验收。
 - 权限：`analysis` 只是任务意图，不是硬性只读；目录检查也是事后验收，不能阻止越界写入。
@@ -50,16 +50,15 @@
 
 ## 预计下一步
 
-### 1. 完成 `alpha.6` 干净安装验收
+### 1. 完成新任务宿主拾取验收
 
-这是下一项实际工作。将 `plugins/uagents/` 复制到不含研究资料的临时安装源，按 Codex Plugin 方式安装并重启宿主，验证：
+`alpha.6` 已从仅含 Git 跟踪文件的个人源安装到 Codex 缓存。下一项实际工作是在新建 Codex 任务中验证：
 
-1. `agent-dispatch` 能被发现，五份 reference 仍按需读取。
-2. `doubao_work` 与 `trae_cn` 均只暴露各自四个工具；未准备应用或网关时返回明确的 probe 结果，不拖垮其他路线。
-3. CLI `capabilities` 与模拟任务在包含空格/中文的路径运行；安装包不访问仓库根或 `third-part-research/`。
-4. 更新或卸载不删除外部状态目录，不改全局 `AGENTS.md`、登录或供应商设置。
+1. Skill 列表中出现 `agent-dispatch`，实际选择一个目标时只读取对应 reference。
+2. MCP 工具列表出现 `doubao_*` 与 `trae_*` 各四个工具；当前无应用/网关时 probe 仍保持 connection-only。
+3. 当前任务中尚未加载的新工具不能被旧上下文误判为安装失败。
 
-此阶段优先做无额度 probe 和模拟任务。TRAE 当前积分不足，不为安装验证重复发送真实模型任务。
+已完成的机械证据包括：中文/空格路径下三个 CLI capability、agy 原生 preflight、WorkBuddy 2.132.0 与 OpenCode 1.18.13 version-only probe，全部没有发送模型提示词。TRAE 当前积分不足，不为安装验证重复发送真实模型任务。完整记录见[干净安装验证](../verification/2026-09-02-clean-plugin-install.md)。
 
 ### 2. 增加轻量的 Agent Profile 层
 
@@ -91,6 +90,6 @@ OpenCode 可在现有全局额度策略下增加 DeepSeek Pro 与 Gemini 3.1 Pro
 
 ### 5. 准备发布
 
-补顶层许可证、版本/变更日志、安装与环境准备说明、个人 marketplace 元数据和发布包清单。只有干净安装通过后，才把 `alpha` 预览变成可日常安装版本。
+补顶层许可证、版本/变更日志、安装与环境准备说明、公开/仓库 marketplace 元数据和发布包清单。个人 marketplace 目前只用于本机预览；新任务拾取与升级/卸载验证通过后，才把 `alpha` 预览变成可日常安装版本。
 
 功能取舍和可复用部分见 [sub-agents-skills 功能对比](../reviews/2026-09-02-sub-agents-skills-comparison.md)。

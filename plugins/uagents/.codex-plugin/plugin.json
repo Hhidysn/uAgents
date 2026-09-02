@@ -1,6 +1,6 @@
 {
   "name": "uagents",
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "description": "Codex-led CLI agent dispatch plus tracked local MCP bridges for Doubao Work and TRAE CN.",
   "author": {
     "name": "uAgents contributors"

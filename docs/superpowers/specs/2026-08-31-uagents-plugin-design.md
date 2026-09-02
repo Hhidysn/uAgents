@@ -1,6 +1,6 @@
 # uAgents 插件设计
 
-日期：2026-08-31，2026-09-02 更新。状态：CLI、豆包 MCP 与 TRAE MCP 的仓库内实现已完成；插件安装未执行。当前清单与实施顺序见[进度和下一步](../../status/2026-09-02-current-progress.md)，外部通用 runner 的取舍见 [sub-agents-skills 对比](../../reviews/2026-09-02-sub-agents-skills-comparison.md)。最新证据见[CLI 实施记录](../../verification/2026-08-31-cli-runtime.md)、[豆包 MCP 验证](../../verification/2026-09-01-doubao-mcp.md)和[TRAE MCP 验证](../../verification/2026-09-02-trae-mcp.md)。
+日期：2026-08-31，2026-09-02 更新。状态：CLI、豆包 MCP 与 TRAE MCP 的仓库内实现已完成；`0.1.0-alpha.6` 已通过个人 marketplace 干净安装，等待新 Codex 任务验证宿主拾取。当前清单与实施顺序见[进度和下一步](../../status/2026-09-02-current-progress.md)，外部通用 runner 的取舍见 [sub-agents-skills 对比](../../reviews/2026-09-02-sub-agents-skills-comparison.md)。最新证据见[CLI 实施记录](../../verification/2026-08-31-cli-runtime.md)、[豆包 MCP 验证](../../verification/2026-09-01-doubao-mcp.md)、[TRAE MCP 验证](../../verification/2026-09-02-trae-mcp.md)和[干净安装验证](../../verification/2026-09-02-clean-plugin-install.md)。
 
 ## 1. 目标、范围和成功标准
 
@@ -67,7 +67,7 @@ uAgents/
 
 发行包采用显式文件清单。不得包含研究归档、嵌套 `.git`、真实提示词日志、账号信息、个人路径配置、临时截图和开发缓存。依赖安装使用固定版本/锁文件；平台运行时先检查再准备，不能仅靠安装一个 Skill 假定 Node 或桌面应用已经存在。
 
-当前预览 manifest 为 0.1.0-alpha.5，声明两个已实现的桌面 MCP；不创建个人市场条目，不自动安装。manifest、协议格式与真实目标能力验收分别报告。
+当前预览 manifest 为 0.1.0-alpha.6，声明两个已实现的桌面 MCP。用户继续执行后已创建默认个人 marketplace 并完成本机安装；不会自动创建公开市场、启动应用或发送模型任务。manifest、协议格式与真实目标能力验收分别报告。
 
 ## 4. 按需加载与职责
 
@@ -184,7 +184,7 @@ TRAE 与豆包使用不同端口和明确的应用/窗口标识，不能因都�
 | 1b：其余 CLI | WorkBuddy 与 OpenCode 适配，扩展 agy 已证实能力 | 基础验收已通过：WorkBuddy 文件落盘与回收、OpenCode DPF/GLM 同题独立返回；原生后台及自动恢复不扩大承诺 |
 | 2：TRAE | 薄 stdio MCP、可分发网关、补丁与来源记录 | 实现和协议测试完成；真实提交与原生失败回收完成。当前账户积分不足，无法在本轮重新取得成功回答；2026-08-30 的同路线历史成功证据保留 |
 | 3：豆包工作 | 独立 MCP 和配套参考文件 | 最小闭环已完成：真实发送、原生会话 ID、边界后回复和完成控件一致；取消仍不暴露，审批仅上报 |
-| 4：一体分发 | Skill + CLI + 所需 MCP 的完整 Plugin | 干净安装路径验证；归档缺席仍可运行；缺一个应用不拖垮其余组件；更新不丢本机配置或任务记录 |
+| 4：一体分发 | Skill + CLI + 所需 MCP 的完整 Plugin | 机械安装、Skill 校验、缓存内 MCP 握手和应用缺席结果已通过；新任务拾取、更新/卸载与状态保留仍待验证 |
 
 测试关注行为，不围绕文档措辞写测试：路径含空格/中文、CLI JSON 错误事件、同一请求重复提交、进程退出、提交后断线、取消竞态、多个调用者争用同一窗口、审批等待、插件重启后的任务识别。
 
