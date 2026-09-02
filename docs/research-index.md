@@ -1,6 +1,6 @@
 # 三方调研资料与归档记录
 
-日期：2026-08-31。根目录：`F:\documents\software\uAgents`。
+日期：2026-08-31，2026-09-02 更新。根目录：`F:\documents\software\uAgents`。
 
 ## 归档范围
 
@@ -38,6 +38,14 @@
 - 本地 README 的生成来源提交与 Git HEAD 不同；发布前必须重新核实实际采用的源代码、许可证与补丁来源。这里的版本号不是对官方发布包完整性的认证。
 
 归档目录保持本机私有且被 Git 忽略。未来复用实现时，应把经审查的必要部分作为有来源和许可证记录的正式依赖或 vendor 组件引入，而不是从归档路径运行发行版。
+
+## sub-agents-skills 对比快照
+
+- 上游：<https://github.com/shinpr/sub-agents-skills>
+- 本地路径：`third-part-research/sub-agents-skills/`，不进入 Git 或插件发行包。
+- 固定提交：`08e11c89de7973de859a09e4a25f51021f5275f5`；项目版本 `0.13.2`；MIT。
+- 本地测试：设置 `PYTHONUTF8=1` 后 254 项通过。不设置时有 1 项测试因 Windows 中文区域默认 GBK 读取包含 Unicode 的 `pyproject.toml` 失败；这是调研对象的测试可移植性观察，不是 uAgents 测试结果。
+- 对比结论、可复用设计和不采用部分见 [`docs/reviews/2026-09-02-sub-agents-skills-comparison.md`](reviews/2026-09-02-sub-agents-skills-comparison.md)。当前没有把对方实现代码复制到 `plugins/uagents/`。
 
 ## 整理阶段与后续评审的证据边界
 

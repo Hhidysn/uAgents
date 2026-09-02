@@ -1,6 +1,6 @@
 # uAgents 插件设计
 
-日期：2026-08-31，2026-09-02 更新。状态：CLI、豆包 MCP 与 TRAE MCP 的仓库内实现已完成；插件安装未执行。最新证据见[CLI 实施记录](../../verification/2026-08-31-cli-runtime.md)、[豆包 MCP 验证](../../verification/2026-09-01-doubao-mcp.md)和[TRAE MCP 验证](../../verification/2026-09-02-trae-mcp.md)。
+日期：2026-08-31，2026-09-02 更新。状态：CLI、豆包 MCP 与 TRAE MCP 的仓库内实现已完成；插件安装未执行。当前清单与实施顺序见[进度和下一步](../../status/2026-09-02-current-progress.md)，外部通用 runner 的取舍见 [sub-agents-skills 对比](../../reviews/2026-09-02-sub-agents-skills-comparison.md)。最新证据见[CLI 实施记录](../../verification/2026-08-31-cli-runtime.md)、[豆包 MCP 验证](../../verification/2026-09-01-doubao-mcp.md)和[TRAE MCP 验证](../../verification/2026-09-02-trae-mcp.md)。
 
 ## 1. 目标、范围和成功标准
 

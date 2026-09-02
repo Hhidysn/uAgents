@@ -12,6 +12,8 @@
 
 ## 设计与资料
 
+- [当前进度与下一步](docs/status/2026-09-02-current-progress.md)：五条已接入路线、仍缺能力、未接入 CLI 与按优先级排列的后续验收。
+- [sub-agents-skills 功能对比](docs/reviews/2026-09-02-sub-agents-skills-comparison.md)：固定提交的源码/测试对照、可复用设计与不宜直接照搬的部分。
 - [插件设计草案](docs/superpowers/specs/2026-08-31-uagents-plugin-design.md)：模块边界、按需加载、调用契约、分阶段验收。
 - [多模型会审](docs/reviews/2026-08-31-uagents-council-review.md)：Codex、DeepSeek Flash、GLM-5.2 的独立意见与修订建议；后续落实情况见实施记录。
 - [agy 实施与验证](docs/verification/2026-08-31-cli-runtime.md)：首个 worker、真实 agy 调用及产物证据；页面逻辑检查通过，浏览器验收未完成。
