@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { evaluateRequest } from '../policy/evaluate.mjs';
 import { fail } from '../protocol/errors.mjs';
 import { appendEvent } from '../store/database.mjs';
-import { atomicWriteJson, readTaskJson, taskDirectory } from '../store/task-files.mjs';
+import { atomicWriteJson, atomicWriteText, readTaskJson, taskDirectory } from '../store/task-files.mjs';
 import { STORE_SCHEMA_VERSION } from '../store/schema.mjs';
 import { materializeEffectiveRequest } from './effective-request.mjs';
 import { assertFencing } from './leases.mjs';
@@ -37,7 +37,9 @@ export class TaskService {
       let directory;
       try {
         directory = taskDirectory(this.control.root, taskId, { create: true });
-        atomicWriteJson(path.join(directory, 'request.json'), { ...evaluated.request, prompt: null });
+        const runtimeWorkspace = evaluated.request.workspace ?? path.join(directory, 'workspace');
+        fs.mkdirSync(runtimeWorkspace, { recursive: true });
+        atomicWriteJson(path.join(directory, 'request.json'), { ...evaluated.request, workspace: runtimeWorkspace, prompt: null });
         atomicWriteJson(path.join(directory, 'payload.json'), { prompt: evaluated.request.prompt, input_snapshots: materialized.input_snapshots });
         atomicWriteJson(path.join(directory, 'decision.json'), evaluated.decision);
 
@@ -75,6 +77,52 @@ export class TaskService {
     if (!Number.isInteger(limit) || limit < 1 || limit > 1000) fail('invalid_request', 'Event limit must be 1–1000.');
     return this.control.raw.prepare('SELECT sequence, type, payload_json, created_at_ms FROM events WHERE task_id = ? AND sequence > ? ORDER BY sequence LIMIT ?')
       .all(taskId, after, limit).map(row => ({ sequence: Number(row.sequence), type: row.type, payload: JSON.parse(row.payload_json), created_at_ms: Number(row.created_at_ms) }));
+  }
+
+  result(taskId) {
+    const status = this.status(taskId);
+    const directory = taskDirectory(this.control.root, taskId);
+    const responseFile = path.join(directory, 'response.txt');
+    const usageFile = path.join(directory, 'usage.json');
+    const artifactsFile = path.join(directory, 'artifacts.json');
+    return {
+      ...status,
+      response: { text: fs.existsSync(responseFile) ? fs.readFileSync(responseFile, 'utf8') : '' },
+      usage: fs.existsSync(usageFile) ? JSON.parse(fs.readFileSync(usageFile, 'utf8')) : null,
+      artifacts: fs.existsSync(artifactsFile) ? JSON.parse(fs.readFileSync(artifactsFile, 'utf8')).artifacts : [],
+    };
+  }
+
+  list({ cursor = null, limit = 50 } = {}) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) fail('invalid_request', 'Task list limit must be 1–200.');
+    let beforeCreated = Number.MAX_SAFE_INTEGER;
+    let beforeTask = '\uffff';
+    if (cursor) {
+      try {
+        const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+        beforeCreated = Number(decoded.created_at_ms);
+        beforeTask = String(decoded.task_id);
+        if (!Number.isSafeInteger(beforeCreated) || !beforeTask) throw new Error('invalid');
+      } catch { fail('invalid_request', 'Task list cursor is invalid.'); }
+    }
+    const rows = this.control.raw.prepare(`SELECT task_id, created_at_ms FROM tasks
+      WHERE created_at_ms < ? OR (created_at_ms = ? AND task_id < ?)
+      ORDER BY created_at_ms DESC, task_id DESC LIMIT ?`).all(beforeCreated, beforeCreated, beforeTask, limit + 1);
+    const page = rows.slice(0, limit).map(row => this.status(row.task_id));
+    const last = page.at(-1);
+    return {
+      tasks: page,
+      next_cursor: rows.length > limit && last ? Buffer.from(JSON.stringify({ created_at_ms: last.created_at_ms, task_id: last.task_id })).toString('base64url') : null,
+    };
+  }
+
+  recordResponse(taskId, text, usage = null, lease = null) {
+    return this.control.transaction(database => {
+      if (lease) assertFencing(database, lease, this.clock());
+      const directory = taskDirectory(this.control.root, taskId);
+      atomicWriteText(path.join(directory, 'response.txt'), text);
+      atomicWriteJson(path.join(directory, 'usage.json'), usage);
+    });
   }
 
   transition(taskId, next, { attemptId, lease = null, evidenceStrength = 0, sameNativeIdentity = false, event = {}, now = this.clock() } = {}) {

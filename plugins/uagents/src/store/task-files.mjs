@@ -19,12 +19,20 @@ export function taskDirectory(root, taskId, { create = false } = {}) {
 }
 
 export function atomicWriteJson(file, value) {
+  return atomicWrite(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+export function atomicWriteText(file, value) {
+  return atomicWrite(file, String(value));
+}
+
+function atomicWrite(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${randomUUID()}.tmp`);
   let descriptor;
   try {
     descriptor = fs.openSync(temporary, 'wx', 0o600);
-    fs.writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`);
+    fs.writeFileSync(descriptor, value);
     fs.closeSync(descriptor); descriptor = undefined;
     for (let attempt = 0; ; attempt++) {
       try { fs.renameSync(temporary, file); break; }

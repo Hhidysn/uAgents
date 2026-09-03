@@ -23,7 +23,7 @@ export async function work(directory, testDriver) {
     fs.mkdirSync(workspace, { recursive: true });
     publish({ status: 'preflight', workspace, worker_pid: process.pid, worker_started_at_ms: Date.now() });
     heartbeat = setInterval(() => publish({}), 1000);
-    const outcome = await (request.target === 'agy' ? invoke : invokeCli)(directory, workspace, request, publish, testDriver);
+    const outcome = await (request.target === 'agy' ? invokeAgy : invokeCli)(directory, workspace, request, publish, testDriver);
     if (outcome.status === 'succeeded' && request.kind === 'run') {
       const artifacts = inspectOutputs(workspace, request.expected_outputs);
       outcome.result.artifacts = artifacts;
@@ -38,7 +38,7 @@ export async function work(directory, testDriver) {
   } finally { clearInterval(heartbeat); }
 }
 
-function invoke(directory, workspace, request, publish, testDriver) {
+export function invokeAgy(directory, workspace, request, publish, testDriver) {
   return new Promise(resolve => {
     const driver = testDriver ?? { command: process.platform === 'win32' ? 'agy.exe' : 'agy', args: [
       '--input-format', 'stream-json', '--output-format', 'stream-json',

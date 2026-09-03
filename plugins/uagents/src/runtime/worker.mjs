@@ -24,7 +24,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
     service.transition(taskId, 'starting', { attemptId, lease: fencingLease });
     verifyInputSnapshots(request.workspace, stored.payload.input_snapshots);
     const prepared = await adapter.prepare(request, { taskId, attemptId, signal: leaseOptions.signal });
-    const checkpoint = async (kind, payload = {}) => persistCheckpoint(service.control, {
+    const checkpoint = (kind, payload = {}) => persistCheckpoint(service.control, {
       taskId, attemptId, lease: fencingLease, kind, payload: { target: request.target, ...payload },
     });
     let submission;
@@ -49,6 +49,13 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
       if (current.cancel_requested) return await finishCancellation({ service, adapter, taskId, attemptId, lease: fencingLease, handle: submission.handle ?? submission });
       let next = statusFromNativeEvent(event);
       let recordedEvent = event;
+      if (event.model_reported !== undefined || event.model_verification !== undefined) service.recordOutcome(taskId, {
+        modelReported: event.model_reported,
+        modelVerified: event.model_verified,
+        modelVerification: event.model_verification,
+        lease: fencingLease,
+      });
+      if (typeof event.response === 'string') service.recordResponse(taskId, event.response, event.usage ?? null, fencingLease);
       if (next === 'succeeded') {
         const manifest = request.expected_outputs.length ? captureArtifacts({
           workspace: request.workspace,

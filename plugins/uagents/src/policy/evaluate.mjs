@@ -66,7 +66,7 @@ function validatePolicy(request, descriptor) {
 }
 
 function validateWorkspace(request) {
-  if ((request.inputs.length || request.expected_outputs.length) && !request.workspace) {
-    fail('invalid_workspace', 'workspace is required for file inputs or expected outputs.', { category: 'user', submission: 'not_sent' });
+  if (request.inputs.length && !request.workspace) {
+    fail('invalid_workspace', 'workspace is required for file inputs.', { category: 'user', submission: 'not_sent' });
   }
 }
