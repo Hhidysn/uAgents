@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/runtime.test.mjs tests/cli-adapters.test.mjs tests/protocol.test.mjs tests/registry-policy.test.mjs tests/plugin-package.test.mjs && npm --prefix plugins/uagents/mcp/doubao test && npm --prefix plugins/uagents/mcp/trae test",
-    "test:unified": "node --test tests/protocol.test.mjs tests/registry-policy.test.mjs"
+    "test": "node --test tests/runtime.test.mjs tests/cli-adapters.test.mjs tests/protocol.test.mjs tests/registry-policy.test.mjs tests/sqlite-store.test.mjs tests/runtime-state-machine.test.mjs tests/runtime-crash.test.mjs tests/workspace-locks.test.mjs tests/plugin-package.test.mjs && npm --prefix plugins/uagents/mcp/doubao test && npm --prefix plugins/uagents/mcp/trae test",
+    "test:unified": "node --test tests/protocol.test.mjs tests/registry-policy.test.mjs tests/sqlite-store.test.mjs tests/runtime-state-machine.test.mjs tests/runtime-crash.test.mjs tests/workspace-locks.test.mjs"
   },
   "engines": { "node": ">=22.13.0" }
 }
