@@ -1,4 +1,6 @@
 import { fail } from '../protocol/errors.mjs';
+import { captureArtifacts } from '../artifacts/capture.mjs';
+import { taskDirectory } from '../store/task-files.mjs';
 import { persistCheckpoint } from './checkpoints.mjs';
 import { verifyInputSnapshots } from './effective-request.mjs';
 import { acquireExecutionLeases, releaseLeases } from './leases.mjs';
@@ -45,8 +47,21 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
       sawEvent = true;
       const current = service.status(taskId);
       if (current.cancel_requested) return await finishCancellation({ service, adapter, taskId, attemptId, lease: fencingLease, handle: submission.handle ?? submission });
-      const next = statusFromNativeEvent(event);
-      service.transition(taskId, next, { attemptId, lease: fencingLease, evidenceStrength: event.evidence_strength ?? 1, sameNativeIdentity: event.same_native_identity === true, event });
+      let next = statusFromNativeEvent(event);
+      let recordedEvent = event;
+      if (next === 'succeeded') {
+        const manifest = request.expected_outputs.length ? captureArtifacts({
+          workspace: request.workspace,
+          expectedOutputs: request.expected_outputs,
+          taskDirectory: taskDirectory(service.control.root, taskId),
+        }) : { verified: true, artifacts: [] };
+        if (!manifest.verified) {
+          service.recordOutcome(taskId, { nativeOutcome: 'succeeded', objectiveVerdict: 'failed', lease: fencingLease });
+          next = 'failed';
+          recordedEvent = { ...event, error: 'output_verification_failed', artifacts: manifest.artifacts };
+        } else service.recordOutcome(taskId, { nativeOutcome: 'succeeded', objectiveVerdict: 'succeeded', lease: fencingLease });
+      } else if (next === 'failed' || next === 'cancelled') service.recordOutcome(taskId, { nativeOutcome: next, objectiveVerdict: next, lease: fencingLease });
+      service.transition(taskId, next, { attemptId, lease: fencingLease, evidenceStrength: event.evidence_strength ?? 1, sameNativeIdentity: event.same_native_identity === true, event: recordedEvent });
       if (TERMINAL_STATES.has(next) || next === 'waiting_user') return service.status(taskId);
     }
     const latest = service.status(taskId);

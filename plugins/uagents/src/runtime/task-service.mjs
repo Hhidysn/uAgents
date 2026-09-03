@@ -104,6 +104,19 @@ export class TaskService {
     });
   }
 
+  recordOutcome(taskId, { nativeOutcome = null, objectiveVerdict = null, modelReported, modelVerified, modelVerification, lease = null, now = this.clock() } = {}) {
+    return this.control.transaction(database => {
+      if (lease) assertFencing(database, lease, now);
+      const task = database.prepare('SELECT 1 FROM tasks WHERE task_id = ?').get(taskId);
+      if (!task) fail('task_not_found', `Unknown task: ${taskId}`);
+      database.prepare(`UPDATE tasks SET native_outcome = ?, objective_verdict = ?,
+        model_reported = coalesce(?, model_reported), model_verified = coalesce(?, model_verified),
+        verification_json = coalesce(?, verification_json), updated_at_ms = ? WHERE task_id = ?`)
+        .run(nativeOutcome, objectiveVerdict, modelReported ?? null, modelVerified === undefined ? null : modelVerified ? 1 : 0,
+          modelVerification === undefined ? null : JSON.stringify(modelVerification), now, taskId);
+    });
+  }
+
   #statusWith(database, taskId) {
     const task = database.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId);
     if (!task) fail('task_not_found', `Unknown task: ${taskId}`);
@@ -111,6 +124,7 @@ export class TaskService {
     const native = attempt ? database.prepare('SELECT * FROM native_sessions WHERE attempt_id = ? ORDER BY id DESC LIMIT 1').get(attempt.attempt_id) : null;
     return {
       schema_version: '1.0', task_id: task.task_id, request_id: task.request_id, target: task.target, status: task.status,
+      native_outcome: task.native_outcome, objective_verdict: task.objective_verdict,
       cancel_requested: Boolean(task.cancel_requested), model_requested: task.model_requested, model_resolved: task.model_resolved,
       model_reported: task.model_reported, model_verified: Boolean(task.model_verified), provider: task.provider, route_id: task.route_id,
       model_resolution: task.resolution_json ? JSON.parse(task.resolution_json) : null,

@@ -6,6 +6,13 @@ export class FakeAdapter {
     this.sendCount = 0;
   }
 
+  descriptor() {
+    return { target: 'fake', modes: ['analysis', 'implementation'], permissions: { native: true }, model_identity: { reported: true, verification: 'runtime_self_report' } };
+  }
+
+  async discoverModels() { return { models: [{ id: 'fake-model' }] }; }
+  async probe() { return { availability: 'available', submission: 'not_sent' }; }
+
   async prepare(request) {
     if (this.fault === 'prepare') throw coded('fake_prepare_failed');
     return { request };
