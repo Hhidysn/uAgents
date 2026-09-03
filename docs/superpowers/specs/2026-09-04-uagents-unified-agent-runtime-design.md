@@ -1,0 +1,606 @@
+# uAgents 统一 Agent 调用工具设计
+
+日期：2026-09-04
+状态：已经用户逐节批准，等待实施计划
+目标版本：`0.2.0-alpha.1`
+
+## 1. 目标与边界
+
+uAgents 将从“多条目标专用调用路线”重写为“统一 Agent 调用工具”。它向 Codex Skill、命令行和 MCP 客户端提供同一套请求、能力、任务状态、结果、错误和产物协议，同时允许每个 Agent 保留不同能力。
+
+首版目标：
+
+- 以一个共享 Core 同时支持 CLI 和统一 MCP Server。
+- 统一调用 agy、WorkBuddy、OpenCode、豆包工作和 TRAE CN。
+- 在调用时选择目标和模型，不静默切换 Provider 或付费路线。
+- 区分请求模型、解析路线、原生报告模型和经过验证的模型身份。
+- 保留持久任务、幂等、发送后状态未知、产物验证和桌面应用身份检查等已有安全特性。
+
+非目标：
+
+- 不把所有 Agent 伪装成拥有相同的模型、文件、取消、会话或多模态能力。
+- 首版不建立常驻 daemon，不引入生产数据库。
+- 首版不支持自动按任务选模型或自动 fallback。
+- 不通过普通 `submit` 自动安装工具、登录账号、启动应用、批准操作或购买额度。
+- 不保留旧 CLI 和目标专用 MCP 接口的兼容性。新实现验收后直接删除旧入口。
+
+## 2. 总体架构
+
+采用模块化单体，CLI 和 MCP 调用同一 Node.js Core：
+
+```text
+CLI ─┐
+     ├→ Protocol → Policy → Registry → Runtime → Adapter
+MCP ─┘                                        ├─ agy
+                                               ├─ workbuddy
+                                               ├─ opencode
+                                               ├─ doubao
+                                               └─ trae
+```
+
+建议目录：
+
+```text
+plugins/uagents/
+├─ src/
+│  ├─ protocol/       请求、结果、事件、错误 Schema
+│  ├─ registry/       Target、Model、Capability 注册表
+│  ├─ policy/         模型、权限、额度和 fallback 决策
+│  ├─ runtime/        submit/status/result/cancel/reconcile
+│  ├─ store/          任务、事件、心跳和会话状态
+│  ├─ artifacts/      输入输出文件验证
+│  ├─ transports/     CLI、CDP 和 TRAE gateway 等运输实现
+│  └─ adapters/
+│     ├─ agy/
+│     ├─ workbuddy/
+│     ├─ opencode/
+│     ├─ doubao/
+│     └─ trae/
+├─ bin/
+│  └─ uagents.mjs
+├─ mcp/
+│  └─ unified/
+└─ skills/
+   └─ agent-dispatch/
+```
+
+Core 使用 Node.js ESM `.mjs` 和 JSON Schema，不新增 TypeScript 编译链。CLI 和 MCP 是薄入口，不包含独立业务逻辑。
+
+## 3. 统一请求协议
+
+协议版本从 `1.0` 开始。未知字段默认拒绝，不支持的 Capability 在启动 Worker 前拒绝。
+
+```json
+{
+  "schema_version": "1.0",
+  "request_id": "UUID",
+  "target": "agy",
+  "model": "gemini-3.1-pro-low",
+  "mode": "implementation",
+  "prompt": "完成指定任务",
+  "workspace": "F:\\documents\\software\\example",
+  "inputs": [
+    {
+      "type": "file",
+      "path": "requirements.md"
+    }
+  ],
+  "expected_outputs": [
+    {
+      "path": "src/result.ts",
+      "type": "file",
+      "required": true,
+      "max_bytes": 10485760
+    }
+  ],
+  "execution": {
+    "timeout_ms": 600000,
+    "effort": "high",
+    "permission": "workspace-write"
+  },
+  "policy": {
+    "fallback": "none",
+    "max_cost_usd": null
+  }
+}
+```
+
+`workspace` 使用调用方提供的绝对路径。调用方不提供时，Runtime 才在状态根目录下创建任务 workspace。Prompt 仅通过 JSON 请求文件、stdin 或 MCP 参数传递，不放入命令行参数。
+
+## 4. 统一结果与模型身份
+
+每次任务结果必须包含：
+
+- `model_requested`：调用方原始传入的模型或 `default`。
+- `model_resolved`：uAgents 在提交前解析得到的具体模型或受控默认路线。
+- `model_reported`：底层 Agent 在本次运行中报告的模型；无可靠元数据时为 `null`。
+- `model_verified`：本次运行是否获得足够证据证明报告身份与解析路线一致。
+
+完整结果：
+
+```json
+{
+  "schema_version": "1.0",
+  "task_id": "UUID",
+  "request_id": "UUID",
+  "target": "agy",
+  "status": "succeeded",
+  "model_requested": "default",
+  "model_resolved": "gemini-3.1-pro-low",
+  "model_reported": "gemini-3.1-pro-low",
+  "model_verified": true,
+  "model_verification": {
+    "status": "verified",
+    "method": "runtime_handshake",
+    "evidence": "native_init_event"
+  },
+  "native": {
+    "session_id": "native-session-id",
+    "task_id": null,
+    "status": "success"
+  },
+  "response": {
+    "text": "任务已经完成"
+  },
+  "artifacts": [
+    {
+      "path": "src/result.ts",
+      "type": "file",
+      "size_bytes": 1830,
+      "sha256": "sha256",
+      "verified": true
+    }
+  ],
+  "usage": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cost_usd": null,
+    "reported_by": null
+  },
+  "warnings": [],
+  "error": null,
+  "created_at": "RFC3339 timestamp",
+  "started_at": "RFC3339 timestamp",
+  "finished_at": "RFC3339 timestamp"
+}
+```
+
+`model_verification.status` 的取值是 `verified`、`unverified`、`mismatch`、`not_supported` 或 `unknown`。未知 usage 值使用 `null`，不使用 `0` 伪装零消耗，也不根据模型名称推测价格。
+
+## 5. Capability 协议
+
+每个 Adapter 必须返回可验证的 Target Descriptor。不支持的能力明确声明，不用空实现伪装成功。
+
+```json
+{
+  "target": "opencode",
+  "display_name": "OpenCode",
+  "transport": "cli",
+  "available": true,
+  "modes": ["analysis"],
+  "models": {
+    "selection": "explicit",
+    "discovery": "configured",
+    "default": null
+  },
+  "inputs": {
+    "text": true,
+    "files": false,
+    "images": false
+  },
+  "outputs": {
+    "text": true,
+    "files": false,
+    "images": false
+  },
+  "lifecycle": {
+    "status": true,
+    "cancel": "local-request",
+    "resume": false
+  },
+  "permissions": {
+    "native": true,
+    "read_only_enforced": false,
+    "workspace_write_enforced": false,
+    "full_access": false
+  },
+  "model_identity": {
+    "reported": false,
+    "verification": "unsupported"
+  }
+}
+```
+
+取消能力使用 `unsupported`、`local-request` 或 `native-confirmed`，以区分本地 Worker 终止与远端任务确认停止。
+
+## 6. Registry 和模型发现
+
+Effective Registry 由三层构成：
+
+```text
+内置描述 + 用户配置 + 运行时发现 = Effective Registry
+```
+
+优先级：
+
+```text
+用户禁用或限制 > 内置安全限制 > 运行时发现 > Adapter 默认值
+```
+
+用户配置可以收紧能力，不能把 Adapter 明确不支持的能力强行开启。每个模型记录 target、ID、显示名、启用状态、可用性来源、身份验证能力、额度类别和是否需要显式 opt-in。
+
+模型发现不在每次调用时遍历全部模型：
+
+- `list_models(refresh=false)` 优先返回有效缓存。
+- 缓存无效或用户显式刷新时，调用 Adapter 的 `discoverModels()`。
+- `submit` 只检查本次选中的模型。
+- CLI 安装和版本状态默认缓存 10 分钟，模型目录默认缓存 30 分钟。
+- 登录状态不长期缓存，额度状态不缓存为可靠事实。
+
+`model: "default"` 按以下顺序解析：
+
+1. 用户配置中的 `default_model`。
+2. 内置 Registry 中经过批准的默认模型。
+3. Adapter 能提供且身份明确的原生默认路线。
+4. 无可用默认时返回 `model_required`。
+
+WorkBuddy 允许解析为受控抽象路线 `workbuddy-default`，但当原生结果只报告 `auto` 时，`model_verified` 必须为 `false`。
+
+## 7. Policy Pipeline
+
+每个请求按固定顺序决策：
+
+```text
+Schema 校验
+  → Target 是否启用
+  → Capability 校验
+  → 模型解析
+  → 模型 allowlist
+  → 权限检查
+  → 费用和额度策略
+  → workspace 和输入检查
+  → 登记任务
+  → 调用 Adapter
+```
+
+Policy 仅返回允许决策或结构化拒绝，不调用 Agent。决策记录必须包含应用规则、解析模型、权限和 fallback 状态。
+
+首版规则：
+
+- 不允许未登记模型。
+- 新模型必须通过受信内置 Registry 或用户配置加入。
+- 付费或有限额度模型需要显式选择。
+- 不从常用路线静默切换到付费路线。
+- 首版 `fallback` 只支持 `none`。
+- 不读取、复制或记录 Provider 凭据内容。
+- 探测失败不自动登录、安装、购买或更换 Provider。
+
+Target 是实际执行后端，Model 是模型路线，Profile 是可选角色模板。首版保留 Profile 扩展位，不实现 Profile 管理。Profile 以后也不得自行提升权限、选择付费模型或开启 fallback。
+
+## 8. Adapter 契约
+
+```ts
+interface AgentAdapter {
+  descriptor(): TargetDescriptor;
+  discoverModels(context: DiscoveryContext): Promise<ModelCatalog>;
+  probe(request: ProbeRequest, context: AdapterContext): Promise<ProbeResult>;
+  submit(request: ResolvedRequest, context: AdapterContext): Promise<NativeSubmission>;
+  observe(handle: NativeHandle, context: AdapterContext): AsyncIterable<NativeEvent>;
+  cancel?(handle: NativeHandle, context: AdapterContext): Promise<NativeCancelResult>;
+  reconcile?(handle: NativeHandle, context: AdapterContext): Promise<NativeSnapshot>;
+}
+```
+
+Adapter 不生成统一 task ID，不直接改写统一状态，不运行 Policy，不自动换模型，不决定产物是否验收成功，也不保存凭据。
+
+首版能力基线：
+
+| 能力 | agy | WorkBuddy | OpenCode | 豆包工作 | TRAE CN |
+| --- | --- | --- | --- | --- | --- |
+| Transport | CLI/RPC | CLI | CLI | CDP | 本地网关/CDP |
+| 模型选择 | 显式 Gemini slug | `default` | DPF/GLM 显式 | `default` | `default` |
+| 模型身份 | 握手可验证 | 通常只有 `auto` | 当前不回显 | 不支持 | 不支持 |
+| Analysis | 是 | 是 | 是 | 是 | 是 |
+| Implementation | 是 | 是 | 否 | 否 | 是 |
+| 文件产物 | 是 | 是 | 否 | 否 | 是 |
+| 图片输入 | 否 | 否 | 否 | 否 | 否 |
+| Cancel | 本地请求 | 本地请求 | 本地请求 | 不支持 | 不支持 |
+| Resume | 否 | 否 | 否 | 否 | 否 |
+
+agy 作为参考 Adapter，保留原生初始化握手、模型、cwd、conversation ID、权限拒绝和最终结果核验。WorkBuddy 保留内嵌 CLI 定位、stdin、session ID、`acceptEdits` 和后台子任务终态检查。OpenCode 首版只开放 DPF 和 GLM-5.2 的 analysis，不使用 `--auto`，不静默换路线。
+
+豆包和 TRAE 从独立 MCP 重构为普通 Adapter。豆包保留应用身份、专属空白会话、跨进程窗口锁、UUID 幂等和边界后回复判定。TRAE 保留受信上游版本与哈希、Windows 补丁、端口隔离、workspace、原生任务 ID、积分不足识别和零自动审批。
+
+## 9. Runtime 和持久化
+
+Runtime API：
+
+```text
+submit(request)
+status(taskId)
+result(taskId)
+cancel(taskId)
+list(filter)
+reconcile(taskId)
+```
+
+首版使用“短命入口 + 后台 Worker”。CLI 或 MCP 登记任务并启动独立 Worker，然后快速返回。入口退出不终止已登记 Worker。
+
+默认状态根目录：
+
+```text
+%LOCALAPPDATA%\uAgents\v1\
+```
+
+任务目录：
+
+```text
+tasks/<request-id>/
+├─ request.json
+├─ payload.json
+├─ decision.json
+├─ state.json
+├─ events.jsonl
+├─ result.json
+├─ artifacts.json
+├─ heartbeat.json
+├─ cancel.json
+└─ workspace/
+```
+
+`request.json` 不保存完整 Prompt，`payload.json` 保存任务载荷并限制为当前用户访问。写入使用临时文件和原子 rename，`state.json` 带递增 `revision`，事件使用递增 `sequence`。
+
+同一 `request_id` 的有效摘要覆盖 target、model、mode、prompt、workspace、inputs、expected outputs、execution 和 policy。摘要相同时返回原任务，摘要不同时返回 `request_conflict`。
+
+## 10. 状态机、并发、取消和恢复
+
+统一状态：
+
+```text
+registered → starting → running
+running → needs_user
+running → succeeded
+running → failed
+running → cancel_requested
+cancel_requested → cancelled
+cancel_requested → unknown
+任何非终态 → unknown
+```
+
+终态不倒退。Adapter 只产生原生事件，Runtime 独占统一状态转换权。原生成功但缺失必需产物时，统一结果为 `failed/output_verification_failed`。
+
+默认并发：
+
+| Target | 默认上限 |
+| --- | ---: |
+| agy | 2 |
+| OpenCode | 2 |
+| WorkBuddy | 1 |
+| 豆包工作 | 1 |
+| TRAE CN | 1 |
+
+同一 workspace 的 analysis 可并行，implementation 默认取得 workspace 级独占锁。首版不实现文件级冲突推断。
+
+`cancel` 先进入 `cancel_requested`。只停止本地 Worker 但无法确认远端状态时，结果为 `unknown`，不写为 `cancelled`。
+
+每次 MCP 启动、CLI `list/status` 或显式 `reconcile` 都检查非终态任务。Worker 心跳新鲜时保持运行；Worker 消失而 Adapter 支持原生查询时恢复原生状态；无法查询时进入 `unknown`。PID 存在不能单独证明任务健康。
+
+Task 和 Session 从首版开始分离。首版可以全部声明 `resumable=false`，但结果仍保存原生 session ID。
+
+## 11. 统一 CLI 和 MCP
+
+CLI：
+
+```text
+uagents targets
+uagents capabilities <target>
+uagents models <target> [--refresh]
+uagents probe <target> [--model <id>]
+uagents submit --request <file>
+uagents status <task-id>
+uagents result <task-id>
+uagents cancel <task-id>
+uagents list
+uagents reconcile <task-id>
+uagents config validate
+uagents cleanup --dry-run
+```
+
+机器可读输出默认为 JSON，表格输出通过 `--format table` 显式请求。
+
+MCP：
+
+```text
+uagents_list_targets
+uagents_get_capabilities
+uagents_list_models
+uagents_probe
+uagents_submit
+uagents_status
+uagents_result
+uagents_cancel
+uagents_list_tasks
+```
+
+MCP 使用统一 envelope：
+
+```json
+{
+  "ok": true,
+  "data": {},
+  "error": null,
+  "warnings": []
+}
+```
+
+`uagents_submit` 只保证任务已登记并返回建议轮询时间，不阻塞等待完整 Agent 结果。MCP 首版不暴露 cleanup、安装、登录、Provider 配置和任意 `target_action`。
+
+## 12. 错误协议
+
+所有非成功结果使用稳定错误码，至少包含：
+
+- `authentication_required`
+- `quota_exhausted`
+- `model_required`
+- `model_unavailable`
+- `unsupported_capability`
+- `permission_required`
+- `target_not_ready`
+- `worker_launch_unconfirmed`
+- `submission_unknown`
+- `native_session_mismatch`
+- `output_verification_failed`
+- `request_conflict`
+- `cancel_unsupported`
+
+错误记录必须包含发送语义：
+
+- `not_sent`：有证据证明请求未发送。
+- `sent`：原生 Agent 已确认接收。
+- `may_have_been_sent`：连接中断或证据不足，禁止自动重放。
+
+## 13. 安全边界
+
+信任划分：uAgents Core 是受信代码；内置 Adapter 是受信实现，但其原生结果仍需验证；Agent 输出、网页内容和输入文件是不可信数据。Agent 输出中的新指令不构成新授权。
+
+权限级别：
+
+- `native`：继承目标原生权限。
+- `advisory-read-only`：仅提示词约束，必须声明非强制。
+- `enforced-read-only`：由操作系统、容器或原生沙箱强制。
+- `workspace-write`：强制只能修改解析后 workspace。
+- `full-access`：仅用户明确授权时允许。
+
+不把提示词中的“请勿修改”声明为强制只读。
+
+路径检查包括规范绝对路径、workspace 归属、`..`、Windows 设备路径和保留名、symlink/junction/reparse point。写后再次解析真实路径，产物越界时不得标记成功。
+
+子进程使用环境变量 allowlist，不记录完整父进程环境。日志过滤 API Key、OAuth Header、Token、Cookie、私钥、CLI 登录文件内容、浏览器 Profile 和 MCP 认证参数。每个事件以及 stdout/stderr 设置大小上限，截断后显式记录 `truncated=true`。
+
+统一 MCP 首版只使用 stdio。CDP/HTTP 运输只允许显式 loopback 地址，拒绝局域网和公网目标，验证应用身份，不提供任意 JavaScript/CDP eval。
+
+## 14. 保留、清理与旧状态
+
+新 Runtime 使用独立版本状态目录，不自动迁移或删除旧状态。清理仅通过显式 CLI 执行：
+
+```text
+uagents cleanup --older-than 30d --dry-run
+uagents cleanup --task <id>
+```
+
+默认不自动删除任务。清理前列出任务、状态、文件数量、大小和用户产物情况。清理器永远不删除正式 workspace 中的产物。
+
+## 15. 测试设计
+
+测试分层：
+
+1. Protocol：Schema、未知字段、版本、Capability 不匹配、统一 envelope。
+2. Policy：target/model allowlist、`default` 解析、付费 opt-in、fallback 禁止、权限升级拒绝和缓存过期。
+3. Runtime：状态转换、UUID 幂等、原子写入、Worker 未确认、heartbeat、取消不确定、恢复、workspace 锁和产物一致性。
+4. Adapter Contract Suite：descriptor、probe 无正式发送、native handle、任务身份、不支持能力、错误映射和凭据脱敏。
+5. Fixture：正常完成、权限拒绝、登录过期、额度不足、输出截断、会话混合、模型不匹配、连接中断和后台子任务未完成。
+6. CLI/MCP 一致性：同一 Core 请求产生同一任务、状态、错误码、模型字段和产物摘要。
+7. Windows：中文、空格、长路径、大小写冲突、保留设备名、junction/reparse point、detached Worker、文件锁和原子替换。
+
+日常测试使用脱敏 fixture，不消耗模型额度。真实测试分为不发送提示词的 probe 和明确、低成本、可验证的最小 live smoke。Live smoke 只在 `UAGENTS_LIVE_TEST=1` 时执行，失败后不自动切换模型或目标。
+
+## 16. 分阶段实施
+
+### 阶段 0：冻结行为证据
+
+- 记录五条路线的 Capability 基线。
+- 保存脱敏原生事件 fixture。
+- 固定当前测试结果。
+- 标注可复用与应删除的旧代码。
+- 核对当前未提交修改的归属，避免覆盖用户工作。
+
+验收：五个 target 均有能力基线和关键失败 fixture，现有测试基线可重复运行。
+
+### 阶段 1：Protocol、Registry 和 Policy
+
+建立 Schema、验证器、错误类型、Target/Model Registry、发现缓存和 Policy Pipeline。
+
+验收：未知 target/model/capability 在 Worker 启动前拒绝，`default` 行为固定，Policy 不调用任何 Agent。
+
+### 阶段 2：Store、Runtime 和 Fake Adapter
+
+建立原子文件状态库、事件日志、锁、状态机、Worker、取消和恢复，用 Fake Adapter 跑通完整生命周期。
+
+验收：幂等、冲突、非法状态、Worker 崩溃、heartbeat 和 workspace 锁测试通过。
+
+### 阶段 3：agy 参考 Adapter 和统一 CLI
+
+从旧 Worker 提取 agy 原生调用和解析逻辑，以它固定 Adapter 模板和 Contract Suite。建立统一 CLI。
+
+验收：CLI 完成 targets/models/probe/submit/status/result/cancel，模型四字段、握手、cwd、session ID 和产物验证通过，并完成一次显式授权的最小 live smoke。
+
+### 阶段 4：WorkBuddy 和 OpenCode Adapter
+
+将旧共享条件分支拆成两个独立 Adapter。
+
+验收：三个 CLI Adapter 通过同一 Contract Suite；OpenCode implementation 在启动前拒绝；WorkBuddy `auto` 不被写成具体模型；OpenCode 的未回显模型保持未验证。
+
+### 阶段 5：豆包与 TRAE Adapter
+
+把两个独立 MCP 中的业务逻辑下沉为 Adapter，并把 CDP 和 gateway 变成内部 Transport。
+
+验收：两个 Adapter 通过 Contract Suite；probe 不发送任务；未启动应用结构化返回 `target_not_ready`；连接中断不重放；TRAE 积分不足映射为 `quota_exhausted`。
+
+### 阶段 6：统一 MCP Server
+
+建立一个 MCP Server，插件 manifest 仅声明该 Server 和统一工具面。
+
+验收：CLI 和 MCP 共用 Core，相同 UUID 只建立一个任务，返回相同状态、错误码、模型字段和产物摘要，MCP submit 快速返回。
+
+### 阶段 7：删除旧入口
+
+只有新 Core、五个 Adapter、CLI 和 MCP 全部验收后，才删除旧 `agent-call.mjs`、`worker.mjs`、`cli-adapters.mjs`、两个旧 MCP Server/store 外壳和旧 MCP 声明。已验证 CDP、TRAE gateway、解析器和第三方通知按新模块边界保留。
+
+### 阶段 8：文档、安装和真实验收
+
+更新 Plugin manifest、Skill、target references、Capability 表、配置、诊断、安全边界、版本和变更日志。执行确定性测试、干净复制安装、新 Codex 任务发现、五个 target 无额度 probe 和可用目标的最小 live smoke。
+
+## 17. 提交边界
+
+建议实施提交：
+
+```text
+1. test: freeze adapter fixtures and contracts
+2. feat: add unified protocol registry and policy
+3. feat: add durable runtime and task store
+4. feat: migrate agy adapter and unified cli
+5. feat: migrate workbuddy and opencode adapters
+6. feat: migrate doubao and trae adapters
+7. feat: expose unified mcp server
+8. refactor: remove legacy agent-specific entrypoints
+9. docs: document uagents unified protocol
+```
+
+每个提交必须独立通过对应测试，不将全部重写堆积为一个无法审查的提交。
+
+## 18. 首版完成标准
+
+- 五个 Adapter 全部通过统一 Contract Suite。
+- CLI 和 MCP 对相同请求产生同一任务和同一结果。
+- 所有任务结果都包含四个模型身份字段。
+- 所有非成功结果都具有稳定错误码和发送语义。
+- 状态机不存在非法倒退。
+- 同一 UUID 不会重复发送。
+- 同一 workspace 的写任务默认独占。
+- 远端可能已执行的任务不会被标记为安全重试。
+- 普通测试不需要登录、模型额度或读取凭据内容。
+- 五条现有路线的身份、幂等、权限、额度、应用归属和产物检查边界不因重构降级。
+
+## 19. 后续版本候选
+
+以下能力不进入 `0.2.0-alpha.1`：
+
+- Agent Profile 管理和角色库。
+- 自动模型选择和显式 fallback 图。
+- 可靠 resume/fork 和通用多轮 Session。
+- 图片、PDF 和其他多模态输入。
+- 文件级 owned paths 并发锁。
+- 常驻 daemon、SQLite 索引和大规模任务查询。
+- 有严格 allowlist 和独立授权的管理型 target actions。
+
+这些能力只在首版运行证据证明有必要时引入。
