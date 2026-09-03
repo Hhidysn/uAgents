@@ -4,7 +4,7 @@
 
 ## 路线和环境
 
-target=opencode、mode=analysis。目前仅接入用户已授权常用的两条路线：opencode-go/deepseek-v4-flash、opencode-go/glm-5.2。其他模型仍可由用户以后显式接入，本版不会自动消耗其额度。GLM 不可用时保留失败/未知结果，不替换模型。
+target=opencode、mode=analysis。目前仅接入用户已授权常用的两条 Command Code 路线：commandcode-goat/deepseek/deepseek-v4-flash、commandcode-goat/z-ai/glm-5.3-flash。Command Code 的 GLM-5.3 完整版会被当前 chat-completions 端点拒绝，因此默认 GLM 路线使用 Flash。其他模型仍可由用户以后显式接入，本版不会自动消耗其额度。GLM 不可用时保留失败/未知结果，不替换模型。
 
 CLI 从 PATH 中查找原生可执行文件；Windows 也识别 npm 目录下 node_modules/opencode-ai/bin/opencode.exe。自定义位置可用 UAGENTS_OPENCODE_BIN 指定绝对原生可执行路径；不把 .cmd/.ps1 丢进 shell 转发，不读或复制凭据。
 
@@ -16,7 +16,7 @@ CLI 从 PATH 中查找原生可执行文件；Windows 也识别 npm 目录下 no
 {
   "request_id": "替换为新UUID",
   "target": "opencode",
-  "model": "opencode-go/deepseek-v4-flash",
+  "model": "commandcode-goat/deepseek/deepseek-v4-flash",
   "mode": "analysis",
   "prompt": "只依据以下材料给出独立建议，不调用工具、不访问文件、不再委派：……",
   "timeout_ms": 180000

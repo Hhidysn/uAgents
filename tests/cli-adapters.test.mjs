@@ -11,7 +11,7 @@ import {atomicJson,digest,normalizeRequest,status,terminalStates} from '../plugi
 import {submit,result,cancel} from '../plugins/uagents/skills/agent-dispatch/scripts/task.mjs';
 const root=path.resolve('.local/test-runs',randomUUID(),'CLI 空格');fs.mkdirSync(root,{recursive:true});
 const worker=fileURLToPath(new URL('./fixtures/cli-test-worker.mjs',import.meta.url));
-const request=(target,patch={})=>({request_id:randomUUID(),target,model:target==='workbuddy'?'workbuddy-default':'opencode-go/deepseek-v4-flash',mode:'analysis',prompt:'success',timeout_ms:5000,...patch});
+const request=(target,patch={})=>({request_id:randomUUID(),target,model:target==='workbuddy'?'workbuddy-default':'commandcode-goat/deepseek/deepseek-v4-flash',mode:'analysis',prompt:'success',timeout_ms:5000,...patch});
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function wait(id,predicate=s=>terminalStates.has(s.status)){
  const end=Date.now()+8000;while(Date.now()<end){const state=status(root,id);if(predicate(state))return state;await delay(40);}assert.fail('Task did not finish');
@@ -23,6 +23,8 @@ const ocEvent=(type,id,message='final',extra={})=>({type,sessionID:'ses_test',pa
 test('routes are explicit and limited; unrelated targets and paid fallbacks are rejected',()=>{
  assert.throws(()=>normalizeRequest(request('workbuddy',{model:'unknown-paid'})),{code:'invalid_model'});
  assert.throws(()=>normalizeRequest(request('opencode',{model:'opencode-go/deepseek-v4-pro'})),{code:'invalid_model'});
+ assert.throws(()=>normalizeRequest(request('opencode',{model:'opencode-go/deepseek-v4-flash'})),{code:'invalid_model'});
+ assert.throws(()=>normalizeRequest(request('opencode',{model:'opencode-go/glm-5.2'})),{code:'invalid_model'});
  assert.throws(()=>normalizeRequest(request('opencode',{mode:'implementation'})),{code:'unsupported_capability'});
  assert.throws(()=>normalizeRequest(request('workbuddy',{fallback_model:'other'})),{code:'unsupported_field'});
 });

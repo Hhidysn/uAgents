@@ -1,0 +1,77 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { HealthCache } from '../plugins/uagents/src/registry/health-cache.mjs';
+import { createRegistry } from '../plugins/uagents/src/registry/registry.mjs';
+import { evaluateRequest } from '../plugins/uagents/src/policy/evaluate.mjs';
+
+const route = 'commandcode-goat/deepseek/deepseek-v4-flash';
+const request = patch => ({
+  schema_version: '1.0', request_id: randomUUID(), target: 'opencode', model: route,
+  mode: 'analysis', prompt: 'bounded',
+  execution: { observation_timeout_ms: 10_000, effort: 'medium', permission: 'native' },
+  policy: { fallback: 'none', max_cost_usd: null },
+  ...patch,
+});
+
+test('registry exposes static capability without dynamic availability', () => {
+  const registry = createRegistry();
+  assert.equal('available' in registry.targets.opencode, false);
+  assert.deepEqual(registry.targets.opencode.modes, ['analysis']);
+  assert.deepEqual(Object.keys(registry.models).filter(key => key.startsWith('commandcode-goat/')).sort(), [
+    'commandcode-goat/deepseek/deepseek-v4-flash', 'commandcode-goat/z-ai/glm-5.3-flash',
+  ]);
+});
+
+test('user registry configuration can only tighten built-in capability', () => {
+  const registry = createRegistry({ targets: { agy: { modes: ['analysis'], permissions: { workspace_write: true, native: false } } } });
+  assert.deepEqual(registry.targets.agy.modes, ['analysis']);
+  assert.equal(registry.targets.agy.permissions.workspace_write, false);
+  assert.equal(registry.targets.agy.permissions.native, false);
+  assert.throws(() => createRegistry({ models: { 'unknown/model': { enabled: true } } }), { code: 'invalid_model' });
+});
+
+test('health cache expires to unknown rather than retaining availability', () => {
+  let now = Date.parse('2026-09-04T00:00:00Z');
+  const cache = new HealthCache({ clock: () => now });
+  cache.set(route, { availability: 'available', source: 'fixture', observed_at: '2026-09-04T00:00:00Z', expires_at: '2026-09-04T00:01:00Z' });
+  assert.equal(cache.get(route).availability, 'available');
+  now += 60_001;
+  assert.equal(cache.get(route).availability, 'unknown');
+  assert.equal(cache.get(route).stale, true);
+});
+
+test('policy resolves an explicit route and emits model evidence placeholders', () => {
+  const outcome = evaluateRequest(request());
+  assert.equal(outcome.allowed, true);
+  assert.equal(outcome.request.model_requested, route);
+  assert.equal(outcome.request.model_resolved, 'deepseek-v4-flash');
+  assert.equal(outcome.request.model_reported, null);
+  assert.equal(outcome.request.model_verified, false);
+  assert.equal(outcome.request.route_id, route);
+  assert.deepEqual(outcome.decision.warnings, ['model_availability_unconfirmed']);
+});
+
+test('backend defaults do not masquerade as concrete resolved models', () => {
+  const outcome = evaluateRequest(request({ target: 'workbuddy', model: 'default' }));
+  assert.equal(outcome.request.model_resolved, null);
+  assert.equal(outcome.request.route_id, 'workbuddy-default');
+  assert.equal(outcome.request.model_resolution.kind, 'backend_default');
+});
+
+test('policy fails closed before worker launch', () => {
+  assert.throws(() => evaluateRequest(request({ model: 'opencode-go/deepseek-v4-flash' })), error => error.code === 'model_unavailable' && error.submission === 'not_sent');
+  assert.throws(() => evaluateRequest(request({ policy: { fallback: 'paid', max_cost_usd: null } })), { code: 'unsupported_capability' });
+  assert.throws(() => evaluateRequest(request({ policy: { fallback: 'none', max_cost_usd: 1 } })), { code: 'unsupported_capability' });
+  assert.throws(() => evaluateRequest(request({ execution: { observation_timeout_ms: 10_000, effort: 'medium', permission: 'enforced-read-only' } })), { code: 'unsupported_capability' });
+  assert.throws(() => evaluateRequest(request({ execution: { observation_timeout_ms: 10_000, execution_timeout_ms: 20_000, effort: 'medium', permission: 'native' } })), { code: 'unsupported_capability' });
+});
+
+test('fresh authoritative unavailability rejects while stale health does not', () => {
+  let now = Date.parse('2026-09-04T00:00:00Z');
+  const cache = new HealthCache({ clock: () => now });
+  cache.set(route, { availability: 'unavailable', source: 'fixture', observed_at: '2026-09-04T00:00:00Z', expires_at: '2026-09-04T00:01:00Z' });
+  assert.throws(() => evaluateRequest(request(), { health: cache }), { code: 'model_unavailable' });
+  now += 60_001;
+  assert.equal(evaluateRequest(request(), { health: cache }).allowed, true);
+});

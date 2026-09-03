@@ -61,7 +61,7 @@ export function normalizeRequest(value, kind = 'run') {
   if (value.permission_policy !== undefined && value.permission_policy !== 'native') fail('unsupported_permission_policy', 'Only native permissions are supported; read-only enforcement is unavailable.');
   const validModel = value.target === 'agy' ? typeof value.model === 'string' && /^gemini-[a-z0-9.-]+$/.test(value.model)
     : value.target === 'workbuddy' ? value.model === 'workbuddy-default'
-    : ['opencode-go/deepseek-v4-flash', 'opencode-go/glm-5.2'].includes(value.model);
+    : ['commandcode-goat/deepseek/deepseek-v4-flash', 'commandcode-goat/z-ai/glm-5.3-flash'].includes(value.model);
   if (!validModel) fail('invalid_model', 'Select an explicit supported route; there is no automatic model or provider fallback.');
   if (value.target === 'opencode' && value.mode !== 'analysis') fail('unsupported_capability', 'OpenCode currently supports independent text analysis only.');
   if (!['run', 'probe'].includes(kind)) fail('invalid_kind', 'Unsupported invocation kind.');

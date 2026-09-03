@@ -16,7 +16,7 @@ try {
       identity: target === 'agy' ? 'pre-send model/cwd handshake and matching native session' : target === 'workbuddy' ? 'caller-assigned native UUID and reported cwd after submission' : 'matching session and final message parts; selected model is not echoed by this stream',
       permission_policy: 'native', implementation: target !== 'opencode', hard_readonly: false, hard_path_isolation: false,
       edit_mode: target === 'opencode' ? 'inherited; no auto approval' : 'implementation enables native file edit mode; analysis inherits settings',
-      models: target === 'workbuddy' ? ['workbuddy-default'] : target === 'opencode' ? ['opencode-go/deepseek-v4-flash', 'opencode-go/glm-5.2'] : 'explicit Gemini slug',
+      models: target === 'workbuddy' ? ['workbuddy-default'] : target === 'opencode' ? ['commandcode-goat/deepseek/deepseek-v4-flash', 'commandcode-goat/z-ai/glm-5.3-flash'] : 'explicit Gemini slug',
       probe_scope: target === 'agy' ? 'preflight_only' : 'version_only',
       expected_output_check: true, skip_all_permissions: false, resume: false, native_cancel_confirmation: false,
       lifecycle: 'one detached worker per task; application-exit survival unverified', desktop_mcp: 'not implemented' }));
