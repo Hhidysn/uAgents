@@ -1,7 +1,8 @@
 # uAgents 受管 Agent 生命周期设计
 
 日期：2026-09-04
-状态：已确认，待实施计划
+修订：2026-09-05 按通用 Agent 调起定位收敛过度防御性设计：复用现有 fencing lease，但删除桌面 EXE 全量 SHA-256、ACL 启动门禁、七元所有权 attestation、快捷方式发现与 instance_events 事件表；安装候选改为确定性选择；`submission=not_sent` 且无 native identity 的重复 submit 允许隐式恢复。
+状态：已确认，实施计划已编制
 
 ## 1. 背景
 
@@ -79,9 +80,9 @@ Host DB 固定在：
 %LOCALAPPDATA%\uAgents\host-v1\control.db
 ```
 
-它在同一 Windows 用户的所有 CLI、MCP 和 Task DB 之间共享。它保存安装、受管实例、Host lease 和实例事件，不保存 Prompt、任务响应或 Provider 凭据。
+它在同一 Windows 用户的所有 CLI、MCP 和 Task DB 之间共享。它保存安装、受管实例和 Host lease，不保存 Prompt、任务响应或 Provider 凭据；实例事件写入结构化日志文件，不进入 Host DB。
 
-Host DB 使用 SQLite WAL、事务、lease epoch、fencing token 和 heartbeat。v1 不增加 Windows native mutex；只有压力测试证明 SQLite 跨进程租约不足时才重新评估 native 依赖。
+Host DB 使用 SQLite WAL、事务、heartbeat，并复用现有 lease epoch 与 fencing token。单机进程也可能在 lease 过期接管后从暂停中恢复，因此 PID-only 不能阻止陈旧持有者写入。v1 不增加 Windows native mutex；只有压力测试证明 SQLite 跨进程租约不足时才重新评估 native 依赖。
 
 ## 6. 组件与接口
 
@@ -90,7 +91,7 @@ locator.inspect(target)
   只读检查缓存和当前安装候选，不启动、不写缓存。
 
 locator.resolve(target, { refresh })
-  发现、验证并缓存一个可信安装；歧义时失败。
+  发现、验证并缓存一个可信安装；多候选时按确定性规则选择。
 
 supervisor.inspect(target)
   只读检查受管实例和 endpoint，不启动。
@@ -117,7 +118,6 @@ Supervisor 不接收 Prompt。Adapter 接收已经验证的 installation/instanc
 4. HKCU/HKLM 卸载注册表。
 5. Target Manifest 声明的厂商安装目录。
 6. PATH。
-7. 开始菜单快捷方式解析出的最终目标。
 
 不进行无限制递归磁盘扫描。显式路径只提高候选优先级，不能绕过验证。
 
@@ -143,17 +143,16 @@ Launch recipe 是受版本控制的代码，不从缓存加载任意命令或参
 
 ### 7.3 按目标验证
 
-- Doubao/TRAE 桌面 EXE：canonical path、local fixed volume、reparse/UNC 策略、Authenticode、Publisher、ProductName、FileVersion。
+- Doubao/TRAE 桌面 EXE：canonical path、local fixed volume、Authenticode、Publisher、ProductName、FileVersion。reparse/junction 按系统解析结果作为 canonical path，不维护独立策略矩阵。
 - WorkBuddy：`codebuddy.js` 必须位于经过验证的 WorkBuddy 安装树。
 - OpenCode/npm CLI：验证真实入口、包结构和无发送 `--version`；不强制要求 Authenticode。
 - agy：依据实际 CLI 包结构和版本协议验证。
-- 快捷方式：解析最终目标后执行同一目标验证。
 
 默认使用 Publisher/Product 白名单。TOFU 不进入 v1；未来只可作为显式用户确认后的兼容策略。
 
 ### 7.4 缓存失效
 
-缓存不是信任来源。每次 `ensure` 必须检查路径、canonical identity、size 和 mtime；有变化则重新验证签名、产品身份和 SHA-256。路径消失、更新或验证失败时废弃缓存并重新发现。多个有效候选无法按 Target Manifest 的确定性优先级选择时，返回 `installation_ambiguous`。
+缓存不是信任来源。每次 `ensure` 必须检查路径、canonical identity、size 和 mtime；有变化则重新验证签名和产品身份。SHA-256 只对小型 CLI 入口文件计算，不对大型桌面 EXE 做全量哈希。路径消失、更新或验证失败时废弃缓存并重新发现。多个有效候选按“最近成功且仍兼容 → Target Manifest 产品优先级 → FileVersion → canonical path”确定性排序，并在结果中暴露所选路径。
 
 ## 8. Host 数据模型
 
@@ -177,6 +176,8 @@ verified_at_ms
 last_success_at_ms
 ```
 
+桌面 EXE 的 `sha256` 允许为空；哈希仅强制用于小型 CLI 入口文件。
+
 ### 8.2 managed_instances
 
 ```text
@@ -191,8 +192,6 @@ process_started_at_ms
 listener_process_id
 cdp_port
 gateway_port
-launch_fingerprint
-identity_summary_json
 started_by_uagents
 created_at_ms
 last_seen_at_ms
@@ -212,9 +211,9 @@ gateway:trae
 
 两个不同 Task DB 的 Worker 必须竞争同一 Host lease。
 
-### 8.4 instance_events
+### 8.4 实例事件日志
 
-只记录发现、验证、启动、ready、登录等待、崩溃、身份变化和停止等脱敏事件。不得记录 Prompt、完整命令行、环境转储和 secret value。
+实例事件以 `%LOCALAPPDATA%\uAgents\host-v1\logs\` 下的结构化日志文件记录，不建立事务性事件表。只记录发现、验证、启动、ready、登录等待、崩溃、身份变化和停止等脱敏事件。不得记录 Prompt、完整命令行、环境转储和 secret value。
 
 ## 9. 通用生命周期
 
@@ -248,7 +247,7 @@ v1 不自动关闭正常运行的受管实例。后续 `ensure` 可以复用；�
 流程：
 
 1. 定位并验证 Doubao Work 安装。
-2. 检查已有受管实例的 PID、启动时间、路径、签名、监听进程、端口和 Profile generation。
+2. 检查已有受管实例的 PID、启动时间、canonical path，并抽查监听进程与端口归属。
 3. 无可复用实例时，从目标首选端口和受控备用端口段选择空闲端口。
 4. 使用参数数组、最小环境、专用 Profile 和 loopback CDP 启动；禁止 shell 拼接。
 5. 验证 listener 属于受管进程树，CDP 页面使用预期 `doubaowork://` scheme，并与 generation 一致。
@@ -278,7 +277,7 @@ v1 不自动关闭正常运行的受管实例。后续 `ensure` 可以复用；�
 4. 验证 gateway instance nonce，拒绝同端口的其他本地服务。
 5. 定位并验证兼容的 TRAE CN 产品变体。
 6. 使用专用 Profile 和受控 CDP 端口启动桌面实例。
-7. 验证 workbench surface、进程树、端口、产品身份和 Profile generation。
+7. 验证 workbench surface、进程身份（PID、启动时间、canonical path）、端口监听归属和 Profile generation。
 8. 登录或初始化 surface 返回 `waiting_user/preflight_login`。
 9. `resume` 后重新验证实例。
 10. 在向 gateway POST 之前持久化 `possibly_sent`，继续使用 request UUID 作为原生幂等键。
@@ -300,10 +299,10 @@ waiting_user -> queued
 - `submission=not_sent`。
 - 没有 native identity。
 - interaction phase 是 `preflight_login`。
-- 用户显式调用 `resume`。
-- 原请求哈希、有效请求哈希和输入快照没有变化。
+- 用户显式调用 `resume`，或同一 UUID 的 `submit` 触发隐式恢复。
+- 有效请求哈希没有变化；恢复动作本身不比较输入快照，但 Worker 在任何 Prompt mutation 前仍必须重新验证已登记输入。
 
-相同 UUID 再次 `submit` 仍只返回 duplicate，不隐式恢复。
+相同 UUID 再次 `submit`：`submission=not_sent` 且无 native identity 时按上述条件隐式恢复；其余情况仍只返回 duplicate。
 
 原生授权等待具有 native identity，且可能已经发送。此时 `resume` 只 reconcile 同一 identity，不重新 dispatch。结果协议必须暴露 waiting phase，避免两种恢复路径混淆。
 
@@ -311,8 +310,8 @@ waiting_user -> queued
 
 - 发送前启动失败或应用崩溃：同一 Attempt 可在显式 resume 时重新 ensure。
 - `possibly_sent` 后应用崩溃：进入 `indeterminate`，禁止自动重启并重新提交。
-- PID 单独不是所有权证据。PID、启动时间、canonical path、产品签名、端口、监听者和 generation 必须联合匹配。
-- 只允许终止当前持有的 ChildProcess，或完整 attestation 匹配的持久受管实例。
+- PID 单独不是所有权证据。所有权要求 PID、启动时间和 canonical path 联合匹配；复用受管实例时附加一次 listener PID 抽查。产品签名在启动时验证，运行中不重复校验。
+- 只允许终止当前持有的 ChildProcess，或所有权证据匹配的持久受管实例。
 - 用户日常窗口即使产品签名正确，也因为 Profile/generation 不匹配而不得接管。
 - CDP WebSocket URL 必须保持相同 loopback host/port。
 - Supervisor 不得接受或持久化 Prompt。
@@ -322,7 +321,7 @@ waiting_user -> queued
 - OpenCode、agy、WorkBuddy 等受信任 CLI 继续继承调用终端环境，以支持任意 Provider 环境变量而不维护 Key 名单。
 - Doubao、TRAE 和 gateway 使用最小环境，不继承无关 Provider 变量。
 - Gateway capability token 是本机 IPC secret，不是 Provider 凭据；不得进入 DB 明文、日志、结果或命令行。
-- Windows v1 使用当前用户 ACL 文件保护 gateway token。若 ACL 无法被验证，gateway 不启动。
+- Windows v1 尽力为 gateway token 文件设置当前用户 ACL；验证失败时记录警告并继续启动，不作为启动门禁（单用户机器上该检查只防其他 Windows 用户，收益有限）。
 - Profile 内认证数据由目标应用拥有和保护；uAgents 不读取、复制、输出或备份。
 
 ## 15. CLI、MCP 与能力协议
@@ -337,7 +336,7 @@ uagents stop <target>
 
 - `probe`：只读，不启动、不更新缓存。
 - `ensure`：发现、验证、缓存并启动，不发送 Prompt。
-- `submit`：自动 ensure。
+- `submit`：自动 ensure；对 `submission=not_sent` 且无 native identity 的重复 UUID，按隐式 resume 恢复。
 - `resume`：按 waiting phase 选择发送前恢复或同 identity reconcile。
 - `stop`：只停止受证明拥有的实例。
 
@@ -381,7 +380,6 @@ Doubao/TRAE capability 增加：
 
 ```text
 installation_not_found
-installation_ambiguous
 installation_untrusted
 installation_changed
 launch_failed
@@ -410,7 +408,7 @@ stop_not_owned
 
 ### Gate 1：Host Control Plane
 
-- Host DB、独立 schema migration、ACL、installation cache、Host lease 和 instance events。
+- Host DB、独立 schema migration、installation cache、Host lease 和实例事件日志。
 - Windows Locator、Target Manifest 和 TrustVerifier。
 - 已知错误的结构化转换。
 
@@ -442,17 +440,17 @@ stop_not_owned
 ## 18. 测试矩阵
 
 - 有效缓存、缓存丢失、程序升级、签名变化和路径替换。
-- UNC、junction/reparse point、错误 Publisher 和假同名程序。
+- 错误 Publisher 和假同名程序。
 - 端口被未知进程占用、PID 重用、进程树变化和假 CDP/gateway。
-- 32 个进程、两个不同 Task DB 同时 ensure，同一目标只启动一个实例。
+- 2–4 个进程、两个不同 Task DB 同时 ensure，同一目标只启动一个实例。
 - 用户日常窗口同时运行时，不聚焦、不导航、不关闭、不接管。
-- 冷启动未登录到 `waiting_user`，登录后原任务 resume。
+- 冷启动未登录到 `waiting_user`，登录后原任务通过显式 resume 或同 UUID submit 隐式恢复。
 - 后续冷启动自动复用已登录专用 Profile。
 - 启动、CDP ready、Prompt mutation、checkpoint、Enter、POST 和 native ACK 的逐点故障注入。
 - `possibly_sent` 后崩溃不重启重发。
 - 相同 UUID 幂等、修改请求冲突、无效模型不启动目标。
 - CLI/MCP 使用同一 Core、Host DB、错误和 lifecycle 字段。
-- 日志、Task DB、Host DB、事件、结果和临时文件的凭据扫描。
+- 发布前对日志、Task DB、Host DB、结果和临时文件执行一次凭据扫描审计，不作为常规测试矩阵条目。
 - `stop` 无法终止非受管进程。
 - 插件源目录与安装缓存 SHA-256 一致。
 - Doubao、TRAE、OpenCode、WorkBuddy 和 agy 分别完成真实 E2E。
