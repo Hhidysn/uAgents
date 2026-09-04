@@ -40,10 +40,10 @@ export class CliAdapter {
     return invokeCli(workspace, workspace, legacy, () => {}, driver);
   }
 
-  async prepare(request) {
+  async prepare(request, context = {}) {
     const legacy = this.#legacyRequest(request, 'run');
     const driver = this.target === 'agy' ? this.testDriver : this.testDriver ?? nativeDriver(legacy, request.workspace);
-    return { request, legacy, driver };
+    return { request, legacy, driver, taskDirectory: context.taskDirectory ?? request.workspace };
   }
 
   async dispatch(prepared, context) {
@@ -59,12 +59,15 @@ export class CliAdapter {
       }
     };
     const workspace = prepared.request.workspace;
+    const directory = prepared.taskDirectory;
     const outcome = this.target === 'agy'
-      ? await invokeAgy(workspace, workspace, prepared.legacy, publish, prepared.driver)
-      : await invokeCli(workspace, workspace, prepared.legacy, publish, prepared.driver);
+      ? await invokeAgy(directory, workspace, prepared.legacy, publish, prepared.driver)
+      : await invokeCli(directory, workspace, prepared.legacy, publish, prepared.driver);
     nativeSessionId ??= outcome.result?.native_session_id ?? null;
     if (!possiblySent) {
-      const error = Object.assign(new Error(outcome.error ?? 'native_preflight_failed'), { code: outcome.error ?? 'native_preflight_failed', submission: 'not_sent' });
+      const error = Object.assign(new Error(outcome.error ?? 'native_preflight_failed'), {
+        code: outcome.error ?? 'native_preflight_failed', submission: 'not_sent', cancelled: outcome.status === 'cancelled',
+      });
       throw error;
     }
     if (!nativeSessionId) return { handle: { session_id: null, task_id: null, status: outcome.native_status ?? null }, outcome };

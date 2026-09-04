@@ -11,7 +11,7 @@ export async function execute(argv, options = {}) {
     request: { type: 'string' }, 'state-dir': { type: 'string' }, model: { type: 'string' }, refresh: { type: 'boolean' },
     limit: { type: 'string' }, cursor: { type: 'string' }, config: { type: 'string' }, format: { type: 'string' },
   } });
-  if (values.format && values.format !== 'json') fail('unsupported_capability', 'Only JSON output is implemented in this release.');
+  if (values.format && !['json', 'table'].includes(values.format)) fail('invalid_request', 'format must be json or table.');
   const [command, subject, ...extra] = positionals;
   if (!command || extra.length) fail('usage', 'Invalid uagents command arguments.');
 
@@ -45,8 +45,24 @@ export async function execute(argv, options = {}) {
 }
 
 export async function main(argv = process.argv.slice(2), io = console) {
-  try { io.log(JSON.stringify(await execute(argv))); return 0; }
+  try {
+    const envelope = await execute(argv);
+    io.log(argv.includes('table') && argv.includes('--format') ? renderTable(envelope) : JSON.stringify(envelope));
+    return 0;
+  }
   catch (error) { io.log(JSON.stringify(notOk(error))); return 1; }
 }
 
 function required(value, label) { if (!value) fail('usage', `Missing ${label}.`); return value; }
+
+function renderTable(envelope) {
+  if (!envelope.ok) return JSON.stringify(envelope);
+  const rows = Array.isArray(envelope.data) ? envelope.data : envelope.data?.tasks ?? [envelope.data];
+  if (!rows.length) return '(no rows)';
+  if (rows.every(row => typeof row !== 'object' || row === null)) return rows.map(row => String(row)).join('\n');
+  const normalized = rows.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value && typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')])));
+  const columns = [...new Set(normalized.flatMap(row => Object.keys(row)))];
+  const widths = columns.map(column => Math.max(column.length, ...normalized.map(row => String(row[column] ?? '').length)));
+  const line = row => columns.map((column, index) => String(row[column] ?? '').padEnd(widths[index])).join(' | ').trimEnd();
+  return [line(Object.fromEntries(columns.map(column => [column, column]))), widths.map(width => '-'.repeat(width)).join('-|-'), ...normalized.map(line)].join('\n');
+}

@@ -68,6 +68,17 @@ test('TRAE identity failure happens before the possibly-sent checkpoint', async 
   assert.equal(client.sends, 0);
 });
 
+test('TRAE quota errors are normalized after the possibly-sent checkpoint', async () => {
+  const client = new TraeClient();
+  client.submit = async () => { throw Object.assign(new Error('insufficient credits'), { code: 'balance_insufficient' }); };
+  const adapter = new TraeAdapter({ client, pollIntervalMs: 0 });
+  const checkpoints = [];
+  await assert.rejects(adapter.dispatch(await adapter.prepare(baseRequest({ target: 'trae' })), {
+    checkpoint: kind => checkpoints.push(kind),
+  }), { code: 'quota_exhausted', submission: 'may_have_been_sent' });
+  assert.deepEqual(checkpoints, ['possibly_sent']);
+});
+
 test('desktop sends happen only after the durable possibly-sent checkpoint', async () => {
   const order = [];
   const bridge = new DoubaoBridge();

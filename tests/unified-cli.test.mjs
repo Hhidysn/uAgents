@@ -54,11 +54,21 @@ test('cancel is a separate intent and main returns a structured error envelope',
   const cancelled = await execute(['cancel', input.request_id, '--state-dir', root]);
   assert.equal(cancelled.data.status, 'registered');
   assert.equal(cancelled.data.cancel_requested, true);
+  assert.equal(fs.existsSync(path.join(root, 'tasks', input.request_id, 'cancel.json')), true);
   const lines = [];
   const exitCode = await main(['status', 'missing', '--state-dir', root], { log: line => lines.push(JSON.parse(line)) });
   assert.equal(exitCode, 1);
   assert.equal(lines[0].ok, false);
   assert.equal(lines[0].error.code, 'task_not_found');
+});
+
+test('table format renders human-readable discovery output', async () => {
+  const lines = [];
+  const exitCode = await main(['targets', '--format', 'table'], { log: line => lines.push(line) });
+  assert.equal(exitCode, 0);
+  assert.match(lines[0], /agy/);
+  assert.match(lines[0], /trae/);
+  assert.equal(lines[0].startsWith('{'), false);
 });
 
 test('configuration validation cannot enable unsupported capabilities', async () => {

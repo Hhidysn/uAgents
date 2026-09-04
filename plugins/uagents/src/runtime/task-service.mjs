@@ -146,6 +146,7 @@ export class TaskService {
       if (!task) fail('task_not_found', `Unknown task: ${taskId}`);
       if (['succeeded', 'failed', 'cancelled'].includes(task.status)) return { ...this.#statusWith(database, taskId), cancel_accepted: false };
       database.prepare('UPDATE tasks SET cancel_requested = 1, updated_at_ms = ? WHERE task_id = ?').run(now, taskId);
+      atomicWriteJson(path.join(taskDirectory(this.control.root, taskId), 'cancel.json'), { requested_at_ms: now });
       const attempt = database.prepare('SELECT attempt_id FROM attempts WHERE task_id = ? ORDER BY ordinal DESC LIMIT 1').get(taskId);
       appendEvent(database, { taskId, attemptId: attempt?.attempt_id ?? null, type: 'control.cancel_requested', now });
       return { ...this.#statusWith(database, taskId), cancel_accepted: true };

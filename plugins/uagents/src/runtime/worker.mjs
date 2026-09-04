@@ -23,16 +23,24 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
   try {
     service.transition(taskId, 'starting', { attemptId, lease: fencingLease });
     verifyInputSnapshots(request.workspace, stored.payload.input_snapshots);
-    const prepared = await adapter.prepare(request, { taskId, attemptId, signal: leaseOptions.signal });
+    const adapterContext = {
+      taskId,
+      attemptId,
+      signal: leaseOptions.signal,
+      taskDirectory: taskDirectory(service.control.root, taskId),
+      isCancelRequested: () => service.status(taskId).cancel_requested,
+    };
+    const prepared = await adapter.prepare(request, adapterContext);
     const checkpoint = (kind, payload = {}) => persistCheckpoint(service.control, {
       taskId, attemptId, lease: fencingLease, kind, payload: { target: request.target, ...payload },
     });
     let submission;
     try {
-      submission = await adapter.dispatch(prepared, { taskId, attemptId, signal: leaseOptions.signal, checkpoint });
+      submission = await adapter.dispatch(prepared, { ...adapterContext, checkpoint });
     } catch (error) {
       const latest = service.status(taskId);
-      const next = latest.attempt.submission === 'not_sent' ? 'failed' : 'indeterminate';
+      const next = latest.cancel_requested && latest.attempt.submission === 'not_sent' ? 'cancelled'
+        : latest.attempt.submission === 'not_sent' ? 'failed' : 'indeterminate';
       service.transition(taskId, next, { attemptId, lease: fencingLease, event: { error: error.code ?? 'dispatch_failed' } });
       return service.status(taskId);
     }
@@ -43,7 +51,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
     }
 
     let sawEvent = false;
-    for await (const event of adapter.observe(submission.handle ?? submission, { taskId, attemptId, signal: leaseOptions.signal })) {
+    for await (const event of adapter.observe(submission.handle ?? submission, adapterContext)) {
       sawEvent = true;
       const current = service.status(taskId);
       if (current.cancel_requested) return await finishCancellation({ service, adapter, taskId, attemptId, lease: fencingLease, handle: submission.handle ?? submission });

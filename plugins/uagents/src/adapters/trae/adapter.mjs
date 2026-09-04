@@ -32,14 +32,22 @@ export class TraeAdapter {
 
   async dispatch(prepared, context) {
     await context.checkpoint('possibly_sent');
-    const native = await this.client.submit({
-      message: prepared.request.prompt,
-      mode: 'solo',
-      newConversation: true,
-      autoContinue: false,
-      autoApproveDialog: false,
-      ...(prepared.request.workspace ? { workspace: prepared.request.workspace } : {}),
-    }, prepared.request.request_id);
+    let native;
+    try {
+      native = await this.client.submit({
+        message: prepared.request.prompt,
+        mode: 'solo',
+        newConversation: true,
+        autoContinue: false,
+        autoApproveDialog: false,
+        ...(prepared.request.workspace ? { workspace: prepared.request.workspace } : {}),
+      }, prepared.request.request_id);
+    } catch (error) {
+      if (/quota|credit|balance|insufficient|积分|额度/i.test(`${error.code ?? ''} ${error.message ?? ''}`)) {
+        fail('quota_exhausted', 'TRAE reported insufficient quota.', { cause_code: error.code ?? null, submission: 'may_have_been_sent' });
+      }
+      throw error;
+    }
     if (typeof native?.taskId !== 'string' || !native.taskId) fail('native_task_identity_missing', 'TRAE gateway accepted no stable task identity.', { submission: 'may_have_been_sent' });
     const handle = {
       session_id: native.taskId,

@@ -1,5 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { DoubaoDesktopBridge } from '../../../mcp/doubao/src/cdp.mjs';
+import { fail } from '../../protocol/errors.mjs';
 import { BUILTIN_REGISTRY } from '../../registry/builtins.mjs';
 
 export class DoubaoAdapter {
@@ -23,7 +24,11 @@ export class DoubaoAdapter {
 
   async probe() { return this.bridge.probe(); }
 
-  async prepare(request) { return { request }; }
+  async prepare(request) {
+    try { await this.bridge.probe(); }
+    catch (error) { fail('target_not_ready', error.message, { cause_code: error.code ?? 'cdp_unavailable', submission: 'not_sent' }); }
+    return { request };
+  }
 
   async dispatch(prepared, context) {
     const native = await this.bridge.prepareAndSubmit(prepared.request.prompt, async patch => {

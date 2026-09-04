@@ -62,3 +62,23 @@ test('OpenCode implementation is rejected before adapter execution', () => {
     assert.equal(control.raw.prepare('SELECT count(*) AS count FROM tasks').get().count, 0);
   } finally { control.close(); }
 });
+
+test('persisted cancel intent interrupts a live CLI process without claiming remote cancellation', async () => {
+  const control = new ControlDatabase(path.join(root, `cancel-live-${randomUUID()}`));
+  try {
+    const service = new TaskService(control);
+    const input = baseRequest({ target: 'workbuddy', model: 'default', mode: 'analysis', execution: { observation_timeout_ms: 10_000, effort: 'medium', permission: 'native' } });
+    const driver = { command: process.execPath, args: [fakeCli, 'workbuddy', input.request_id, 'hang'] };
+    const adapter = new WorkBuddyAdapter({ testDriver: driver });
+    const registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
+    const running = runTask({ service, taskId: registered.task_id, adapter });
+    const marker = path.join(service.payload(registered.task_id).request.workspace, 'received.txt');
+    for (let attempt = 0; attempt < 100 && !fs.existsSync(marker); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(fs.existsSync(marker), true);
+    service.requestCancel(registered.task_id);
+    const result = await running;
+    assert.equal(result.status, 'indeterminate');
+    assert.equal(result.cancel_requested, true);
+    assert.equal(result.attempt.submission, 'sent');
+  } finally { control.close(); }
+});
