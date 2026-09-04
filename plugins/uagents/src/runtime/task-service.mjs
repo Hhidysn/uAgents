@@ -125,6 +125,15 @@ export class TaskService {
     });
   }
 
+  heartbeat(attemptId, lease, now = this.clock()) {
+    return this.control.transaction(database => {
+      assertFencing(database, lease, now);
+      const result = database.prepare('UPDATE attempts SET heartbeat_at_ms = ? WHERE attempt_id = ? AND owner_nonce = ? AND fencing_token = ?')
+        .run(now, attemptId, lease.owner_nonce, lease.fencing_token);
+      if (Number(result.changes) !== 1) fail('lease_conflict', 'Attempt heartbeat ownership changed.', { category: 'conflict', submission: 'may_have_been_sent' });
+    });
+  }
+
   transition(taskId, next, { attemptId, lease = null, evidenceStrength = 0, sameNativeIdentity = false, event = {}, now = this.clock() } = {}) {
     return this.control.transaction(database => {
       if (lease) assertFencing(database, lease, now);
@@ -178,7 +187,10 @@ export class TaskService {
       model_reported: task.model_reported, model_verified: Boolean(task.model_verified), provider: task.provider, route_id: task.route_id,
       model_resolution: task.resolution_json ? JSON.parse(task.resolution_json) : null,
       model_verification: task.verification_json ? JSON.parse(task.verification_json) : null,
-      attempt: attempt ? { attempt_id: attempt.attempt_id, ordinal: Number(attempt.ordinal), status: attempt.status, submission: attempt.submission, fencing_token: attempt.fencing_token } : null,
+      attempt: attempt ? {
+        attempt_id: attempt.attempt_id, ordinal: Number(attempt.ordinal), status: attempt.status, submission: attempt.submission,
+        fencing_token: attempt.fencing_token, heartbeat_at_ms: attempt.heartbeat_at_ms === null ? null : Number(attempt.heartbeat_at_ms),
+      } : null,
       native: native ? { session_id: native.native_session_id, task_id: native.native_task_id, status: native.native_status, evidence_ref: native.evidence_ref } : null,
       created_at_ms: Number(task.created_at_ms), updated_at_ms: Number(task.updated_at_ms),
     };

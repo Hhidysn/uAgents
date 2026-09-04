@@ -3,7 +3,7 @@ import { captureArtifacts } from '../artifacts/capture.mjs';
 import { taskDirectory } from '../store/task-files.mjs';
 import { persistCheckpoint } from './checkpoints.mjs';
 import { verifyInputSnapshots } from './effective-request.mjs';
-import { acquireExecutionLeases, releaseLeases } from './leases.mjs';
+import { acquireExecutionLeases, releaseLeases, renewLeases } from './leases.mjs';
 import { statusFromNativeEvent, TERMINAL_STATES } from './state-machine.mjs';
 
 export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
@@ -15,10 +15,24 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
   const request = { ...stored.request, prompt: stored.payload.prompt };
   const leases = acquireExecutionLeases(service.control, { target: request.target, workspace: request.workspace, ...leaseOptions });
   const fencingLease = leases[0];
+  const leaseTtlMs = leaseOptions.ttlMs ?? 30_000;
+  const heartbeatIntervalMs = leaseOptions.heartbeatIntervalMs ?? Math.max(100, Math.floor(leaseTtlMs / 3));
+  let heartbeatError = null;
+  let heartbeat;
   service.control.transaction(database => {
     database.prepare('UPDATE attempts SET owner_nonce = ?, fencing_token = ? WHERE attempt_id = ?')
       .run(fencingLease.owner_nonce, fencingLease.fencing_token, attemptId);
   });
+  service.heartbeat(attemptId, fencingLease);
+  heartbeat = setInterval(() => {
+    if (heartbeatError) return;
+    try {
+      const renewed = renewLeases(service.control, leases, { ttlMs: leaseTtlMs });
+      leases.splice(0, leases.length, ...renewed);
+      service.heartbeat(attemptId, leases[0]);
+    } catch (error) { heartbeatError = error; }
+  }, heartbeatIntervalMs);
+  heartbeat.unref?.();
 
   try {
     service.transition(taskId, 'starting', { attemptId, lease: fencingLease });
@@ -52,6 +66,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
 
     let sawEvent = false;
     for await (const event of adapter.observe(submission.handle ?? submission, adapterContext)) {
+      if (heartbeatError) throw heartbeatError;
       sawEvent = true;
       const current = service.status(taskId);
       if (current.cancel_requested) return await finishCancellation({ service, adapter, taskId, attemptId, lease: fencingLease, handle: submission.handle ?? submission });
@@ -92,6 +107,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
     }
     throw error;
   } finally {
+    clearInterval(heartbeat);
     releaseLeases(service.control, leases);
   }
 }

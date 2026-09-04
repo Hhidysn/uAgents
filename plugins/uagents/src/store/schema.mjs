@@ -1,4 +1,4 @@
-export const STORE_SCHEMA_VERSION = 1;
+export const STORE_SCHEMA_VERSION = 2;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS metadata (
@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS attempts (
   native_cli_version TEXT,
   owner_nonce TEXT,
   fencing_token TEXT,
+  heartbeat_at_ms INTEGER,
   created_at_ms INTEGER NOT NULL,
   started_at_ms INTEGER,
   finished_at_ms INTEGER,

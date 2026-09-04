@@ -5,6 +5,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { FakeAdapter } from '../plugins/uagents/src/adapters/fake/adapter.mjs';
 import { ControlDatabase } from '../plugins/uagents/src/store/database.mjs';
+import { acquireExecutionLeases } from '../plugins/uagents/src/runtime/leases.mjs';
 import { reconcileTask } from '../plugins/uagents/src/runtime/reconcile.mjs';
 import { TaskService } from '../plugins/uagents/src/runtime/task-service.mjs';
 import { runTask } from '../plugins/uagents/src/runtime/worker.mjs';
@@ -76,6 +77,25 @@ test('indeterminate task reconciles only through persisted native identity', asy
     const completed = await reconcileTask({ service, taskId: registered.task_id, adapter });
     assert.equal(completed.status, 'succeeded');
     assert.equal(adapter.sendCount, 1);
+  });
+});
+
+test('worker heartbeat renews short leases until a long observation completes', async () => {
+  await fixture('heartbeat', async ({ control, service }) => {
+    const registered = service.submit(request(), { adapterVersion: 'fake-1' });
+    const adapter = new FakeAdapter();
+    adapter.observe = async function* () {
+      await new Promise(resolve => setTimeout(resolve, 180));
+      yield { type: 'succeeded', same_native_identity: true, evidence_strength: 2 };
+    };
+    const running = runTask({ service, taskId: registered.task_id, adapter, leaseOptions: { ttlMs: 90, heartbeatIntervalMs: 20 } });
+    await new Promise(resolve => setTimeout(resolve, 130));
+    assert.throws(() => acquireExecutionLeases(control, {
+      target: 'opencode', workspace: service.payload(registered.task_id).request.workspace, ownerNonce: 'takeover', ttlMs: 1_000,
+    }), { code: 'lease_conflict' });
+    const result = await running;
+    assert.equal(result.status, 'succeeded');
+    assert.ok(result.attempt.heartbeat_at_ms >= result.created_at_ms);
   });
 });
 
