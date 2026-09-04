@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
-import { fail } from './store.mjs';
+import { fail } from '../protocol/errors.mjs';
 
 // Only launch installed native entrypoints. No shell, installation, auth reads or config edits.
 export function locateCli(target, env = process.env) {

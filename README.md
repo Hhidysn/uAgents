@@ -1,45 +1,60 @@
 # uAgents
 
-供 Codex 使用的本地 Agent 调度插件。当前为 `0.1.0-alpha.6` 本机预览，已接入 agy/Gemini、WorkBuddy、OpenCode，以及豆包工作与 TRAE CN 两个桌面 MCP，并已通过个人 marketplace 干净安装。当前任务不会热加载新插件；需要新建 Codex 任务完成宿主拾取验收。
+uAgents 是供 Codex 使用的本地统一 Agent 调度插件。`0.2.0-alpha.1` 把 agy/Gemini、WorkBuddy、OpenCode、豆包工作和 TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时保留各目标不同的模型、文件、权限、取消和桌面连接能力。
 
-目标是把“具体怎样调用某个 Agent”从常驻全局指令中拆出，实际委派时按需读取；Codex 保留主力开发、任务编排、结果评估与最终决策。
+核心特性：
 
-计划以一个 Plugin 分发一个 `agent-dispatch` Skill、已有 CLI 适配器和两个本地桌面 MCP 服务：
+- 一个 `agent-dispatch` Skill、一个 CLI、一个 stdio MCP Server，共用同一 Node.js Core。
+- SQLite WAL 控制面；Task、Attempt、Native Session 分离；同 UUID 与同一有效请求不会重复发送。
+- 每次调用记录 `model_requested`、`model_resolved`、`model_reported`、`model_verified`，不把配置选择冒充运行期验证。
+- 外部发送前持久化 `possibly_sent`；发送后不确定状态不自动换 UUID、模型或 Provider 重放。
+- workspace 重叠租约、fencing token、输入快照、不可变产物捕获与 SHA-256 验证。
+- `status`/`list` 只读本地状态；只有显式 `reconcile` 才访问已有原生任务身份。
 
-- agy、WorkBuddy、OpenCode：优先使用现有 CLI，由 Skill 按需读取对应调用说明。
-- TRAE：已把 TRAECNclaw 0.6.0 的可追溯 npm 发布包、Windows 补丁和薄 stdio 入口整理为第二个 MCP。它复用已登录 TRAE CN Solo 的当前账户额度；本机 `trae-cn` 仍只是 IDE 启动器，独立 `traecli` 不属于这条路线。
-- 豆包工作：已实现一个独立 stdio MCP，通过用户明确准备的回环 CDP 端口创建专属会话、跟踪结果；当前不自动启动应用或批准操作。
+## 使用
 
-## 设计与资料
+插件通过 `.mcp.json` 只注册 `uagents-unified`，提供：
 
-- [当前进度与下一步](docs/status/2026-09-02-current-progress.md)：五条已接入路线、仍缺能力、未接入 CLI 与按优先级排列的后续验收。
-- [sub-agents-skills 功能对比](docs/reviews/2026-09-02-sub-agents-skills-comparison.md)：固定提交的源码/测试对照、可复用设计与不宜直接照搬的部分。
-- [干净安装验证](docs/verification/2026-09-02-clean-plugin-install.md)：个人 marketplace、安装缓存、Skill 校验、MCP 握手与五条无额度 probe/capability 证据。
-- [插件设计草案](docs/superpowers/specs/2026-08-31-uagents-plugin-design.md)：模块边界、按需加载、调用契约、分阶段验收。
-- [多模型会审](docs/reviews/2026-08-31-uagents-council-review.md)：Codex、DeepSeek Flash、GLM-5.2 的独立意见与修订建议；后续落实情况见实施记录。
-- [agy 实施与验证](docs/verification/2026-08-31-cli-runtime.md)：首个 worker、真实 agy 调用及产物证据；页面逻辑检查通过，浏览器验收未完成。
-- [WorkBuddy / OpenCode 验证](docs/verification/2026-08-31-cli-adapters.md)：原生后台试验、真实写文件、双模型会审、结果协议与已知边界。
-- [桌面 MCP 选型](docs/reviews/2026-09-01-desktop-mcp-options.md)：TRAE CLI 排除理由、TRAECNclaw 复用审查、豆包适配边界。
-- [豆包 MCP 实施验证](docs/verification/2026-09-01-doubao-mcp.md)：真实提交、原生会话归属、生产入口、协议和回归测试。
-- [TRAE MCP 实施验证](docs/verification/2026-09-02-trae-mcp.md)：上游来源、Windows 补丁、严格端口隔离、真实任务与当前额度边界。
-- [调研资料索引](docs/research-index.md)：原始资料、已知证据、归档状态与复用限制。
-- `third-part-research/`：本机历史资料与第三方代码归档，不进入本仓库版本控制或插件发布包。
+```text
+uagents_list_targets       uagents_get_capabilities
+uagents_list_models        uagents_probe
+uagents_submit             uagents_status
+uagents_result             uagents_cancel
+uagents_list_tasks         uagents_reconcile
+```
 
-按用户要求取消额外的零工具/强制只读门禁。agy、WorkBuddy 写入任务单次启用各自原生文件修改模式，OpenCode 文本提案不启用自动审批；命令等工具仍沿用原生权限。不修改全局 `AGENTS.md`、个人市场、MCP 注册或供应商设置，不安装依赖。未验证每日免费额度，不自动切换计费路线。
+CLI 使用相同 Core：
+
+```powershell
+node plugins/uagents/bin/uagents.mjs targets
+node plugins/uagents/bin/uagents.mjs capabilities opencode
+node plugins/uagents/bin/uagents.mjs models opencode
+node plugins/uagents/bin/uagents.mjs submit --request "F:\path\request.json" --state-dir "F:\path\uagents-state"
+node plugins/uagents/bin/uagents.mjs status <task-id> --state-dir "F:\path\uagents-state"
+node plugins/uagents/bin/uagents.mjs result <task-id> --state-dir "F:\path\uagents-state"
+```
+
+请求协议与状态解释见 [Skill 协议说明](plugins/uagents/skills/agent-dispatch/references/protocol.md)。目标差异见同目录下的 agy、WorkBuddy、OpenCode、豆包和 TRAE 说明。
 
 ## 开发验证
 
-需要 Node.js 22 或更新版本；本机验证版本为 24.13.0，无 npm 依赖：
+需要 Node.js `>=22.13.0`；本机验证版本为 Node 24.13.0。`node:sqlite` 在当前版本仍可能输出实验性警告。
 
 ```powershell
 npm test
-node plugins/uagents/skills/agent-dispatch/scripts/agent-call.mjs capabilities
-node plugins/uagents/skills/agent-dispatch/scripts/agent-call.mjs capabilities --target workbuddy
-node plugins/uagents/skills/agent-dispatch/scripts/agent-call.mjs capabilities --target opencode
+npm --prefix plugins/uagents/mcp/unified test
+python C:\Users\24590\.codex\skills\.system\skill-creator\scripts\quick_validate.py plugins/uagents/skills/agent-dispatch
+python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py plugins/uagents
 ```
 
-插件源目录为 `plugins/uagents/`，包含一个 Skill、CLI 脚本与 `doubao_work`、`trae_cn` 两个 MCP 声明。两个桌面 MCP 都只提供 probe/submit/status/result，不公开尚未可靠验证的 cancel。目录检查是事后验收，不提供硬性路径隔离或强制只读。实际委派时只读当前目标的 [agy](plugins/uagents/skills/agent-dispatch/references/agy.md)、[WorkBuddy](plugins/uagents/skills/agent-dispatch/references/workbuddy.md)、[OpenCode](plugins/uagents/skills/agent-dispatch/references/opencode-council.md)、[豆包工作](plugins/uagents/skills/agent-dispatch/references/doubao-work.md) 或 [TRAE CN](plugins/uagents/skills/agent-dispatch/references/trae-cn.md) 说明。
+## 设计与证据
 
-用户已完成移动：第三方源码位于 `third-part-research/traecnclaw/`，六份历史文档位于 `third-part-research/三方调研/`。文件总数、总大小及第三方 Git HEAD/已知工作区状态已核对；保留用户设置的 Git 忽略规则。详见资料索引。
+- [统一 Runtime 设计](docs/superpowers/specs/2026-09-04-uagents-unified-agent-runtime-design.md)
+- [可执行实施计划](docs/superpowers/plans/2026-09-04-uagents-unified-agent-runtime-implementation.md)
+- [当前进度](docs/status/2026-09-02-current-progress.md)
+- [SQLite/Windows spike](docs/verification/2026-09-04-sqlite-windows-spike.md)
+- [候选 CLI 调用契约](docs/verification/2026-09-03-cli-candidate-contracts.md)：Claude Code、Grok、Pi 仍只是候选，不在 target allowlist。
+- [历史干净安装验证](docs/verification/2026-09-02-clean-plugin-install.md)
+- [第三方资料索引](docs/research-index.md)
 
-新仓库不把原来的调用清单当作生效中的项目规则：该清单已原样归档，其中引用的全局路由段落曾被回滚，不应继续当作当前配置。
+旧的两个目标专用 MCP 已从插件声明中移除；其 CDP/gateway 运输、TRAE 可追溯上游包、许可证和第三方通知仍保留。插件不会自动启动桌面应用、登录、批准操作、购买额度或静默切换付费路线。

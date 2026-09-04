@@ -1,7 +1,7 @@
 {
   "name": "uagents",
-  "version": "0.1.0-alpha.6",
-  "description": "Codex-led CLI agent dispatch plus tracked local MCP bridges for Doubao Work and TRAE CN.",
+  "version": "0.2.0-alpha.1+codex.20260904010854",
+  "description": "Unified, persistent Agent dispatch for CLI and desktop targets with explicit model routing.",
   "author": {
     "name": "uAgents contributors"
   },
@@ -9,11 +9,16 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "uAgents",
-    "shortDescription": "Dispatch CLI agents and tracked desktop tasks.",
-    "longDescription": "Development preview: agy and WorkBuddy file tasks, independent OpenCode text proposals, plus local Doubao Work and TRAE CN MCP bridges over explicitly prepared CDP connections. Tracks native task identity and terminal evidence without quota fallback or automatic model-error replay.",
+    "shortDescription": "Call different Agents through one tracked protocol.",
+    "longDescription": "Unified CLI and MCP task protocol for agy, WorkBuddy, OpenCode, Doubao Work and TRAE CN. Preserves target-specific capabilities while tracking idempotency, native identity, model resolution, send ambiguity, cancellation intent and verified artifacts.",
     "developerName": "uAgents contributors",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Write"],
-    "defaultPrompt": ["选择适合的已接入 Agent，委派任务并检查结果。"]
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "\u9009\u62e9\u9002\u5408\u7684\u5df2\u63a5\u5165 Agent\uff0c\u59d4\u6d3e\u4efb\u52a1\u5e76\u68c0\u67e5\u7ed3\u679c\u3002"
+    ]
   }
 }

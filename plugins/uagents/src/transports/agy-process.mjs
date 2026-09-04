@@ -1,42 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { StringDecoder } from 'node:string_decoder';
-import { atomicJson, digest, inspectOutputs, normalizeRequest, readJson } from './store.mjs';
-import { invokeCli } from './cli-adapters.mjs';
-
-export async function work(directory, testDriver) {
-  let state = readJson(path.join(directory, 'state.json'));
-  const publish = patch => {
-    state = { ...state, ...patch, updated_at_ms: Date.now() };
-    atomicJson(path.join(directory, 'state.json'), state);
-  };
-  let heartbeat;
-  try {
-    const saved = readJson(path.join(directory, 'inbox.json'));
-    const { kind, ...input } = saved;
-    const request = normalizeRequest(input, kind);
-    if (digest(request) !== state.digest) throw new Error('request_digest_mismatch');
-    fs.unlinkSync(path.join(directory, 'inbox.json'));
-    const workspace = path.join(directory, 'workspace');
-    fs.mkdirSync(workspace, { recursive: true });
-    publish({ status: 'preflight', workspace, worker_pid: process.pid, worker_started_at_ms: Date.now() });
-    heartbeat = setInterval(() => publish({}), 1000);
-    const outcome = await (request.target === 'agy' ? invokeAgy : invokeCli)(directory, workspace, request, publish, testDriver);
-    if (outcome.status === 'succeeded' && request.kind === 'run') {
-      const artifacts = inspectOutputs(workspace, request.expected_outputs);
-      outcome.result.artifacts = artifacts;
-      outcome.artifact_check = artifacts.some(item => item.error) ? 'failed' : 'passed';
-      if (outcome.artifact_check === 'failed') { outcome.status = 'failed'; outcome.error = 'expected_output_validation_failed'; }
-    }
-    if (outcome.result) atomicJson(path.join(directory, 'result.json'), outcome.result);
-    const { result: _result, ...metadata } = outcome;
-    publish(metadata);
-  } catch (error) {
-    publish({ status: state.submission === 'may_have_been_sent' ? 'unknown' : 'failed', error: 'worker_error', error_code: error.code ?? error.name, error_syscall: error.syscall ?? null, retry_safe: false });
-  } finally { clearInterval(heartbeat); }
-}
 
 export function invokeAgy(directory, workspace, request, publish, testDriver) {
   return new Promise(resolve => {
@@ -160,8 +125,4 @@ export function invokeAgy(directory, workspace, request, publish, testDriver) {
         result: { native_session_id: finalResult.conversation_id, response: finalResult.response ?? '', usage: finalResult.usage ?? null } });
     });
   });
-}
-
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  await work(path.resolve(process.argv[2]));
 }

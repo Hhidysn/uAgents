@@ -19,10 +19,10 @@ const manifest = JSON.parse(
 );
 const mcpConfig = JSON.parse(fs.readFileSync(path.join(pluginRoot, '.mcp.json'), 'utf8'));
 assert.equal(manifest.name, 'uagents');
-assert.equal(manifest.version, '0.1.0-alpha.6');
+assert.match(manifest.version, /^0\.2\.0-alpha\.1(?:\+codex\.[A-Za-z0-9-]+)?$/);
 assert.equal(manifest.skills, './skills/');
 assert.equal(manifest.mcpServers, './.mcp.json');
-assert.deepEqual(Object.keys(mcpConfig.mcpServers), ['doubao_work', 'trae_cn']);
+assert.deepEqual(Object.keys(mcpConfig.mcpServers), ['unified']);
 
 const references = ['agy.md', 'workbuddy.md', 'opencode-council.md', 'doubao-work.md', 'trae-cn.md'];
 const skillRoot = path.join(pluginRoot, 'skills', 'agent-dispatch');
@@ -44,15 +44,22 @@ async function listTools(serverName, expectedTools) {
   assert.ok(entry.startsWith(`${pluginRoot}${path.sep}`));
   assert.ok(fs.statSync(entry).isFile());
 
+  const isolatedHome = path.join(stateRoot, serverName, 'home');
+  fs.mkdirSync(isolatedHome, { recursive: true });
+  const childEnv = {
+    ...process.env,
+    HOME: isolatedHome,
+    USERPROFILE: isolatedHome,
+    LOCALAPPDATA: path.join(isolatedHome, 'AppData', 'Local'),
+    PLUGIN_ROOT: pluginRoot,
+    UAGENTS_TRAE_STATE_DIR: path.join(stateRoot, serverName, 'gateway'),
+  };
+  delete childEnv.PLUGIN_DATA;
+  delete childEnv.UAGENTS_STATE_DIR;
+
   const child = spawn(process.execPath, [entry], {
     cwd: pluginRoot,
-    env: {
-      ...process.env,
-      PLUGIN_ROOT: pluginRoot,
-      PLUGIN_DATA: path.join(stateRoot, serverName),
-      UAGENTS_STATE_DIR: path.join(stateRoot, serverName),
-      UAGENTS_TRAE_STATE_DIR: path.join(stateRoot, serverName, 'gateway'),
-    },
+    env: childEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -108,6 +115,7 @@ async function listTools(serverName, expectedTools) {
     });
     const initialized = await waitFor(1);
     assert.ok(initialized.result?.serverInfo?.name);
+    assert.ok(fs.statSync(path.join(isolatedHome, 'AppData', 'Local', 'uAgents', 'v1', 'control.db')).isFile());
     send({ jsonrpc: '2.0', method: 'notifications/initialized' });
     send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const listed = await waitFor(2);
@@ -115,13 +123,12 @@ async function listTools(serverName, expectedTools) {
       listed.result.tools.map((tool) => tool.name).sort(),
       [...expectedTools].sort(),
     );
-    const probeName = expectedTools.find((name) => name.endsWith('_probe'));
-    assert.ok(probeName);
+    const probeName = 'uagents_probe';
     send({
       jsonrpc: '2.0',
       id: 3,
       method: 'tools/call',
-      params: { name: probeName, arguments: {} },
+      params: { name: probeName, arguments: { target: 'opencode' } },
     });
     const probed = await waitFor(3);
     assert.ok(probed.result);
@@ -149,20 +156,18 @@ async function listTools(serverName, expectedTools) {
 const result = {
   plugin: { name: manifest.name, version: manifest.version, root: pluginRoot },
   skill: { name: 'agent-dispatch', references },
-  mcp: [
-    await listTools('doubao_work', [
-      'doubao_probe',
-      'doubao_submit',
-      'doubao_status',
-      'doubao_result',
-    ]),
-    await listTools('trae_cn', [
-      'trae_probe',
-      'trae_submit',
-      'trae_status',
-      'trae_result',
-    ]),
-  ],
+  mcp: [await listTools('unified', [
+    'uagents_list_targets',
+    'uagents_get_capabilities',
+    'uagents_list_models',
+    'uagents_probe',
+    'uagents_submit',
+    'uagents_status',
+    'uagents_result',
+    'uagents_cancel',
+    'uagents_list_tasks',
+    'uagents_reconcile',
+  ])],
 };
 
 console.log(JSON.stringify(result, null, 2));

@@ -1,7 +1,7 @@
 import { BUILTIN_REGISTRY } from '../registry/builtins.mjs';
 import { fail } from '../protocol/errors.mjs';
-import { invokeCli, nativeDriver } from '../../skills/agent-dispatch/scripts/cli-adapters.mjs';
-import { invokeAgy } from '../../skills/agent-dispatch/scripts/worker.mjs';
+import { invokeCli, nativeDriver } from '../transports/cli-process.mjs';
+import { invokeAgy } from '../transports/agy-process.mjs';
 
 export class CliAdapter {
   #outcomes = new Map();

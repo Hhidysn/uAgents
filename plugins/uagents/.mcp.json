@@ -1,16 +1,9 @@
 {
-  "$schema": "https://agentplugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
-    "doubao_work": {
+    "unified": {
       "type": "stdio",
       "command": "node",
-      "args": ["./mcp/doubao/dist/server.mjs"],
-      "cwd": "./"
-    },
-    "trae_cn": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["./mcp/trae/dist/server.mjs"],
+      "args": ["./mcp/unified/dist/server.mjs"],
       "cwd": "./"
     }
   }
