@@ -128,7 +128,9 @@ async function listTools(serverName, expectedTools) {
       jsonrpc: '2.0',
       id: 3,
       method: 'tools/call',
-      params: { name: probeName, arguments: { target: 'opencode' } },
+      params: { name: probeName, arguments: {
+        target: 'opencode', model: 'commandcode-goat/deepseek/deepseek-v4-flash',
+      } },
     });
     const probed = await waitFor(3);
     assert.ok(probed.result);
