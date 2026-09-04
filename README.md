@@ -9,6 +9,7 @@ uAgents 是供 Codex 使用的本地统一 Agent 调度插件。`0.2.0-alpha.1` 
 - 每次调用记录 `model_requested`、`model_resolved`、`model_reported`、`model_verified`，不把配置选择冒充运行期验证。
 - `model_resolved` 保存规范模型名，完整 Provider/Model 运输路线单独保存在 `route_id`。
 - 原生失败以脱敏结构化错误返回；Provider 响应头、响应体和凭据内容不会写入任务记录。
+- 启动受信任的本机 Agent CLI 时继承 Codex MCP 进程环境，使任意 Provider 的环境变量凭据无需硬编码即可使用；环境内容不会进入请求、SQLite 或结果。
 - 外部发送前持久化 `possibly_sent`；发送后不确定状态不自动换 UUID、模型或 Provider 重放。
 - workspace 重叠租约、fencing token、输入快照、不可变产物捕获与 SHA-256 验证。
 - `status`/`list` 只读本地状态；只有显式 `reconcile` 才访问已有原生任务身份。

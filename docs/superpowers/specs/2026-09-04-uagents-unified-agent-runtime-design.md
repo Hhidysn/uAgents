@@ -308,7 +308,7 @@ Policy 仅返回允许决策或结构化拒绝，不调用 Agent。决策记录�
 - 付费或有限额度模型需要显式选择。
 - 不从常用路线静默切换到付费路线。
 - 首版 `fallback` 只支持 `none`。
-- 不读取、复制或记录 Provider 凭据内容。
+- 不解析或记录 Provider 凭据内容；启动受信任的本机 Agent CLI 时继承父进程环境，保持原生 CLI 的订阅与 Provider 行为，无需在插件中维护 Key 名单。
 - 探测失败不自动登录、安装、购买或更换 Provider。
 
 Target 是实际执行后端，Model 是模型路线，Profile 是可选角色模板。首版保留 Profile 扩展位，不实现 Profile 管理。Profile 以后也不得自行提升权限、选择付费模型或开启 fallback。

@@ -11,4 +11,6 @@ The JSON event stream identifies the native session and final message parts but 
 
 Provider error events are reduced to a redacted structured failure. Authentication rejection is reported as `authentication_required` with the HTTP status and native error class only; response headers, response bodies, and credential material are discarded. The version-only probe does not authenticate with the provider, so a successful probe does not establish that a live model call will succeed.
 
+The OpenCode process inherits the Codex MCP process environment through its detached uAgents worker. Provider-specific subscription variables are not named in plugin code. If a variable was added or changed after Codex started, restart Codex before retrying with a new UUID.
+
 For a council, record the primary proposal first, give independent candidates the same bounded brief, use a distinct UUID per intentionally separate candidate, and synthesize by evidence rather than vote. A failed or rate-limited route is not automatically replaced.

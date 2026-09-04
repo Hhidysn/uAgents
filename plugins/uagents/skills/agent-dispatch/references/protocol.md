@@ -45,6 +45,8 @@ CLI equivalents use `status <task-id>`, `result <task-id>`, `cancel <task-id>`, 
 
 `status` and `result` always include `error`. It is `null` when the current state has no recorded failure. Native failures use the same structured fields as protocol errors: `code`, `category`, `message`, `retryable`, `schema_version`, `submission`, and `details`. Provider headers, response bodies, credentials, and tokens are never persisted in this record.
 
+Trusted local Agent CLI processes inherit the MCP server environment through the detached worker. This preserves arbitrary provider subscription variables without hard-coding credential names. Environment values are process-local: uAgents does not add them to requests, task files, SQLite rows, events, logs, or results. Restart Codex after adding or changing a parent-process environment variable so newly launched MCP servers inherit it.
+
 ## Interpretation
 
 - `submission=not_sent`: no external send boundary was crossed.

@@ -103,8 +103,18 @@ test('deadline after send remains unknown even if process kill emits an error', 
   assert.equal(done.error, 'deadline_remote_state_unknown');
 });
 
-test('child environment uses an explicit allowlist', () => {
-  const filtered = childEnvironment({ PATH: 'fixture-bin', LOCALAPPDATA: 'fixture-data', OPENAI_API_KEY: 'secret', RANDOM_UNRELATED: 'value' });
-  assert.deepEqual(filtered, { PATH: 'fixture-bin', LOCALAPPDATA: 'fixture-data' });
-  assert.equal(JSON.stringify(filtered).includes('secret'), false);
+test('worker and native CLI environments preserve arbitrary provider variables', () => {
+  const parent = {
+    PATH: 'fixture-bin', LOCALAPPDATA: 'fixture-data',
+    COMMANDCODE_API_KEY: 'fixture-command-code-key', FUTURE_SUBSCRIPTION_KEY: 'fixture-future-key',
+    NON_STRING_VALUE: 42,
+  };
+  const worker = childEnvironment(parent, { UAGENTS_TEST_MARKER: 'worker' });
+  const nativeCli = childEnvironment(worker, { UAGENTS_TEST_MARKER: 'native-cli' });
+  assert.deepEqual(nativeCli, {
+    PATH: 'fixture-bin', LOCALAPPDATA: 'fixture-data',
+    COMMANDCODE_API_KEY: 'fixture-command-code-key', FUTURE_SUBSCRIPTION_KEY: 'fixture-future-key',
+    UAGENTS_TEST_MARKER: 'native-cli',
+  });
+  assert.equal(parent.UAGENTS_TEST_MARKER, undefined);
 });
