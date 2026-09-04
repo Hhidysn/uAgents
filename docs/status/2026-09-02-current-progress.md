@@ -44,7 +44,7 @@ Claude Code、Grok、Pi 只有 help 级候选契约，不在 target allowlist；
 
 1. 完成干净复制、插件校验、个人 marketplace 重装和新 Codex 任务中的统一工具发现。
 2. 在用户明确同意额度消耗后，分别执行五个目标的最小 live smoke；失败不自动回退。
-3. 增加可验证的 heartbeat/陈旧 Worker 恢复、系统重启耐久性和保留/清理策略。
+3. 在已有 lease heartbeat 基础上增加陈旧 Worker 的自动检测辅助、系统重启耐久性和保留/清理策略。
 4. 评估图片输入、原生 resume/cancel、真正 enforced-read-only 与 Agent Profile 层。
 5. 公开发布前补顶层许可证、版本/变更日志和完整供应链清单。
 
