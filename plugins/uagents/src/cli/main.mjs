@@ -8,7 +8,7 @@ import { resolveStateRoot, UnifiedRuntime } from '../runtime/api.mjs';
 export async function execute(argv, options = {}) {
   const registry = options.registry ?? createRegistry();
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, strict: true, options: {
-    request: { type: 'string' }, 'state-dir': { type: 'string' }, model: { type: 'string' }, refresh: { type: 'boolean' },
+    request: { type: 'string' }, 'request-stdin': { type: 'boolean' }, 'state-dir': { type: 'string' }, model: { type: 'string' }, refresh: { type: 'boolean' },
     limit: { type: 'string' }, cursor: { type: 'string' }, config: { type: 'string' }, format: { type: 'string' },
   } });
   if (values.format && !['json', 'table'].includes(values.format)) fail('invalid_request', 'format must be json or table.');
@@ -31,8 +31,11 @@ export async function execute(argv, options = {}) {
   try {
     if (command === 'probe') return ok(await runtime.probe(required(subject, 'target'), { model: values.model ?? 'default' }));
     if (command === 'submit') {
-      if (subject || !values.request) fail('usage', 'submit requires --request FILE.');
-      const input = JSON.parse(fs.readFileSync(values.request, 'utf8'));
+      if (subject || Boolean(values.request) === Boolean(values['request-stdin'])) fail('usage', 'submit requires exactly one of --request FILE or --request-stdin.');
+      const serialized = values.request
+        ? fs.readFileSync(values.request, 'utf8')
+        : await readStdin(options.stdin ?? process.stdin);
+      const input = parseJson(serialized, 'Request');
       return ok(runtime.submit(input));
     }
     if (command === 'status') return ok(runtime.status(required(subject, 'task id')));
@@ -54,6 +57,20 @@ export async function main(argv = process.argv.slice(2), io = console) {
 }
 
 function required(value, label) { if (!value) fail('usage', `Missing ${label}.`); return value; }
+
+function parseJson(value, label) {
+  try { return JSON.parse(value); }
+  catch { fail('invalid_request', `${label} must contain valid JSON.`); }
+}
+
+async function readStdin(stream) {
+  let value = '';
+  for await (const chunk of stream) {
+    value += chunk.toString();
+    if (Buffer.byteLength(value) > 1_048_576) fail('invalid_request', 'Request stdin exceeds 1 MiB.');
+  }
+  return value;
+}
 
 function renderTable(envelope) {
   if (!envelope.ok) return JSON.stringify(envelope);

@@ -7,7 +7,7 @@
 
 ## 1. 实施原则
 
-- 采用模块化单体：CLI 与一个 stdio MCP 共用同一 Core。
+- 采用模块化单体：本地优先 CLI 与一个可选 stdio MCP 共用同一 Core。
 - SQLite WAL 只保存控制面；Prompt、大文本、输入快照和产物放任务目录。
 - Task、Attempt、Native Session 分离；一个新 Task 首版只建立一个 Attempt。
 - 所有外部发送之前必须完成 `possibly_sent` 持久化 checkpoint。
@@ -289,7 +289,7 @@ WorkBuddy `workbuddy-default` 不冒充具体模型；OpenCode 只允许两条 C
 - `plugins/uagents/src/cli/main.mjs`
 - `tests/unified-cli.test.mjs`
 
-实现设计中的全部命令。JSON 为默认输出；`status/list` 只读；`reconcile` 显式访问原生目标。测试只使用 Fake CLI fixture。
+实现设计中的全部命令。JSON 为默认输出；`status/list` 只读；`reconcile` 显式访问原生目标。`submit` 支持互斥的 `--request FILE` 与 `--request-stdin`，stdin 最大 1 MiB，Prompt 和 JSON 不进入进程参数。自动化测试使用 fixture，真实 E2E 只使用用户已授权的常规路线。
 
 Gate 4 验收：
 
@@ -329,7 +329,7 @@ node --test tests/adapter-contract.test.mjs
 - `plugins/uagents/mcp/unified/scripts/build.mjs`
 - `plugins/uagents/mcp/unified/test/server-smoke.test.mjs`
 
-工具：targets、capabilities、models、probe、submit、status、result、cancel、list_tasks、reconcile。Server 只调用 Core；不得复制状态机、Policy 或 Adapter 分支。submit 快速返回；status 只读；list 有 cursor 和硬上限；reconcile 的描述明确会访问原生目标。
+工具：targets、capabilities、models、probe、submit、status、result、cancel、list_tasks、reconcile。Server 只调用 Core；不得复制状态机、Policy 或 Adapter 分支。submit 快速返回；status 只读；list 有 cursor 和硬上限；reconcile 的描述明确会访问原生目标。MCP 是兼容入口，不承诺获得宿主未显式转发的环境变量。
 
 Gate 6 验收：
 
@@ -345,7 +345,7 @@ node --test tests/unified-cli.test.mjs tests/plugin-package.test.mjs
 只有 Gate 0–6 全部通过后：
 
 - 更新 `.codex-plugin/plugin.json` 仅注册 unified MCP。
-- 更新 `skills/agent-dispatch/SKILL.md` 与 target references 使用统一 CLI/MCP。
+- 更新 `skills/agent-dispatch/SKILL.md` 与 target references：本地 Codex 默认使用 CLI，只有缺少本地 Shell 或用户明确要求时才使用 MCP。
 - 删除旧 `agent-call.mjs`、`worker.mjs`、`cli-adapters.mjs` 和两个目标专用 MCP Server/store 外壳。
 - 保留已迁移的 CDP、gateway、解析器、fixture、许可证和第三方通知。
 - 更新 README、状态、协议、安装、诊断、权限和迁移文档。
@@ -376,7 +376,8 @@ git status --short
 - waiting_user 恢复和 indeterminate 证据收敛测试。
 - workspace 父子路径、大小写与 junction 冲突测试。
 - 输入变化、产物捕获、越界与 hash 测试。
-- CLI/MCP 同 UUID 返回同一 Task/Attempt。
+- CLI/MCP 同 UUID、同一状态目录返回同一 Task/Attempt。
+- 本地 CLI → Worker → OpenCode 环境变量鉴权真实 E2E；MCP 环境隔离作为独立兼容性结果记录。
 - 所有 Target 的模型四字段与 route/assurance fixture。
 - 日志、数据库、错误和产物 manifest 的凭据扫描。
 - 插件干净安装以及新 Codex 任务中的工具发现。

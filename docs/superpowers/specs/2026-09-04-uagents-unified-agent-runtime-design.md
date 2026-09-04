@@ -12,7 +12,7 @@ uAgents 将从“多条目标专用调用路线”重写为“统一 Agent 调�
 
 首版目标：
 
-- 以一个共享 Core 同时支持 CLI 和统一 MCP Server。
+- 以一个共享 Core 同时支持本地优先 CLI 和可选统一 MCP Server。
 - 统一调用 agy、WorkBuddy、OpenCode、豆包工作和 TRAE CN。
 - 在调用时选择目标和模型，不静默切换 Provider 或付费路线。
 - 区分请求模型、解析路线、原生报告模型和经过验证的模型身份。
@@ -28,7 +28,7 @@ uAgents 将从“多条目标专用调用路线”重写为“统一 Agent 调�
 
 ## 2. 总体架构
 
-采用模块化单体，CLI 和 MCP 调用同一 Node.js Core：
+采用模块化单体，CLI 和 MCP 调用同一 Node.js Core。本地 Codex 有 Shell 时以 CLI 为主入口；MCP 是没有本地 Shell 或用户明确要求 MCP 时的兼容入口：
 
 ```text
 CLI ─┐
@@ -308,7 +308,7 @@ Policy 仅返回允许决策或结构化拒绝，不调用 Agent。决策记录�
 - 付费或有限额度模型需要显式选择。
 - 不从常用路线静默切换到付费路线。
 - 首版 `fallback` 只支持 `none`。
-- 不解析或记录 Provider 凭据内容；启动受信任的本机 Agent CLI 时继承父进程环境，保持原生 CLI 的订阅与 Provider 行为，无需在插件中维护 Key 名单。
+- 不解析或记录 Provider 凭据内容；本地 uAgents CLI、后台 Worker 和受信任的 Agent CLI 逐层继承调用终端环境，保持原生 CLI 的订阅与 Provider 行为，无需在插件中维护 Key 名单。插件 MCP 的环境由宿主策略控制，不作为本地环境变量鉴权的默认路线。
 - 探测失败不自动登录、安装、购买或更换 Provider。
 
 Target 是实际执行后端，Model 是模型路线，Profile 是可选角色模板。首版保留 Profile 扩展位，不实现 Profile 管理。Profile 以后也不得自行提升权限、选择付费模型或开启 fallback。
@@ -442,6 +442,7 @@ uagents capabilities <target>
 uagents models <target> [--refresh]
 uagents probe <target> [--model <id>]
 uagents submit --request <file>
+uagents submit --request-stdin
 uagents status <task-id>
 uagents result <task-id>
 uagents cancel <task-id>
@@ -451,7 +452,7 @@ uagents config validate
 uagents cleanup --dry-run
 ```
 
-机器可读输出默认为 JSON，表格输出通过 `--format table` 显式请求。
+机器可读输出默认为 JSON，表格输出通过 `--format table` 显式请求。`submit` 必须且只能使用 `--request <file>` 或 `--request-stdin`；stdin 最大 1 MiB，随后仍执行 Schema 1.0 校验。Prompt、凭据和序列化请求不得放入进程参数。
 
 MCP：
 
@@ -479,7 +480,7 @@ MCP 使用统一 envelope：
 }
 ```
 
-`uagents_submit` 只保证任务已登记并返回建议轮询时间，不阻塞等待完整 Agent 结果。`uagents_status` 只读；`uagents_reconcile` 明确表示允许访问原生目标并刷新状态。任务列表必须分页且设置硬上限。MCP 首版不暴露 cleanup、安装、登录、Provider 配置和任意 `target_action`。
+本地 Codex 默认使用 CLI。`uagents_submit` 只保证任务已登记并返回建议轮询时间，不阻塞等待完整 Agent 结果。`uagents_status` 只读；`uagents_reconcile` 明确表示允许访问原生目标并刷新状态。任务列表必须分页且设置硬上限。MCP 首版不暴露 cleanup、安装、登录、Provider 配置和任意 `target_action`，也不承诺获得未由宿主显式转发的环境变量。
 
 ## 12. 错误协议
 
@@ -528,7 +529,7 @@ MCP 使用统一 envelope：
 
 Windows 上不能用 POSIX `0o600` 作为 NTFS DACL 已正确限制的证据。安装和首次启动必须检查状态根目录 ACL；无法证明仅当前用户可访问时记录显式安全警告，而不是宣称已经隔离。
 
-子进程使用环境变量 allowlist，不记录完整父进程环境。日志过滤 API Key、OAuth Header、Token、Cookie、私钥、CLI 登录文件内容、浏览器 Profile 和 MCP 认证参数。每个事件以及 stdout/stderr 设置大小上限，截断后显式记录 `truncated=true`。
+本地 CLI 启动的受信任子进程继承调用终端环境，但不枚举、记录或持久化环境内容；插件 MCP 仍服从宿主的显式环境转发策略。日志过滤 API Key、OAuth Header、Token、Cookie、私钥、CLI 登录文件内容、浏览器 Profile 和 MCP 认证参数。每个事件以及 stdout/stderr 设置大小上限，截断后显式记录 `truncated=true`。
 
 统一 MCP 首版只使用 stdio。CDP/HTTP 运输只允许显式 loopback 地址，拒绝局域网和公网目标，验证应用身份，不提供任意 JavaScript/CDP eval。
 
@@ -552,7 +553,7 @@ uagents cleanup --task <id>
 3. Runtime：SQLite 事务、Task/Attempt/Session、状态转换、UUID 幂等、发送 checkpoint、Worker 未确认、heartbeat、lease/fencing、取消不确定、reconcile、workspace 重叠锁和产物一致性。
 4. Adapter Contract Suite：descriptor、probe 无正式发送、native handle、任务身份、不支持能力、错误映射和凭据脱敏。
 5. Fixture：正常完成、权限拒绝、登录过期、额度不足、输出截断、会话混合、模型不匹配、连接中断和后台子任务未完成。
-6. CLI/MCP 一致性：同一 Core 请求产生同一任务、状态、错误码、模型字段和产物摘要。
+6. CLI/MCP 一致性：同一 Core 请求产生同一任务、状态、错误码、模型字段和产物摘要；本地环境变量鉴权 E2E 以 CLI 路线为准，MCP 环境限制单独验收。
 7. Windows：Node 22/24 SQLite WAL、中文、空格、长路径、大小写冲突、保留设备名、junction/reparse point、SUBST/UNC、detached Worker、ACL、lease 和同目录原子替换。
 
 关键破坏性测试必须覆盖：32 个进程同时提交同一 UUID 只创建一个 Attempt；在 `possibly_sent` 前后、原生 ACK 前后逐点杀 Worker；旧 fencing token 无法写入；`waiting_user → running → succeeded`；`indeterminate` 只凭同一 Native Session 的更强证据收敛；输入登记后被修改则在发送前失败。

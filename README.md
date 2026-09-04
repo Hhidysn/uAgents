@@ -4,19 +4,33 @@ uAgents 是供 Codex 使用的本地统一 Agent 调度插件。`0.2.0-alpha.1` 
 
 核心特性：
 
-- 一个 `agent-dispatch` Skill、一个 CLI、一个 stdio MCP Server，共用同一 Node.js Core。
+- 一个 `agent-dispatch` Skill、一个本地优先 CLI、一个可选 stdio MCP Server，共用同一 Node.js Core。
 - SQLite WAL 控制面；Task、Attempt、Native Session 分离；同 UUID 与同一有效请求不会重复发送。
 - 每次调用记录 `model_requested`、`model_resolved`、`model_reported`、`model_verified`，不把配置选择冒充运行期验证。
 - `model_resolved` 保存规范模型名，完整 Provider/Model 运输路线单独保存在 `route_id`。
 - 原生失败以脱敏结构化错误返回；Provider 响应头、响应体和凭据内容不会写入任务记录。
-- 启动受信任的本机 Agent CLI 时继承 Codex MCP 进程环境，使任意 Provider 的环境变量凭据无需硬编码即可使用；环境内容不会进入请求、SQLite 或结果。
+- 本地 uAgents CLI、后台 Worker 和受信任的 Agent CLI 逐层继承调用终端环境，使任意 Provider 的环境变量凭据无需硬编码即可使用；环境内容不会进入请求、SQLite 或结果。
 - 外部发送前持久化 `possibly_sent`；发送后不确定状态不自动换 UUID、模型或 Provider 重放。
 - workspace 重叠租约、fencing token、输入快照、不可变产物捕获与 SHA-256 验证。
 - `status`/`list` 只读本地状态；只有显式 `reconcile` 才访问已有原生任务身份。
 
 ## 使用
 
-插件通过 `.mcp.json` 只注册 `uagents-unified`，提供：
+本地 Codex 默认直接运行 CLI。插件根目录取当前安装版本中包含 `skills/agent-dispatch` 的目录，不要把缓存版本号写死。CLI 使用相同 Core，默认状态目录是 `%LOCALAPPDATA%\uAgents\v1`：
+
+```powershell
+node "<plugin-root>\bin\uagents.mjs" targets
+node "<plugin-root>\bin\uagents.mjs" capabilities opencode
+node "<plugin-root>\bin\uagents.mjs" models opencode
+node "<plugin-root>\bin\uagents.mjs" submit --request "F:\path\request.json"
+node "<plugin-root>\bin\uagents.mjs" submit --request-stdin
+node "<plugin-root>\bin\uagents.mjs" status <task-id>
+node "<plugin-root>\bin\uagents.mjs" result <task-id>
+```
+
+`submit` 必须且只能选择 `--request FILE` 或 `--request-stdin`。stdin 适用于调用方可以把输入与命令文本分离的场景；不要把 prompt 或完整 JSON 放入进程参数。
+
+`.mcp.json` 注册的 `uagents-unified` 是兼容入口，供没有本地 Shell 或明确要求 MCP 的宿主使用：
 
 ```text
 uagents_list_targets       uagents_get_capabilities
@@ -26,16 +40,7 @@ uagents_result             uagents_cancel
 uagents_list_tasks         uagents_reconcile
 ```
 
-CLI 使用相同 Core：
-
-```powershell
-node plugins/uagents/bin/uagents.mjs targets
-node plugins/uagents/bin/uagents.mjs capabilities opencode
-node plugins/uagents/bin/uagents.mjs models opencode
-node plugins/uagents/bin/uagents.mjs submit --request "F:\path\request.json" --state-dir "F:\path\uagents-state"
-node plugins/uagents/bin/uagents.mjs status <task-id> --state-dir "F:\path\uagents-state"
-node plugins/uagents/bin/uagents.mjs result <task-id> --state-dir "F:\path\uagents-state"
-```
+Codex 可能只把显式声明的环境变量交给插件 MCP 进程，因此环境变量鉴权的本机 Agent 不应默认走 MCP。CLI 与 MCP 只有在使用同一状态目录时才共享 Task/Attempt；切换入口也不得用新 UUID 重放已发送或不确定的任务。
 
 请求协议与状态解释见 [Skill 协议说明](plugins/uagents/skills/agent-dispatch/references/protocol.md)。目标差异见同目录下的 agy、WorkBuddy、OpenCode、豆包和 TRAE 说明。
 

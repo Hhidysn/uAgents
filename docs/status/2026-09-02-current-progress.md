@@ -4,7 +4,7 @@
 
 ## 当前结论
 
-原先的三条 CLI 路线和两个目标专用桌面 MCP 已重构为一个统一 Runtime：一个 versioned request、一个结果 envelope、一个 SQLite WAL 控制面、五个普通 Adapter，以及共享这些能力的 CLI 和 stdio MCP。2026-09-03 已完成旧版 Skill/MCP 拾取和 agy 最小真实任务；2026-09-04 的重写验证默认只使用 fixture 和 connection-only probe，不消耗 Provider 任务额度。
+原先的三条 CLI 路线和两个目标专用桌面 MCP 已重构为一个统一 Runtime：一个 versioned request、一个结果 envelope、一个 SQLite WAL 控制面、五个普通 Adapter，以及共享这些能力的本地优先 CLI 和可选 stdio MCP。2026-09-04 已验证本地 uAgents CLI → Worker → OpenCode → Command Code 的环境变量鉴权真实 E2E；插件 MCP 因宿主环境转发边界保留为兼容入口。
 
 | 模块 | 当前能力 | 仍有边界 |
 | --- | --- | --- |
@@ -15,7 +15,7 @@
 | OpenCode | 两条 Command Code Flash 路线、独立文本 analysis、最终 step/session 解析 | 不开放 implementation；事件不回显模型，故保持未验证 |
 | 豆包 | 统一 Adapter、空白会话、Enter 前 checkpoint、conversation 身份、稳定回复 | 需用户准备 CDP；无原生取消；不报告具体模型 |
 | TRAE CN | 统一 Adapter、workbench 身份、POST 前 checkpoint、native task ID、零自动审批、额度错误映射 | 需用户启动 IDE 与本地 gateway；无原生取消；不报告具体模型 |
-| CLI / MCP | 同一 Core；MCP 10 个统一工具；CLI JSON/table 输出；status/list 只读 | 新插件工具需要重新安装并在新 Codex 任务中拾取 |
+| CLI / MCP | 同一 Core；本地默认 CLI；MCP 10 个兼容工具；CLI JSON/table 输出及 request stdin；status/list 只读 | 新插件版本需要重新安装并在新 Codex 任务中拾取 |
 
 ## 模型字段
 

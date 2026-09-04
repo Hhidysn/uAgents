@@ -5,7 +5,9 @@ description: Delegate tracked tasks to agy/Gemini, WorkBuddy, OpenCode, Doubao W
 
 # Agent dispatch
 
-Use the unified `uagents_*` MCP tools when available. They and `bin/uagents.mjs` call the same Core and share task state. Codex remains responsible for task decomposition, explicit target/model choice, result evaluation, and final synthesis.
+Use the local `bin/uagents.mjs` CLI as the primary entrypoint when Codex has a local shell. This preserves the caller's environment for installed Agent CLIs. Derive `<plugin-root>` from this loaded Skill's location (`skills/agent-dispatch` is two levels below the plugin root); never hard-code a cache version. Use the unified `uagents_*` MCP tools only when a local shell is unavailable or the user explicitly requests MCP. Both entrypoints call the same Core and can share the same state root.
+
+Run CLI commands as `node "<plugin-root>/bin/uagents.mjs" <command>`. JSON is the default output. Omit `--state-dir` to use the normal local state, or keep one explicit absolute state directory unchanged across submit and every later query. For submit, use `--request FILE`; use `--request-stdin` only when the caller can provide stdin separately from the command text. Never place prompt text, credentials, or serialized requests in process arguments.
 
 Before submitting, read [references/protocol.md](references/protocol.md) and only the selected target reference:
 
@@ -19,13 +21,13 @@ Do not invent an unsupported target, capability, model, or fallback. Do not auto
 
 ## Workflow
 
-1. Inspect `uagents_list_targets`, `uagents_get_capabilities`, and `uagents_list_models` when routing is unclear. Registry presence is not proof that a provider is currently usable.
+1. Inspect CLI `targets`, `capabilities <target>`, and `models <target>` when routing is unclear. On the MCP fallback, use `uagents_list_targets`, `uagents_get_capabilities`, and `uagents_list_models`. Registry presence is not proof that a provider is currently usable.
 2. Create one UUID for each intentionally new task and submit the complete versioned request. Reuse the same UUID only for the exact same effective request.
 3. Treat `registered`/`queued`/`starting` as local lifecycle states, not proof of native receipt. `submission=may_have_been_sent` or `status=indeterminate` forbids automatic replay or changing UUID to retry.
-4. Poll `uagents_status`, which is local and read-only. Use `uagents_result` for response, model evidence, usage, and captured artifacts. Call `uagents_reconcile` only when explicitly checking the stored native identity is appropriate; it may contact the target but never resubmits.
-5. For `waiting_user`, report the exact required native action and wait for the user. `uagents_cancel` records cancellation intent; do not call a sent task cancelled unless the result confirms it.
+4. Poll CLI `status <task-id>`, which is local and read-only. Use `result <task-id>` for response, model evidence, usage, and captured artifacts. Call `reconcile <task-id>` only when explicitly checking the stored native identity is appropriate; it may contact the target but never resubmits. Use the corresponding `uagents_*` tools only on the MCP fallback.
+5. For `waiting_user`, report the exact required native action and wait for the user. CLI `cancel <task-id>` or MCP `uagents_cancel` records cancellation intent; do not call a sent task cancelled unless the result confirms it.
 6. Validate outputs against the original acceptance criteria. Native success and a plausible answer do not prove requested files or behavior are correct.
 
 Every status/result includes `model_requested`, `model_resolved`, `model_reported`, and `model_verified`. `model_reported=null` and `model_verified=false` are valid evidence states, especially for backend-default or non-reporting targets; never fill them by inference.
 
-The CLI fallback is `node "<plugin-root>/bin/uagents.mjs" <command>`. Prompt text belongs in a JSON request file or MCP arguments, never in command-line arguments. Runtime state defaults to `%LOCALAPPDATA%\uAgents\v1`; `--state-dir` may select another absolute directory.
+The MCP host may expose only explicitly declared environment variables to a plugin server. Do not interpret an MCP authentication failure as proof that the same native CLI is unusable. When local CLI execution is available, keep the request on the CLI path rather than switching entrypoints after registration.

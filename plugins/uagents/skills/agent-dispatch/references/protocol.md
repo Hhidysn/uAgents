@@ -2,11 +2,19 @@
 
 ## Request
 
-`uagents_submit` takes the request fields directly. The CLI equivalent is:
+Local Codex should normally use the CLI. `uagents_submit` is the MCP fallback and takes the same request fields directly. CLI file input is:
 
 ```powershell
 node "<plugin-root>/bin/uagents.mjs" submit --request "<request-json>" --state-dir "<absolute-state-dir>"
 ```
+
+Callers that can write stdin separately from the process command may use:
+
+```powershell
+node "<plugin-root>/bin/uagents.mjs" submit --request-stdin --state-dir "<absolute-state-dir>"
+```
+
+Exactly one of `--request FILE` and `--request-stdin` is required. Do not inline the JSON or prompt in a shell command. The stdin request is capped at 1 MiB and is still validated by Schema 1.0.
 
 ```json
 {
@@ -35,17 +43,17 @@ Unknown fields and unsupported capability combinations are rejected before regis
 
 ## Queries
 
-- `uagents_status({task_id})`: SQLite-only status read.
-- `uagents_result({task_id})`: status plus persisted response, usage, and artifact capture records.
-- `uagents_cancel({task_id})`: records cancellation intent.
-- `uagents_list_tasks({cursor, limit})`: cursor pagination, maximum 200.
-- `uagents_reconcile({task_id})`: explicitly queries the stored native identity; never sends the prompt again.
+- `status <task-id>`: SQLite-only status read.
+- `result <task-id>`: status plus persisted response, usage, and artifact capture records.
+- `cancel <task-id>`: records cancellation intent.
+- `list [--cursor <cursor>] [--limit <n>]`: cursor pagination, maximum 200.
+- `reconcile <task-id>`: explicitly queries the stored native identity; never sends the prompt again.
 
-CLI equivalents use `status <task-id>`, `result <task-id>`, `cancel <task-id>`, `list`, and `reconcile <task-id>` with the same `--state-dir`.
+MCP equivalents are `uagents_status`, `uagents_result`, `uagents_cancel`, `uagents_list_tasks`, and `uagents_reconcile`. Keep the same explicit `--state-dir` on every CLI command when using a non-default state root.
 
 `status` and `result` always include `error`. It is `null` when the current state has no recorded failure. Native failures use the same structured fields as protocol errors: `code`, `category`, `message`, `retryable`, `schema_version`, `submission`, and `details`. Provider headers, response bodies, credentials, and tokens are never persisted in this record.
 
-Trusted local Agent CLI processes inherit the MCP server environment through the detached worker. This preserves arbitrary provider subscription variables without hard-coding credential names. Environment values are process-local: uAgents does not add them to requests, task files, SQLite rows, events, logs, or results. Restart Codex after adding or changing a parent-process environment variable so newly launched MCP servers inherit it.
+The local uAgents CLI and its detached worker inherit the invoking terminal environment, preserving arbitrary provider subscription variables without hard-coding credential names. Environment values are process-local: uAgents does not add them to requests, task files, SQLite rows, events, logs, or results. Codex may restrict the environment of plugin MCP servers to names declared by the plugin host; MCP therefore remains a compatibility entrypoint, not the preferred local path for environment-authenticated native CLIs.
 
 ## Interpretation
 

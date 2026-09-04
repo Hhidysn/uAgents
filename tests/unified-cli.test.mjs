@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import { execute, main } from '../plugins/uagents/src/cli/main.mjs';
 
 const root = path.resolve('.local', 'test-runs', randomUUID(), 'unified CLI');
@@ -44,6 +45,18 @@ test('submit is nonblocking, idempotent and creates one detached worker request'
   assert.equal(status.data.attempt.ordinal, 1);
   const listed = await execute(['list', '--limit', '1', '--state-dir', root]);
   assert.equal(listed.data.tasks.length, 1);
+});
+
+test('submit accepts versioned request JSON from stdin without putting the prompt in argv', async () => {
+  const input = request();
+  const spawns = [];
+  const submitted = await execute(['submit', '--request-stdin', '--state-dir', root], {
+    stdin: Readable.from([JSON.stringify(input)]),
+    spawnWorker: (...args) => spawns.push(args),
+  });
+  assert.equal(submitted.data.status, 'registered');
+  assert.equal(submitted.data.request_id, input.request_id);
+  assert.deepEqual(spawns, [[root, input.request_id]]);
 });
 
 test('cancel is a separate intent and main returns a structured error envelope', async () => {
