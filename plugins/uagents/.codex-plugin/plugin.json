@@ -1,6 +1,6 @@
 {
   "name": "uagents",
-  "version": "0.2.0-alpha.1+codex.20260904010854",
+  "version": "0.2.0-alpha.1+codex.20260904122500",
   "description": "Unified, persistent Agent dispatch for CLI and desktop targets with explicit model routing.",
   "author": {
     "name": "uAgents contributors"

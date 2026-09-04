@@ -63,6 +63,26 @@ test('OpenCode implementation is rejected before adapter execution', () => {
   } finally { control.close(); }
 });
 
+test('OpenCode persists a structured native failure and updates the native session status', async () => {
+  const control = new ControlDatabase(path.join(root, `opencode-auth-${randomUUID()}`));
+  try {
+    const service = new TaskService(control);
+    const input = baseRequest({ target: 'opencode' });
+    const driver = { command: process.execPath, args: [fakeCli, 'opencode', input.request_id, 'auth-error'] };
+    const adapter = new OpenCodeAdapter({ testDriver: driver });
+    const registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
+    const result = await runTask({ service, taskId: registered.task_id, adapter });
+    assert.equal(result.status, 'failed');
+    assert.equal(result.native.status, 'failed');
+    assert.equal(result.error.code, 'authentication_required');
+    assert.equal(result.error.category, 'target');
+    assert.equal(result.error.retryable, false);
+    assert.equal(result.error.submission, 'sent');
+    assert.equal(service.result(result.task_id).error.code, 'authentication_required');
+    assert.doesNotMatch(JSON.stringify(service.events(result.task_id)), /fixture-secret/);
+  } finally { control.close(); }
+});
+
 test('persisted cancel intent interrupts a live CLI process without claiming remote cancellation', async () => {
   const control = new ControlDatabase(path.join(root, `cancel-live-${randomUUID()}`));
   try {

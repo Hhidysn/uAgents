@@ -129,6 +129,7 @@ Task（用户逻辑请求与幂等边界）
 - `model_resolved`：uAgents 在提交前解析得到的具体规范模型；后端默认模型无法解析时为 `null`，不把运输路线别名冒充具体模型。
 - `model_reported`：底层 Agent 在本次运行中报告的模型；无可靠元数据时为 `null`。
 - `model_verified`：本次运行是否获得足够证据证明报告身份与解析路线一致。
+- `route_id`：Adapter 实际使用的完整 Provider/Model 运输路线；它与规范模型名 `model_resolved` 分开记录。
 
 完整结果：
 

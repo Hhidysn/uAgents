@@ -59,6 +59,32 @@ test('OpenCode returns only the final completed message and rejects mixed identi
   assert.throws(() => parser.event({ ...ocEvent('text', 'more', 'final', { text: 'other' }), sessionID: 'ses_other' }), { code: 'native_session_mismatch' });
 });
 
+test('OpenCode turns provider authentication failures into a redacted structured error', () => {
+  const parser = createParser(request('opencode'), root, () => {});
+  parser.event({
+    type: 'error', sessionID: 'ses_test',
+    error: {
+      name: 'APIError',
+      data: {
+        message: "Invalid 'Authorization' header or token.", statusCode: 401,
+        responseHeaders: { authorization: 'Bearer fixture-secret' }, responseBody: 'token=fixture-secret',
+      },
+    },
+  });
+  const result = parser.finish(1);
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.error, {
+    code: 'authentication_required',
+    category: 'target',
+    message: 'OpenCode provider authentication failed (HTTP 401). Re-authenticate the configured provider.',
+    retryable: false,
+    schema_version: '1.0',
+    submission: 'sent',
+    details: { native_error_name: 'APIError', native_http_status: 401 },
+  });
+  assert.doesNotMatch(JSON.stringify(result), /fixture-secret/);
+});
+
 test('pre-recorded cancellation needs no installed CLI', async () => {
   const directory = path.join(root, randomUUID()); fs.mkdirSync(directory); fs.writeFileSync(path.join(directory, 'cancel.json'), '{}');
   const driver = { get command() { throw new Error('must not resolve driver'); } };

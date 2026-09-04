@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { evaluateRequest } from '../policy/evaluate.mjs';
-import { fail } from '../protocol/errors.mjs';
+import { errorRecord, fail, UAgentsError } from '../protocol/errors.mjs';
 import { appendEvent } from '../store/database.mjs';
 import { atomicWriteJson, atomicWriteText, readTaskJson, taskDirectory } from '../store/task-files.mjs';
 import { STORE_SCHEMA_VERSION } from '../store/schema.mjs';
@@ -143,6 +143,11 @@ export class TaskService {
       const state = transitionState({ status: row.status, evidence_strength: currentEvidence }, next, { same_native_identity: sameNativeIdentity, evidence_strength: evidenceStrength });
       database.prepare('UPDATE tasks SET status = ?, updated_at_ms = ? WHERE task_id = ?').run(state.status, now, taskId);
       appendEvent(database, { taskId, attemptId, type: `task.${state.status}`, payload: { ...event, evidence_strength: state.evidence_strength }, now });
+      const nativeStatus = typeof event.native_status === 'string' && event.native_status
+        ? event.native_status : ['waiting_user', 'succeeded', 'failed', 'cancelled'].includes(state.status) ? state.status : null;
+      if (attemptId && nativeStatus) database.prepare(`UPDATE native_sessions SET native_status = ? WHERE id = (
+        SELECT id FROM native_sessions WHERE attempt_id = ? ORDER BY id DESC LIMIT 1
+      )`).run(nativeStatus, attemptId);
       if (['succeeded', 'failed', 'cancelled'].includes(state.status) && attemptId) database.prepare('UPDATE attempts SET status = ?, finished_at_ms = ? WHERE attempt_id = ?').run(state.status, now, attemptId);
       return this.#statusWith(database, taskId);
     });
@@ -180,6 +185,9 @@ export class TaskService {
     if (!task) fail('task_not_found', `Unknown task: ${taskId}`);
     const attempt = database.prepare('SELECT * FROM attempts WHERE task_id = ? ORDER BY ordinal DESC LIMIT 1').get(taskId);
     const native = attempt ? database.prepare('SELECT * FROM native_sessions WHERE attempt_id = ? ORDER BY id DESC LIMIT 1').get(attempt.attempt_id) : null;
+    const statusEvent = database.prepare('SELECT payload_json FROM events WHERE task_id = ? AND type = ? ORDER BY sequence DESC LIMIT 1')
+      .get(taskId, `task.${task.status}`);
+    const persistedError = statusEvent ? JSON.parse(statusEvent.payload_json).error : null;
     return {
       schema_version: '1.0', task_id: task.task_id, request_id: task.request_id, target: task.target, status: task.status,
       native_outcome: task.native_outcome, objective_verdict: task.objective_verdict,
@@ -192,7 +200,24 @@ export class TaskService {
         fencing_token: attempt.fencing_token, heartbeat_at_ms: attempt.heartbeat_at_ms === null ? null : Number(attempt.heartbeat_at_ms),
       } : null,
       native: native ? { session_id: native.native_session_id, task_id: native.native_task_id, status: native.native_status, evidence_ref: native.evidence_ref } : null,
+      error: taskErrorRecord(persistedError, attempt?.submission ?? 'not_sent'),
       created_at_ms: Number(task.created_at_ms), updated_at_ms: Number(task.updated_at_ms),
     };
   }
+}
+
+function taskErrorRecord(value, submission) {
+  if (!value) return null;
+  if (typeof value === 'object' && !Array.isArray(value) && typeof value.code === 'string') {
+    return errorRecord(new UAgentsError(value.code, typeof value.message === 'string' ? value.message : 'The native Agent reported a failure.', {
+      category: typeof value.category === 'string' ? value.category : 'target',
+      retryable: value.retryable === true,
+      submission: typeof value.submission === 'string' ? value.submission : submission,
+      details: value.details ?? null,
+    }), value.schema_version ?? '1.0');
+  }
+  const code = typeof value === 'string' && value ? value : 'native_error';
+  return errorRecord(new UAgentsError(code, `The native Agent reported ${code}.`, {
+    category: 'target', retryable: false, submission,
+  }));
 }

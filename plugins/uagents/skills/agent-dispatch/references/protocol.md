@@ -43,6 +43,8 @@ Unknown fields and unsupported capability combinations are rejected before regis
 
 CLI equivalents use `status <task-id>`, `result <task-id>`, `cancel <task-id>`, `list`, and `reconcile <task-id>` with the same `--state-dir`.
 
+`status` and `result` always include `error`. It is `null` when the current state has no recorded failure. Native failures use the same structured fields as protocol errors: `code`, `category`, `message`, `retryable`, `schema_version`, `submission`, and `details`. Provider headers, response bodies, credentials, and tokens are never persisted in this record.
+
 ## Interpretation
 
 - `submission=not_sent`: no external send boundary was crossed.
@@ -50,5 +52,6 @@ CLI equivalents use `status <task-id>`, `result <task-id>`, `cancel <task-id>`, 
 - `submission=sent`: a stable native handle was accepted and stored.
 - `indeterminate`: the remote outcome is unknown. Only stronger evidence for the same native identity may refine it.
 - `waiting_user`: native approval or interaction is required; do not approve automatically.
+- `native.status=accepted` only proves that a stable native identity was observed. Later native evidence updates it to a terminal status when the adapter can determine one.
 
-`model_requested` is the caller's value; `model_resolved` is the route selected by policy; `model_reported` is only what the native runtime actually emitted; `model_verified` is true only when available evidence matches the resolved identity. This is per-call evidence, not a provider-wide availability scan.
+`model_requested` is the caller's value. `model_resolved` is the concrete normalized model selected by policy and may be `null` for a backend default. `route_id` is the full executable provider/model route. `model_reported` is only what the native runtime actually emitted; `model_verified` is true only when available evidence matches the resolved identity. This is per-call evidence, not a provider-wide availability scan.

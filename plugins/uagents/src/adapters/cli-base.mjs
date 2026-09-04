@@ -65,8 +65,10 @@ export class CliAdapter {
       : await invokeCli(directory, workspace, prepared.legacy, publish, prepared.driver);
     nativeSessionId ??= outcome.result?.native_session_id ?? null;
     if (!possiblySent) {
-      const error = Object.assign(new Error(outcome.error ?? 'native_preflight_failed'), {
-        code: outcome.error ?? 'native_preflight_failed', submission: 'not_sent', cancelled: outcome.status === 'cancelled',
+      const code = typeof outcome.error === 'string' ? outcome.error : outcome.error?.code ?? 'native_preflight_failed';
+      const message = typeof outcome.error === 'object' && outcome.error?.message ? outcome.error.message : code;
+      const error = Object.assign(new Error(message), {
+        code, submission: 'not_sent', cancelled: outcome.status === 'cancelled',
       });
       throw error;
     }

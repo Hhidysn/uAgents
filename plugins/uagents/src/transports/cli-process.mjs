@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
-import { fail } from '../protocol/errors.mjs';
+import { errorRecord, fail, UAgentsError } from '../protocol/errors.mjs';
 import { childEnvironment } from '../runtime/child-environment.mjs';
 
 // Only launch installed native entrypoints. No shell, installation, auth reads or config edits.
@@ -41,6 +41,25 @@ const identityError = () => fail('native_session_mismatch', 'Native event identi
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const denied = value => typeof value === 'string' && /permission.*(denied|requested|requires|approval)|auto.reject|soft.denied|not allowed/i.test(value);
 
+function openCodeError(event) {
+  const native = object(event.error) ? event.error : {};
+  const data = object(native.data) ? native.data : {};
+  const status = Number.isInteger(data.statusCode) ? data.statusCode : null;
+  const nativeName = typeof native.name === 'string' && native.name ? native.name : null;
+  const authentication = status === 401 || status === 403;
+  const code = authentication ? 'authentication_required' : 'native_error';
+  const message = authentication
+    ? `OpenCode provider authentication failed (HTTP ${status}). Re-authenticate the configured provider.`
+    : `OpenCode reported a native error${status === null ? '.' : ` (HTTP ${status}).`}`;
+  return errorRecord(new UAgentsError(code, message, {
+    category: 'target', retryable: false, submission: 'sent',
+    details: {
+      ...(nativeName ? { native_error_name: nativeName } : {}),
+      ...(status === null ? {} : { native_http_status: status }),
+    },
+  }));
+}
+
 // Native protocols differ: WorkBuddy has a terminal result; OpenCode emits completed parts.
 export function createParser(request, workspace, publish) {
   let session, init, final, lastStep, stepMessage, approval = false, nativeError;
@@ -78,7 +97,7 @@ export function createParser(request, workspace, publish) {
       }
       identity(event.sessionID);
       if (event.type === 'error') {
-        nativeError = 'native_error'; return;
+        nativeError = openCodeError(event); return;
       }
       const part = event.part;
       if (!object(part)) fail('invalid_event', 'Missing OpenCode part.');
