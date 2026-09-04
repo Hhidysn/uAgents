@@ -78,6 +78,11 @@ export class TraeAdapter {
   }
 
   async cancel() { return { confirmed: false }; }
+
+  async reconcile(native) {
+    try { return mapTraeNative(await this.client.task(native.task_id ?? native.session_id)); }
+    catch (error) { return nativeEvent('indeterminate', { error: error.code ?? 'result_inspection_failed', native_status: 'unknown', evidence_strength: 3 }); }
+  }
 }
 
 export function publicProbe(status) {

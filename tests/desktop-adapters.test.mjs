@@ -8,6 +8,7 @@ import { TraeAdapter } from '../plugins/uagents/src/adapters/trae/adapter.mjs';
 import { validateAdapter } from '../plugins/uagents/src/adapters/contract.mjs';
 import { TaskService } from '../plugins/uagents/src/runtime/task-service.mjs';
 import { runTask } from '../plugins/uagents/src/runtime/worker.mjs';
+import { reconcileTask } from '../plugins/uagents/src/runtime/reconcile.mjs';
 import { ControlDatabase } from '../plugins/uagents/src/store/database.mjs';
 
 const root = path.resolve('.local', 'test-runs', randomUUID(), 'desktop adapters');
@@ -96,4 +97,24 @@ test('desktop sends happen only after the durable possibly-sent checkpoint', asy
     checkpoint: async kind => { if (kind === 'possibly_sent') assert.equal(client.sends, 0); },
   });
   assert.equal(client.sends, 1);
+});
+
+test('desktop waiting-user task reconciles through the same native identity without resubmission', async () => {
+  const control = new ControlDatabase(path.join(root, `reconcile-${randomUUID()}`));
+  try {
+    const service = new TaskService(control);
+    const bridge = new DoubaoBridge();
+    bridge.observations = [
+      { status: 'needs_user', error: 'native_approval_required' },
+      { status: 'succeeded', response: '审批后完成', evidence: { stable_ms: 300 } },
+    ];
+    const adapter = new DoubaoAdapter({ bridge, pollIntervalMs: 0 });
+    const registered = service.submit(baseRequest({ target: 'doubao' }), { adapterVersion: 'desktop-fixture-1' });
+    const waiting = await runTask({ service, taskId: registered.task_id, adapter });
+    assert.equal(waiting.status, 'waiting_user');
+    const completed = await reconcileTask({ service, taskId: waiting.task_id, adapter });
+    assert.equal(completed.status, 'succeeded');
+    assert.equal(bridge.sends, 1);
+    assert.equal(service.result(waiting.task_id).response.text, '审批后完成');
+  } finally { control.close(); }
 });
