@@ -99,6 +99,45 @@ test('desktop sends happen only after the durable possibly-sent checkpoint', asy
   assert.equal(client.sends, 1);
 });
 
+test('desktop probe and prepare map whitelisted transport codes to target_not_ready', async () => {
+  const bridge = new DoubaoBridge();
+  bridge.probe = async () => { throw Object.assign(new Error('cdp socket closed'), { code: 'cdp_unavailable' }); };
+  const doubao = new DoubaoAdapter({ bridge, pollIntervalMs: 0 });
+  await assert.rejects(doubao.probe(), { code: 'target_not_ready', submission: 'not_sent', details: { cause_code: 'cdp_unavailable' } });
+  await assert.rejects(doubao.prepare(baseRequest()), { code: 'target_not_ready', submission: 'not_sent', details: { cause_code: 'cdp_unavailable' } });
+
+  const client = new TraeClient();
+  client.status = async () => { throw Object.assign(new Error('gateway offline'), { code: 'gateway_unavailable' }); };
+  const trae = new TraeAdapter({ client, pollIntervalMs: 0 });
+  await assert.rejects(trae.probe(), { code: 'target_not_ready', submission: 'not_sent', details: { cause_code: 'gateway_unavailable' } });
+  await assert.rejects(trae.prepare(baseRequest({ target: 'trae' })), { code: 'target_not_ready', submission: 'not_sent', details: { cause_code: 'gateway_unavailable' } });
+});
+
+test('desktop probe and prepare keep unknown transport codes internal without leaking cause_code', async () => {
+  const bridge = new DoubaoBridge();
+  bridge.probe = async () => { throw Object.assign(new Error('pipeline detonated'), { code: 'pipeline_detonated' }); };
+  const doubao = new DoubaoAdapter({ bridge, pollIntervalMs: 0 });
+  await assert.rejects(doubao.probe(), error => {
+    assert.equal(error.code, 'internal_error');
+    assert.equal(error.submission, 'not_sent');
+    assert.notEqual(error.details?.cause_code, 'pipeline_detonated');
+    return true;
+  });
+  bridge.probe = async () => { throw new Error('no code at all'); };
+  await assert.rejects(doubao.prepare(baseRequest()), { code: 'internal_error', submission: 'not_sent' });
+
+  const client = new TraeClient();
+  client.status = async () => { throw Object.assign(new Error('gateway detonated'), { code: 'gateway_detonated' }); };
+  const trae = new TraeAdapter({ client, pollIntervalMs: 0 });
+  await assert.rejects(trae.probe(), error => {
+    assert.equal(error.code, 'internal_error');
+    assert.equal(error.submission, 'not_sent');
+    assert.notEqual(error.details?.cause_code, 'gateway_detonated');
+    return true;
+  });
+  await assert.rejects(trae.prepare(baseRequest({ target: 'trae' })), { code: 'internal_error', submission: 'not_sent' });
+});
+
 test('desktop waiting-user task reconciles through the same native identity without resubmission', async () => {
   const control = new ControlDatabase(path.join(root, `reconcile-${randomUUID()}`));
   try {

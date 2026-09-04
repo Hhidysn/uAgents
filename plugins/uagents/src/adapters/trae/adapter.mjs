@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { TraeGatewayClient } from '../../../mcp/trae/src/client.mjs';
-import { fail } from '../../protocol/errors.mjs';
+import { fail, normalizeError } from '../../protocol/errors.mjs';
 import { BUILTIN_REGISTRY } from '../../registry/builtins.mjs';
 
 export class TraeAdapter {
@@ -22,10 +22,15 @@ export class TraeAdapter {
     return { models: [{ id: null, route_id: 'trae-default', provider: 'trae', kind: 'backend_default' }], discovery: 'configured' };
   }
 
-  async probe() { return publicProbe(await this.client.status()); }
+  async probe() {
+    try { return publicProbe(await this.client.status()); }
+    catch (error) { throw normalizeError(error); }
+  }
 
   async prepare(request) {
-    const probe = publicProbe(await this.client.status());
+    let probe;
+    try { probe = publicProbe(await this.client.status()); }
+    catch (error) { throw normalizeError(error); }
     if (!probe.identity_confirmed) fail('trae_identity_unconfirmed', probe.next_action, { submission: 'not_sent' });
     return { request, probe };
   }

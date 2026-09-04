@@ -99,10 +99,10 @@ export class DoubaoDesktopBridge {
         if (state.ready === 'complete' && state.messages === 0 && state.inputs === 1 && state.guidance) break;
       }
       if (!state || state.messages !== 0 || state.inputs !== 1 || !state.guidance) throw Object.assign(new Error('Could not establish a blank Doubao Work task page.'), { code: 'blank_task_unconfirmed' });
+      await publish({ status: 'running', submission: 'may_have_been_sent', target_id: found.page.id });
       const value = JSON.stringify(prompt);
       const inserted = await connection.evaluate(`(()=>{const e=document.querySelector('[contenteditable="true"]');if(!e)return false;e.focus();document.execCommand('selectAll');document.execCommand('insertText',false,${value});e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:null}));return e.innerText===${value}})()`);
       if (!inserted) throw Object.assign(new Error('Prompt insertion could not be confirmed.'), { code: 'prompt_insertion_unconfirmed' });
-      await publish({ status: 'running', submission: 'may_have_been_sent', target_id: found.page.id });
       await connection.call('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
       await connection.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
       let submitted;

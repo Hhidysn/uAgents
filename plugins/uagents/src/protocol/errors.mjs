@@ -23,6 +23,11 @@ const CATEGORY_BY_CODE = new Map([
   ['incompatible_store_version', 'runtime'],
 ]);
 
+const TRANSPORT_CODE_MAP = new Map([
+  ['cdp_unavailable', 'target_not_ready'],
+  ['gateway_unavailable', 'target_not_ready'],
+]);
+
 const SECRET_PATTERNS = [
   /(authorization\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi,
   /((?:api[-_]?key|token|cookie|client[-_]?secret|password)\s*[:=]\s*)[^\s,;]+/gi,
@@ -56,6 +61,15 @@ export function redactText(value) {
 
 export function normalizeError(error) {
   if (error instanceof UAgentsError) return error;
+  const mapped = TRANSPORT_CODE_MAP.get(error?.code);
+  if (mapped) {
+    return new UAgentsError(mapped, error?.message || 'The target is not ready.', {
+      category: 'target',
+      retryable: false,
+      submission: error?.submission ?? 'not_sent',
+      details: { cause_code: error.code },
+    });
+  }
   return new UAgentsError('internal_error', 'The operation failed.', {
     category: 'runtime',
     retryable: false,
