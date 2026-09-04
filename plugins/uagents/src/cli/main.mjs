@@ -1,19 +1,9 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { adapterFor } from '../adapters/index.mjs';
-import { evaluateRequest } from '../policy/evaluate.mjs';
 import { notOk, ok } from '../protocol/envelope.mjs';
 import { fail } from '../protocol/errors.mjs';
 import { createRegistry, targetDescriptor } from '../registry/registry.mjs';
-import { ControlDatabase } from '../store/database.mjs';
-import { reconcileTask } from '../runtime/reconcile.mjs';
-import { TaskService } from '../runtime/task-service.mjs';
-
-const workerFile = fileURLToPath(new URL('../runtime/worker-factory.mjs', import.meta.url));
+import { resolveStateRoot, UnifiedRuntime } from '../runtime/api.mjs';
 
 export async function execute(argv, options = {}) {
   const registry = options.registry ?? createRegistry();
@@ -37,40 +27,21 @@ export async function execute(argv, options = {}) {
   }
 
   const stateRoot = resolveStateRoot(values['state-dir'], options.env ?? process.env);
-  fs.mkdirSync(stateRoot, { recursive: true });
-  if (command === 'probe') {
-    const target = required(subject, 'target');
-    const model = values.model ?? 'default';
-    const probeWorkspace = path.join(stateRoot, 'probe-workspace'); fs.mkdirSync(probeWorkspace, { recursive: true });
-    const evaluated = evaluateRequest({
-      schema_version: '1.0', request_id: randomUUID(), target, model, mode: 'analysis', prompt: 'probe-not-sent', workspace: probeWorkspace,
-      execution: { observation_timeout_ms: 30_000, effort: 'low', permission: 'native' }, policy: { fallback: 'none', max_cost_usd: null },
-    }, { registry });
-    const result = await adapterFor(target).probe(evaluated.request, { workspace: probeWorkspace });
-    return ok(result);
-  }
-
-  const control = new ControlDatabase(stateRoot);
+  const runtime = new UnifiedRuntime({ stateRoot, registry, spawnWorker: options.spawnWorker });
   try {
-    const service = new TaskService(control, { registry });
+    if (command === 'probe') return ok(await runtime.probe(required(subject, 'target'), { model: values.model ?? 'default' }));
     if (command === 'submit') {
       if (subject || !values.request) fail('usage', 'submit requires --request FILE.');
       const input = JSON.parse(fs.readFileSync(values.request, 'utf8'));
-      const result = service.submit(input);
-      if (!result.duplicate) (options.spawnWorker ?? spawnDetached)(stateRoot, result.task_id);
-      return ok({ ...result, poll_after_ms: 250 });
+      return ok(runtime.submit(input));
     }
-    if (command === 'status') return ok(service.status(required(subject, 'task id')));
-    if (command === 'result') return ok(service.result(required(subject, 'task id')));
-    if (command === 'cancel') return ok(service.requestCancel(required(subject, 'task id')));
-    if (command === 'list') return ok(service.list({ cursor: values.cursor ?? null, limit: values.limit ? Number(values.limit) : 50 }));
-    if (command === 'reconcile') {
-      const taskId = required(subject, 'task id');
-      const status = service.status(taskId);
-      return ok(await reconcileTask({ service, taskId, adapter: adapterFor(status.target) }));
-    }
+    if (command === 'status') return ok(runtime.status(required(subject, 'task id')));
+    if (command === 'result') return ok(runtime.result(required(subject, 'task id')));
+    if (command === 'cancel') return ok(runtime.cancel(required(subject, 'task id')));
+    if (command === 'list') return ok(runtime.listTasks({ cursor: values.cursor ?? null, limit: values.limit ? Number(values.limit) : 50 }));
+    if (command === 'reconcile') return ok(await runtime.reconcile(required(subject, 'task id')));
     fail('usage', `Unknown command: ${command}`);
-  } finally { control.close(); }
+  } finally { runtime.close(); }
 }
 
 export async function main(argv = process.argv.slice(2), io = console) {
@@ -78,15 +49,4 @@ export async function main(argv = process.argv.slice(2), io = console) {
   catch (error) { io.log(JSON.stringify(notOk(error))); return 1; }
 }
 
-function resolveStateRoot(value, env) {
-  const root = value ?? (env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'uAgents', 'v1') : null);
-  if (!root || !path.isAbsolute(root)) fail('invalid_workspace', 'Provide an absolute --state-dir or LOCALAPPDATA.');
-  return path.resolve(root);
-}
-
 function required(value, label) { if (!value) fail('usage', `Missing ${label}.`); return value; }
-
-function spawnDetached(root, taskId) {
-  const child = spawn(process.execPath, [workerFile, root, taskId], { detached: true, windowsHide: true, stdio: 'ignore' });
-  child.unref();
-}

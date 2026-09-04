@@ -1,0 +1,19 @@
+{
+  "name": "@uagents/unified-mcp",
+  "version": "0.2.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "esbuild": "0.28.2",
+    "zod": "4.5.4"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}
