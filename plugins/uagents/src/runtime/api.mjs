@@ -10,6 +10,7 @@ import { createRegistry, targetDescriptor } from '../registry/registry.mjs';
 import { ControlDatabase } from '../store/database.mjs';
 import { reconcileTask } from './reconcile.mjs';
 import { TaskService } from './task-service.mjs';
+import { childEnvironment } from './child-environment.mjs';
 
 const sourceWorkerFile = fileURLToPath(new URL('./worker-factory.mjs', import.meta.url));
 
@@ -71,6 +72,8 @@ export function resolveStateRoot(value, env = process.env) {
 }
 
 export function spawnSourceWorker(root, taskId) {
-  const child = spawn(process.execPath, [sourceWorkerFile, root, taskId], { detached: true, windowsHide: true, stdio: 'ignore' });
+  const child = spawn(process.execPath, [sourceWorkerFile, root, taskId], {
+    detached: true, windowsHide: true, env: childEnvironment(), stdio: 'ignore',
+  });
   child.unref();
 }

@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { createParser, invokeCli, locateCli } from '../plugins/uagents/src/transports/cli-process.mjs';
+import { childEnvironment } from '../plugins/uagents/src/runtime/child-environment.mjs';
 
 const root = path.resolve('.local', 'test-runs', randomUUID(), 'CLI transport');
 fs.mkdirSync(root, { recursive: true });
@@ -74,4 +75,10 @@ test('deadline after send remains unknown even if process kill emits an error', 
   const done = await invokeCli(root, root, request('opencode', { timeout_ms: 1_000 }), () => {}, driver);
   assert.equal(done.status, 'unknown');
   assert.equal(done.error, 'deadline_remote_state_unknown');
+});
+
+test('child environment uses an explicit allowlist', () => {
+  const filtered = childEnvironment({ PATH: 'fixture-bin', LOCALAPPDATA: 'fixture-data', OPENAI_API_KEY: 'secret', RANDOM_UNRELATED: 'value' });
+  assert.deepEqual(filtered, { PATH: 'fixture-bin', LOCALAPPDATA: 'fixture-data' });
+  assert.equal(JSON.stringify(filtered).includes('secret'), false);
 });

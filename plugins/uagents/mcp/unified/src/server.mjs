@@ -7,6 +7,7 @@ import * as z from 'zod/v4';
 import { notOk, ok } from '../../../src/protocol/envelope.mjs';
 import { resolveStateRoot, UnifiedRuntime } from '../../../src/runtime/api.mjs';
 import { runRegisteredTask } from '../../../src/runtime/worker-factory.mjs';
+import { childEnvironment } from '../../../src/runtime/child-environment.mjs';
 
 const taskIdSchema = z.object({ task_id: z.uuid() }).strict();
 const requestSchema = z.object({
@@ -67,7 +68,9 @@ function createRuntime() {
   return new UnifiedRuntime({
     stateRoot,
     spawnWorker: (root, taskId) => {
-      const child = spawn(process.execPath, [bundledEntry, '--worker', root, taskId], { detached: true, windowsHide: true, stdio: 'ignore' });
+      const child = spawn(process.execPath, [bundledEntry, '--worker', root, taskId], {
+        detached: true, windowsHide: true, env: childEnvironment(), stdio: 'ignore',
+      });
       child.unref();
     },
   });

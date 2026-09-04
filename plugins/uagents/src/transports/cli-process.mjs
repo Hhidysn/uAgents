@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { fail } from '../protocol/errors.mjs';
+import { childEnvironment } from '../runtime/child-environment.mjs';
 
 // Only launch installed native entrypoints. No shell, installation, auth reads or config edits.
 export function locateCli(target, env = process.env) {
@@ -33,7 +34,7 @@ export function nativeDriver(request, workspace) {
   return { command: process.execPath, args: [entry, ...(request.kind === 'probe' ? ['--version'] : [
     '-p', '--output-format', 'stream-json', '--verbose', '--session-id', request.request_id, '--max-turns', '6',
     ...(request.mode === 'implementation' ? ['--permission-mode', 'acceptEdits'] : []),
-  ])], env: { ...process.env, CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS: '1' } };
+  ])], env: childEnvironment(process.env, { CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS: '1' }) };
 }
 
 const identityError = () => fail('native_session_mismatch', 'Native event identity does not match this task.');
@@ -129,7 +130,9 @@ export function invokeCli(directory, workspace, request, publish, testDriver) {
   if (fs.existsSync(path.join(directory, 'cancel.json'))) return Promise.resolve({ status: 'cancelled', submission: 'not_sent', error: 'cancelled_before_send' });
   const driver = testDriver ?? nativeDriver(request, workspace);
   return new Promise(resolve => {
-    const child = (testDriver?.spawn ?? spawn)(driver.command, driver.args, { cwd: workspace, windowsHide: true, env: driver.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = (testDriver?.spawn ?? spawn)(driver.command, driver.args, {
+      cwd: workspace, windowsHide: true, env: driver.env ?? childEnvironment(), stdio: ['pipe', 'pipe', 'pipe'],
+    });
     const parser = createParser(request, workspace, publish), decoder = new StringDecoder('utf8');
     let sent = false, stopped = false, finished = false, outcome, closeTimer, buffer = '', bytes = 0, version = '', stderr = '';
     const finish = value => {

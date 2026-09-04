@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
+import { childEnvironment } from '../runtime/child-environment.mjs';
 
 export function invokeAgy(directory, workspace, request, publish, testDriver) {
   return new Promise(resolve => {
@@ -12,7 +13,7 @@ export function invokeAgy(directory, workspace, request, publish, testDriver) {
       '--model', request.model, '--sandbox', '--disable-slash-commands', '--print-timeout', `${request.timeout_ms}ms`,
       '--log-file', process.platform === 'win32' ? 'NUL' : '/dev/null',
     ] };
-    const child = spawn(driver.command, driver.args, { cwd: workspace, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(driver.command, driver.args, { cwd: workspace, windowsHide: true, env: driver.env ?? childEnvironment(), stdio: ['pipe', 'pipe', 'pipe'] });
     let sent = false, init, finalResult, outcome, stopped = false, finished = false, closeTimer, buffer = '', byteCount = 0, stderr = '', permissionDenied = false;
     const decoder = new StringDecoder('utf8');
     const finish = value => {
