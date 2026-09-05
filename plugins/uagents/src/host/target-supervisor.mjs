@@ -31,7 +31,7 @@ import { fail } from "../protocol/errors.mjs";
 // memory for the current ensure result.
 const PERSISTED_LAUNCHER_FIELDS = Object.freeze([
   "desktop_pid", "gateway_pid", "gateway_started_at_ms", "gateway_port",
-  "capability_file", "instance_nonce",
+  "capability_file", "instance_nonce", "adopted",
 ]);
 export const INSTANCE_LEASE_PREFIX = "instance:";
 export const STARTED_AT_TOLERANCE_MS = 1000;
@@ -372,15 +372,25 @@ export function createTargetSupervisor({
         });
       }
 
-      const instanceId = `managed-${target}-${generation}-${now()}`;
+      const instanceIdBase = `managed-${target}`;
+      // An adopted instance reports the profile directory it is actually
+      // running on; the record must describe reality, not the computed path.
+      let instanceGeneration = generation;
+      let instanceProfilePath = profilePath;
+      if (launched.adopted === true && typeof launched.profile_path === "string" && launched.profile_path.length > 0) {
+        instanceProfilePath = launched.profile_path;
+        const leaf = launched.profile_path.match(/(?:^|[\\/])(\d+)(?:[\\/]?)$/);
+        if (leaf) instanceGeneration = Number(leaf[1]);
+      }
+      const instanceId = `${instanceIdBase}-${instanceGeneration}-${now()}`;
       const instanceState = launched.state === "waiting_user" ? "waiting_user" : "ready";
       const instance = {
         instance_id: instanceId,
         target,
         installation_id: installation.installation_id,
-        generation,
+        generation: instanceGeneration,
         state: instanceState,
-        profile_path: profilePath,
+        profile_path: instanceProfilePath,
         process_id: candidate.process_id,
         process_started_at_ms: candidate.process_started_at_ms,
         port: candidate.port,

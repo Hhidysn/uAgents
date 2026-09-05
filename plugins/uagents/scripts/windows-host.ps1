@@ -417,12 +417,18 @@ function Invoke-ProcessInspection {
         return @{ ok = $false; error = @{ code = 'invalid_input'; message = 'pid must be a positive integer' } }
     }
 
+    # Command lines are opt-in and transient: callers use them for managed-
+    # orphan ownership decisions and must never persist or log them.
+    $includeCommandLine = $false
+    $clFlag = Get-Field -Payload $Payload -Name 'include_command_line' -Default $false
+    if ($clFlag -eq $true -or $clFlag -eq 'true') { $includeCommandLine = $true }
+
     $process = $null
     try {
         $process = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
     } catch { $process = $null }
     if ($null -eq $process) {
-        return @{ ok = $true; exists = $false; pid = $processId; started_at_ms = $null; executable_path = $null }
+        return @{ ok = $true; exists = $false; pid = $processId; started_at_ms = $null; executable_path = $null; command_line = $null }
     }
     if ($process -is [System.Array]) { $process = $process[0] }
 
@@ -438,12 +444,19 @@ function Invoke-ProcessInspection {
     $executablePath = Get-Field -Payload $process -Name 'ExecutablePath' -Default $null
     if ($null -ne $executablePath) { $executablePath = [string]$executablePath }
 
+    $commandLine = $null
+    if ($includeCommandLine) {
+        $rawCommandLine = Get-Field -Payload $process -Name 'CommandLine' -Default $null
+        if ($null -ne $rawCommandLine) { $commandLine = [string]$rawCommandLine }
+    }
+
     return @{
         ok              = $true
         exists          = $true
         pid             = $processId
         started_at_ms   = $startedAtMs
         executable_path = $executablePath
+        command_line    = $commandLine
     }
 }
 

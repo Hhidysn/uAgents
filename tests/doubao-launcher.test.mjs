@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdirSync, rmSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
-import { HostStore } from '../plugins/uagents/src/host/host-store.mjs';
+import { HostStore, resolveHostRoot } from '../plugins/uagents/src/host/host-store.mjs';
 import { createTargetSupervisor } from '../plugins/uagents/src/host/target-supervisor.mjs';
 import {
   createDoubaoLauncher,
@@ -13,6 +13,7 @@ import {
   minimalDoubaoEnvironment,
   DOUBAO_PORT_CANDIDATES,
 } from '../plugins/uagents/src/host/doubao-launcher.mjs';
+import { executableInInstallTree } from '../plugins/uagents/src/host/target-supervisor.mjs';
 import { UAgentsError } from '../plugins/uagents/src/protocol/errors.mjs';
 
 const INSTALLER_EXE = 'C:\\fake\\DoubaoWork\\Application\\DoubaoWork.exe';
@@ -292,6 +293,82 @@ describe('doubao launcher', () => {
     assert.equal(host.listenerByPort[FIRST_PORT].listener_pid, 31337);
     // no kill capability exists in the launcher contract at all
     assert.equal(typeof launcher.kill, 'undefined');
+  });
+
+  test('a clean stub exit (code 0) is a handover, not a failure', async () => {
+    // Real DoubaoWork.exe is a stub that spawns app\DoubaoWork.exe and exits
+    // 0 (installed-CLI E2E evidence). The launcher must keep waiting for CDP.
+    const host = fakeHost();
+    const { fetchImpl } = fakeFetch({ listPages: CHAT_PAGE });
+    const spawnOnce = (command, args, options) => {
+      const registered = host.spawnImpl(command, args, options);
+      setImmediate(() => registered.emit('exit', 0));
+      return registered;
+    };
+    const launcher = createDoubaoLauncher({ fetchImpl, spawnImpl: spawnOnce, pollMs: 10 });
+    const launched = await launcher({
+      installation: doubaoInstallation(),
+      profilePath: 'C:\\host\\profiles\\doubao\\1',
+      env: {},
+      runPowerShell: host.runPowerShell,
+    });
+    assert.equal(launched.state, 'ready');
+    assert.equal(launched.process.pid, 20740, 'ownership comes from the listener, not the exited stub');
+    assert.equal(launched.launcher_pid, 20740);
+  });
+
+  test('an unrecorded managed instance is adopted instead of duplicated', async () => {
+    // Reproduction of the installed-CLI orphan: a previous launch recorded
+    // nothing, but the browser is alive on a controlled port with the managed
+    // profile root in its command line. The next launch must adopt it.
+    const { root, env } = makeEnv();
+    try {
+      const host = fakeHost();
+      const profileRoot = join(resolveHostRoot(env), 'profiles', 'doubao');
+      const orphanProfile = join(profileRoot, '1');
+      const orphanListenerPath = 'C:\\fake\\DoubaoWork\\Application\\app\\DoubaoWork.exe';
+      const orphanPid = 32004;
+      host.listenerByPort[FIRST_PORT] = { listening: true, listener_pid: orphanPid, executable_path: orphanListenerPath, started_at_ms: 1788598413788 };
+      host.processByPid[orphanPid] = {
+        started_at_ms: 1788598413781,
+        executable_path: orphanListenerPath,
+        command_line: `"${orphanListenerPath}" --user-data-dir=${orphanProfile} --remote-debugging-port=${FIRST_PORT} --start_time=1788598413781`,
+      };
+      const { fetchImpl } = fakeFetch({ listPages: CHAT_PAGE });
+      const spawnCalls = [];
+      const launcher = createDoubaoLauncher({
+        fetchImpl,
+        spawnImpl: (...spawnArgs) => { spawnCalls.push(spawnArgs); return fakeHost().spawnImpl('noop', []); },
+        pollMs: 10,
+      });
+      const launched = await launcher({
+        installation: doubaoInstallation(),
+        profilePath: join(profileRoot, '2'),
+        env,
+        runPowerShell: host.runPowerShell,
+      });
+      assert.equal(launched.adopted, true, 'the orphan must be adopted');
+      assert.equal(launched.process.pid, orphanPid);
+      assert.equal(launched.port, FIRST_PORT);
+      assert.equal(launched.profile_path.toLowerCase(), orphanProfile.toLowerCase());
+      assert.equal(spawnCalls.length, 0, 'no duplicate spawn may happen');
+      // a user daily window (foreign profile) is never adopted
+      host.listenerByPort[SECOND_PORT] = { listening: true, listener_pid: 4242, executable_path: orphanListenerPath, started_at_ms: 1788598413999 };
+      host.processByPid[4242] = {
+        started_at_ms: 1788598413999,
+        executable_path: orphanListenerPath,
+        command_line: `"${orphanListenerPath}" --user-data-dir=C:\\Users\\daily\\DoubaoWork --remote-debugging-port=${SECOND_PORT}`,
+      };
+      const second = await launcher({
+        installation: doubaoInstallation(),
+        profilePath: join(profileRoot, '3'),
+        env,
+        runPowerShell: host.runPowerShell,
+      });
+      assert.equal(second.process.pid, orphanPid, 'the foreign-profile window must stay unadopted');
+    } finally {
+      cleanupEnv(root, null);
+    }
   });
 
   test('minimal environment keeps only system keys', () => {

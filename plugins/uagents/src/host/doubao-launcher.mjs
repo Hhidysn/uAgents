@@ -18,6 +18,7 @@
 
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { resolveHostRoot } from "./host-store.mjs";
 import { fail } from "../protocol/errors.mjs";
 import { executableInInstallTree } from "./target-supervisor.mjs";
 
@@ -118,11 +119,90 @@ export function createDoubaoLauncher({
   chatSurfaceTimeoutMs = CHAT_SURFACE_TIMEOUT_MS,
   pollMs = CDP_POLL_MS,
 } = {}) {
+  const MANAGED_PROFILE_ROOT_TARGET = "doubao";
+
+  function managedProfileRoot(env) {
+    return path.join(resolveHostRoot(env), "profiles", MANAGED_PROFILE_ROOT_TARGET);
+  }
+
+  // The stub DoubaoWork.exe hands off to app\DoubaoWork.exe and exits 0
+  // (Gate 0 spike + installed-CLI E2E evidence). Only a non-zero exit is a
+  // launch failure; a clean exit keeps the CDP wait alive.
+  function parseUserDataDir(commandLine) {
+    if (typeof commandLine !== "string") return null;
+    const idx = commandLine.toLowerCase().indexOf("--user-data-dir=");
+    if (idx < 0) return null;
+    let rest = commandLine.slice(idx + "--user-data-dir=".length);
+    if (rest.startsWith('"')) {
+      const end = rest.indexOf('"', 1);
+      return end > 0 ? rest.slice(1, end) : null;
+    }
+    const end = rest.indexOf(" --");
+    const value = end > 0 ? rest.slice(0, end) : rest;
+    return value.length > 0 ? value : null;
+  }
+
+  function declaresDebugPort(commandLine, port) {
+    if (typeof commandLine !== "string") return false;
+    return new RegExp(`--remote-debugging-port=${port}(\\\\|/|\\s|"|$)`).test(commandLine);
+  }
+
+  // Adoption: an earlier launch may have succeeded at the process level but
+  // failed before recording (crash, supervisor restart, older bug). Any
+  // process whose command line references this target's managed profile root
+  // was launched by uAgents; adopt the newest one instead of spawning a
+  // duplicate. Command lines are read transiently for this decision and are
+  // never persisted, logged or returned.
+  async function findAdoptableInstance({ installation, env, runPowerShell }) {
+    let rootLower;
+    try {
+      rootLower = managedProfileRoot(env).toLowerCase() + path.sep;
+    } catch {
+      return null; // no usable host root: nothing to adopt against
+    }
+    let best = null;
+    for (const port of DOUBAO_PORT_CANDIDATES) {
+      let listener;
+      try { listener = await runPowerShell("inspect-listener", { port }); } catch { continue; }
+      if (!listener || listener.listening !== true || !Number.isInteger(listener.listener_pid)) continue;
+      if (!executableInInstallTree(listener.executable_path, installation.canonical_path)) continue;
+      let proc;
+      try {
+        proc = await runPowerShell("inspect-process", { pid: listener.listener_pid, include_command_line: true });
+      } catch { continue; }
+      if (!proc || proc.exists !== true || typeof proc.started_at_ms !== "number") continue;
+      const profileDir = parseUserDataDir(proc.command_line);
+      if (!profileDir || !profileDir.toLowerCase().startsWith(rootLower)) continue;
+      if (!declaresDebugPort(proc.command_line, port)) continue;
+      const classification = await classifyDoubaoSurface(fetchImpl, port);
+      if (!classification || classification.state === "stale") continue;
+      const generationMatch = profileDir.match(/(?:^|[\\\/])(\d+)(?:[\\\/]|$)/);
+      const candidate = {
+        process: { pid: listener.listener_pid, started_at_ms: proc.started_at_ms },
+        port,
+        profile_path: profileDir,
+        adopted: true,
+        launcher_pid: null,
+        state: classification.state,
+        ...(classification.interaction_phase ? { interaction_phase: classification.interaction_phase } : {}),
+        adoption_generation: generationMatch ? Number(generationMatch[1]) : 0,
+      };
+      if (!best || candidate.adoption_generation > best.adoption_generation) best = candidate;
+    }
+    if (best) delete best.adoption_generation;
+    return best;
+  }
+
   // The supervisor passes spawnImpl in the launch args per the Gate 3.1
   // contract; the launcher deliberately ignores it and uses only the
   // constructor-injected spawnImpl - process creation for the managed
   // instance is owned by this version-controlled module.
   async function launch({ installation, profilePath, env, runPowerShell }) {
+    // Adopt before spawning: an unrecorded managed instance holding a
+    // controlled port must never be duplicated.
+    const adoptable = await findAdoptableInstance({ installation, env, runPowerShell });
+    if (adoptable) return adoptable;
+
     const exe = installation.canonical_path;
     const port = await pickDoubaoPort(runPowerShell);
     const args = [`--user-data-dir=${profilePath}`, `--remote-debugging-port=${port}`];
@@ -139,13 +219,14 @@ export function createDoubaoLauncher({
       });
     }
 
-    // Wait for CDP. If the launcher process exits first, the launch failed.
+    // Wait for CDP. A non-zero exit is a launch failure; a clean exit is the
+    // stub launcher's normal handover to the real browser process.
     const startedAt = now();
     let cdpUp = false;
     let exitCode = null;
     child.once?.("exit", (code) => { exitCode = code; });
     while (now() - startedAt < cdpReadyTimeoutMs) {
-      if (exitCode !== null) {
+      if (exitCode !== null && exitCode !== 0) {
         fail("launch_failed", "Doubao Work exited before its CDP endpoint became available", {
           category: "target", retryable: true, submission: "not_sent",
           details: { cause_code: "process_exited", exit_code: exitCode },
@@ -156,6 +237,10 @@ export function createDoubaoLauncher({
       await sleep(pollMs);
     }
     if (!cdpUp) {
+      // The handover may have joined or created an instance that registered
+      // late; try adoption once more before declaring a timeout.
+      const late = await findAdoptableInstance({ installation, env, runPowerShell });
+      if (late) return late;
       fail("launch_timeout", "Doubao Work CDP did not become ready in time", {
         category: "target", retryable: true, submission: "not_sent",
         details: { cause_code: "cdp_ready_timeout" },
