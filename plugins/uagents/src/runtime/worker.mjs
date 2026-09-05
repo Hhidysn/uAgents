@@ -6,7 +6,7 @@ import { verifyInputSnapshots } from './effective-request.mjs';
 import { acquireExecutionLeases, releaseLeases, renewLeases } from './leases.mjs';
 import { statusFromNativeEvent, TERMINAL_STATES } from './state-machine.mjs';
 
-export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
+export async function runTask({ service, taskId, adapter, leaseOptions = {}, supervisor = null }) {
   let status = service.status(taskId);
   if (status.status !== 'registered' && status.status !== 'queued') fail('invalid_state_transition', `Task cannot be dispatched from ${status.status}.`);
   const attemptId = status.attempt.attempt_id;
@@ -19,6 +19,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
   const heartbeatIntervalMs = leaseOptions.heartbeatIntervalMs ?? Math.max(100, Math.floor(leaseTtlMs / 3));
   let heartbeatError = null;
   let heartbeat;
+  let hostLease = null;
   service.control.transaction(database => {
     database.prepare('UPDATE attempts SET owner_nonce = ?, fencing_token = ? WHERE attempt_id = ?')
       .run(fencingLease.owner_nonce, fencingLease.fencing_token, attemptId);
@@ -29,6 +30,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
     try {
       const renewed = renewLeases(service.control, leases, { ttlMs: leaseTtlMs });
       leases.splice(0, leases.length, ...renewed);
+      if (hostLease && supervisor) hostLease = supervisor.renewInstanceLease(hostLease, { ttlMs: leaseTtlMs });
       service.heartbeat(attemptId, leases[0]);
     } catch (error) { heartbeatError = error; }
   }, heartbeatIntervalMs);
@@ -37,12 +39,22 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
   try {
     service.transition(taskId, 'starting', { attemptId, lease: fencingLease });
     verifyInputSnapshots(request.workspace, stored.payload.input_snapshots);
+    // Managed lifecycle: after `starting`, before any adapter work. Desktop
+    // targets hold the Host instance lease for the whole dispatch/observe
+    // cycle; CLI targets only resolve and cache a verified entry.
+    let verifiedEntry = null;
+    if (supervisor) {
+      const ensured = await supervisor.ensure(request.target, { workspace: request.workspace });
+      if (ensured && ensured.mode !== 'cli' && ensured.lease) hostLease = ensured.lease;
+      if (ensured?.installation) verifiedEntry = ensured.installation;
+    }
     const adapterContext = {
       taskId,
       attemptId,
       signal: leaseOptions.signal,
       taskDirectory: taskDirectory(service.control.root, taskId),
       isCancelRequested: () => service.status(taskId).cancel_requested,
+      verifiedEntry,
     };
     const prepared = await adapter.prepare(request, adapterContext);
     const checkpoint = (kind, payload = {}) => persistCheckpoint(service.control, {
@@ -109,6 +121,9 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {} }) {
   } finally {
     clearInterval(heartbeat);
     releaseLeases(service.control, leases);
+    if (hostLease && supervisor) {
+      try { supervisor.releaseInstanceLease(hostLease); } catch {}
+    }
   }
 }
 

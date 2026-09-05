@@ -5,10 +5,32 @@ import { invokeAgy } from '../transports/agy-process.mjs';
 
 export class CliAdapter {
   #outcomes = new Map();
+  #entryResolver = null;
 
-  constructor(target, { testDriver = null } = {}) {
+  constructor(target, { testDriver = null, entryResolver = null } = {}) {
     this.target = target;
     this.testDriver = testDriver;
+    // Optional async (target) => installation|null from the Target Supervisor.
+    // When it yields a verified installation, the CLI entry is the cached
+    // absolute path; without it, legacy PATH discovery stays in force.
+    this.#entryResolver = typeof entryResolver === 'function' ? entryResolver : null;
+  }
+
+  async #verifiedEntry(context = null) {
+    const inline = context?.verifiedEntry;
+    if (inline && typeof inline.canonical_path === 'string' && inline.canonical_path.length > 0) {
+      return inline.canonical_path;
+    }
+    if (!this.#entryResolver) return null;
+    try {
+      const installation = await this.#entryResolver(this.target);
+      if (installation && typeof installation.canonical_path === 'string') return installation.canonical_path;
+    } catch {
+      // Resolution failure degrades to legacy discovery; supervisor ensure
+      // failures surface through the worker's desktop-target path instead.
+      return null;
+    }
+    return null;
   }
 
   descriptor() {
@@ -35,15 +57,18 @@ export class CliAdapter {
   async probe(request, context) {
     const legacy = this.#legacyRequest({ ...request, prompt: undefined }, 'probe');
     const workspace = context.workspace;
-    if (this.target === 'agy') return invokeAgy(workspace, workspace, legacy, () => {}, this.testDriver);
-    const driver = this.testDriver ?? nativeDriver(legacy, workspace);
+    if (this.target === 'agy') return invokeAgy(workspace, workspace, legacy, () => {}, this.testDriver, { entry: await this.#verifiedEntry() });
+    const driver = this.testDriver ?? nativeDriver(legacy, workspace, await this.#verifiedEntry());
     return invokeCli(workspace, workspace, legacy, () => {}, driver);
   }
 
   async prepare(request, context = {}) {
     const legacy = this.#legacyRequest(request, 'run');
-    const driver = this.target === 'agy' ? this.testDriver : this.testDriver ?? nativeDriver(legacy, request.workspace);
-    return { request, legacy, driver, taskDirectory: context.taskDirectory ?? request.workspace };
+    const entry = await this.#verifiedEntry(context);
+    const driver = this.target === 'agy'
+      ? this.testDriver
+      : this.testDriver ?? nativeDriver(legacy, request.workspace, entry);
+    return { request, legacy, driver, entry, taskDirectory: context.taskDirectory ?? request.workspace };
   }
 
   async dispatch(prepared, context) {
@@ -61,7 +86,7 @@ export class CliAdapter {
     const workspace = prepared.request.workspace;
     const directory = prepared.taskDirectory;
     const outcome = this.target === 'agy'
-      ? await invokeAgy(directory, workspace, prepared.legacy, publish, prepared.driver)
+      ? await invokeAgy(directory, workspace, prepared.legacy, publish, prepared.driver, { entry: prepared.entry })
       : await invokeCli(directory, workspace, prepared.legacy, publish, prepared.driver);
     nativeSessionId ??= outcome.result?.native_session_id ?? null;
     if (!possiblySent) {

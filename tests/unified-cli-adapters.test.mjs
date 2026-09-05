@@ -102,3 +102,71 @@ test('persisted cancel intent interrupts a live CLI process without claiming rem
     assert.equal(result.attempt.submission, 'sent');
   } finally { control.close(); }
 });
+
+test('verifiedEntry from the supervisor context is passed to the CLI driver', async () => {
+  const control = new ControlDatabase(path.join(root, `entry-${randomUUID()}`));
+  try {
+    const service = new TaskService(control);
+    const input = baseRequest({ target: 'opencode' });
+    const driver = { command: process.execPath, args: [fakeCli, 'opencode', input.request_id, 'success'] };
+    const resolved = [];
+    const adapter = new OpenCodeAdapter({
+      testDriver: driver,
+      entryResolver: async (target) => {
+        resolved.push(target);
+        return { canonical_path: 'C:\\verified\\opencode.exe', target };
+      },
+    });
+    validateAdapter(adapter);
+    const registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
+    const result = await runTask({ service, taskId: registered.task_id, adapter });
+    assert.equal(result.status, 'succeeded');
+    assert.deepEqual(resolved, ['opencode']);
+  } finally { control.close(); }
+});
+
+test('worker consults the supervisor before adapter.prepare and fails closed', async () => {
+  const control = new ControlDatabase(path.join(root, `supervisor-${randomUUID()}`));
+  try {
+    const service = new TaskService(control);
+    const input = baseRequest({ target: 'opencode' });
+    const driver = { command: process.execPath, args: [fakeCli, 'opencode', input.request_id, 'success'] };
+    const adapter = new OpenCodeAdapter({ testDriver: driver });
+    const calls = [];
+    const supervisor = {
+      ensure: async (target, context) => {
+        calls.push({ target, workspace: context.workspace });
+        throw Object.assign(new Error('launch_failed'), { code: 'launch_failed', submission: 'not_sent' });
+      },
+      renewInstanceLease: (lease) => lease,
+      releaseInstanceLease: () => {},
+    };
+    const registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
+    // Worker contract: transition to failed, then re-throw the ensure error.
+    await assert.rejects(
+      () => runTask({ service, taskId: registered.task_id, adapter, supervisor }),
+      (error) => error.code === 'launch_failed'
+    );
+    const result = service.status(registered.task_id);
+    assert.equal(result.status, 'failed');
+    assert.equal(result.attempt.submission, 'not_sent');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].target, 'opencode');
+    // adapter never dispatched: no native session recorded
+    assert.equal(result.native, null);
+  } finally { control.close(); }
+});
+
+test('worker without a supervisor keeps legacy behavior', async () => {
+  const control = new ControlDatabase(path.join(root, `nosupervisor-${randomUUID()}`));
+  try {
+    const service = new TaskService(control);
+    const input = baseRequest({ target: 'opencode' });
+    const driver = { command: process.execPath, args: [fakeCli, 'opencode', input.request_id, 'success'] };
+    const adapter = new OpenCodeAdapter({ testDriver: driver });
+    const registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
+    const result = await runTask({ service, taskId: registered.task_id, adapter });
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.attempt.submission, 'sent');
+  } finally { control.close(); }
+});

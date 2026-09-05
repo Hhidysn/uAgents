@@ -406,5 +406,15 @@ export function createTargetSupervisor({
     }
   }
 
-  return { inspect, ensure, stop };
+  // Lease primitives exposed to the worker so a desktop task can renew the
+  // Host instance lease on the shared heartbeat and release it in finally.
+  function renewInstanceLease(lease, { ttlMs = leaseTtlMs } = {}) {
+    return hostStore.renewLease(lease, { ttlMs, now: now() });
+  }
+
+  function releaseInstanceLease(lease) {
+    return hostStore.releaseLease(lease);
+  }
+
+  return { inspect, ensure, stop, renewInstanceLease, releaseInstanceLease };
 }

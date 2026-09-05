@@ -4,9 +4,11 @@ import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { childEnvironment } from '../runtime/child-environment.mjs';
 
-export function invokeAgy(directory, workspace, request, publish, testDriver) {
+export function invokeAgy(directory, workspace, request, publish, testDriver, { entry = null } = {}) {
   return new Promise(resolve => {
-    const driver = testDriver ?? { command: process.platform === 'win32' ? 'agy.exe' : 'agy', args: [
+    // `entry` is a supervisor-verified absolute agy executable; without it the
+    // bare command name is resolved by the OS (legacy behavior).
+    const driver = testDriver ?? { command: entry ?? (process.platform === 'win32' ? 'agy.exe' : 'agy'), args: [
       '--input-format', 'stream-json', '--output-format', 'stream-json',
       '--add-dir', workspace,
       ...(request.mode === 'implementation' ? ['--mode', 'accept-edits'] : []),

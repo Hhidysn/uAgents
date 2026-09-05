@@ -6,7 +6,15 @@ import { errorRecord, fail, UAgentsError } from '../protocol/errors.mjs';
 import { childEnvironment } from '../runtime/child-environment.mjs';
 
 // Only launch installed native entrypoints. No shell, installation, auth reads or config edits.
-export function locateCli(target, env = process.env) {
+// `entryOverride` is a supervisor-verified absolute entry (host cache); when
+// absent, legacy PATH discovery remains for environments without a host store.
+export function locateCli(target, env = process.env, entryOverride = null) {
+  if (entryOverride) {
+    if (!path.isAbsolute(entryOverride) || !fs.existsSync(entryOverride) || !fs.statSync(entryOverride).isFile()) {
+      fail('invalid_cli_path', 'Verified CLI entry must be an existing absolute file path.');
+    }
+    return entryOverride;
+  }
   const override = env[target === 'workbuddy' ? 'UAGENTS_WORKBUDDY_CLI' : 'UAGENTS_OPENCODE_BIN'];
   if (override) {
     if (!path.isAbsolute(override) || !fs.existsSync(override) || !fs.statSync(override).isFile() ||
@@ -26,8 +34,8 @@ export function locateCli(target, env = process.env) {
   return found;
 }
 
-export function nativeDriver(request, workspace) {
-  const entry = locateCli(request.target);
+export function nativeDriver(request, workspace, entryOverride = null) {
+  const entry = locateCli(request.target, process.env, entryOverride);
   if (request.target === 'opencode') return { command: entry, args: request.kind === 'probe' ? ['--version'] : [
     'run', '--pure', '--model', request.model, '--format', 'json', '--dir', workspace, '--title', `uAgents ${request.request_id}`,
   ] };
@@ -145,9 +153,9 @@ export function createParser(request, workspace, publish) {
   };
 }
 
-export function invokeCli(directory, workspace, request, publish, testDriver) {
+export function invokeCli(directory, workspace, request, publish, testDriver, entryOverride = null) {
   if (fs.existsSync(path.join(directory, 'cancel.json'))) return Promise.resolve({ status: 'cancelled', submission: 'not_sent', error: 'cancelled_before_send' });
-  const driver = testDriver ?? nativeDriver(request, workspace);
+  const driver = testDriver ?? nativeDriver(request, workspace, entryOverride);
   return new Promise(resolve => {
     const child = (testDriver?.spawn ?? spawn)(driver.command, driver.args, {
       cwd: workspace, windowsHide: true, env: driver.env ?? childEnvironment(), stdio: ['pipe', 'pipe', 'pipe'],

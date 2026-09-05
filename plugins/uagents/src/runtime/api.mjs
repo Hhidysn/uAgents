@@ -15,11 +15,14 @@ import { childEnvironment } from './child-environment.mjs';
 const sourceWorkerFile = fileURLToPath(new URL('./worker-factory.mjs', import.meta.url));
 
 export class UnifiedRuntime {
-  constructor({ stateRoot, registry = createRegistry(), adapterFactory = adapterFor, spawnWorker = spawnSourceWorker } = {}) {
+  constructor({ stateRoot, registry = createRegistry(), adapterFactory = adapterFor, spawnWorker = spawnSourceWorker, supervisor = null } = {}) {
     this.stateRoot = resolveStateRoot(stateRoot);
     this.registry = registry;
     this.adapterFactory = adapterFactory;
     this.spawnWorker = spawnWorker;
+    // Optional Target Supervisor (host control plane). Worker subprocesses
+    // construct their own; this injection point exists for in-process hosts.
+    this.supervisor = supervisor;
     this.control = new ControlDatabase(this.stateRoot);
     this.service = new TaskService(this.control, { registry });
   }
@@ -45,7 +48,17 @@ export class UnifiedRuntime {
       execution: { observation_timeout_ms: 30_000, effort: 'low', permission: 'native' },
       policy: { fallback: 'none', max_cost_usd: null },
     }, { registry: this.registry });
-    return this.adapterFactory(target).probe(evaluated.request, { workspace });
+    const result = await this.adapterFactory(target).probe(evaluated.request, { workspace });
+    if (this.supervisor) {
+      try {
+        // Read-only managed-lifecycle snapshot merged into probe output;
+        // never starts, never mutates host state.
+        return { ...result, managed: this.supervisor.inspect(target) };
+      } catch {
+        return result;
+      }
+    }
+    return result;
   }
 
   submit(input) {
