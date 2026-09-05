@@ -21,6 +21,37 @@ const CATEGORY_BY_CODE = new Map([
   ['native_session_mismatch', 'transport'],
   ['output_verification_failed', 'runtime'],
   ['incompatible_store_version', 'runtime'],
+  ['installation_not_found', 'target'],
+  ['installation_untrusted', 'target'],
+  ['installation_changed', 'target'],
+  ['launch_failed', 'target'],
+  ['launch_timeout', 'target'],
+  ['profile_locked', 'target'],
+  ['port_unavailable', 'target'],
+  ['port_identity_mismatch', 'target'],
+  ['managed_instance_identity_mismatch', 'target'],
+  ['target_login_required', 'user'],
+  ['gateway_launch_failed', 'target'],
+  ['gateway_identity_mismatch', 'target'],
+  ['resume_not_allowed', 'conflict'],
+  ['stop_not_owned', 'conflict'],
+]);
+
+const RETRYABLE_BY_CODE = new Map([
+  ['installation_not_found', true],
+  ['installation_untrusted', false],
+  ['installation_changed', true],
+  ['launch_failed', true],
+  ['launch_timeout', true],
+  ['profile_locked', true],
+  ['port_unavailable', true],
+  ['port_identity_mismatch', true],
+  ['managed_instance_identity_mismatch', true],
+  ['target_login_required', true],
+  ['gateway_launch_failed', true],
+  ['gateway_identity_mismatch', true],
+  ['resume_not_allowed', false],
+  ['stop_not_owned', false],
 ]);
 
 const TRANSPORT_CODE_MAP = new Map([
@@ -40,7 +71,7 @@ export class UAgentsError extends Error {
     this.name = 'UAgentsError';
     this.code = code;
     this.category = options.category ?? CATEGORY_BY_CODE.get(code) ?? 'runtime';
-    this.retryable = options.retryable ?? false;
+    this.retryable = options.retryable ?? RETRYABLE_BY_CODE.get(code) ?? false;
     this.submission = options.submission ?? 'not_sent';
     this.details = options.details ?? null;
   }
