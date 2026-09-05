@@ -28,6 +28,14 @@
 
 `ensure trae` 返回 `ok:true` 完整证据：gateway（PID 31020，port 19422，`instance_nonce`，capability file 于 `host-v1\secrets\trae-gateway-token`）+ 桌面（PID 13888，CDP 19322）双启动，`waiting_user/preflight_login`（setup surface）。shell 超时将本次会话进程树一并终止（端口已清空），属测试环境问题而非插件缺陷。`stop trae` 对死实例正确拒绝（`stop_not_owned/ownership_verification_failed`），用户日常 Trae 窗口未被触碰。
 
+## 安装缓存 MCP 独立初始化
+
+从安装缓存直接启动 `mcp/unified/dist/server.mjs`（非仓库路径、外部状态目录）：`initialize` 成功（`uagents-unified 0.2.0-alpha.1`），`tools/list` 返回全部 13 个工具，含 `uagents_ensure`/`uagents_resume`/`uagents_stop`。
+
+## 尚待新 Codex 任务验证
+
+宿主热加载拾取（新对话中出现 `agent-dispatch` Skill 与 13 个 `uagents_*` 工具）只能在新 Codex 对话中确认。Doubao/TRAE 真实消息 E2E 留待用户首次使用时自然执行（首次登录一次后同 UUID `submit` 恢复）。
+
 ## 环境审计
 
 - 受管专用窗口均使用 `host-v1\profiles\<target>\<n>` 隔离 Profile；用户自己的 Doubao/Trae 窗口全程未被连接、导航或终止。
