@@ -27,9 +27,19 @@ export async function execute(argv, options = {}) {
   }
 
   const stateRoot = resolveStateRoot(values['state-dir'], options.env ?? process.env);
-  const runtime = new UnifiedRuntime({ stateRoot, registry, spawnWorker: options.spawnWorker });
+  // The supervisor is constructed only for commands that need it. An explicit
+  // options.supervisor key (including null) is honored verbatim so tests and
+  // hosts can pin the lifecycle behavior.
+  const supervisor = 'supervisor' in options
+    ? options.supervisor
+    : ['ensure', 'stop'].includes(command) ? await createSupervisor() : null;
+  const runtime = new UnifiedRuntime({ stateRoot, registry, spawnWorker: options.spawnWorker, supervisor });
   try {
     if (command === 'probe') return ok(await runtime.probe(required(subject, 'target'), { model: values.model ?? 'default' }));
+    if (command === 'ensure') {
+      const target = required(subject, 'target'); targetDescriptor(registry, target);
+      return ok(await runtime.ensure(target, { refresh: values.refresh === true }));
+    }
     if (command === 'submit') {
       if (subject || Boolean(values.request) === Boolean(values['request-stdin'])) fail('usage', 'submit requires exactly one of --request FILE or --request-stdin.');
       const serialized = values.request
@@ -43,8 +53,21 @@ export async function execute(argv, options = {}) {
     if (command === 'cancel') return ok(runtime.cancel(required(subject, 'task id')));
     if (command === 'list') return ok(runtime.listTasks({ cursor: values.cursor ?? null, limit: values.limit ? Number(values.limit) : 50 }));
     if (command === 'reconcile') return ok(await runtime.reconcile(required(subject, 'task id')));
+    if (command === 'resume') return ok(await runtime.resume(required(subject, 'task id')));
+    if (command === 'stop') {
+      const target = required(subject, 'target'); targetDescriptor(registry, target);
+      return ok(await runtime.stop(target));
+    }
     fail('usage', `Unknown command: ${command}`);
   } finally { runtime.close(); }
+}
+
+// The managed lifecycle supervisor is constructed only for commands that need
+// it; a construction failure degrades to a structured unsupported_capability
+// error instead of breaking task-free commands.
+async function createSupervisor() {
+  const { createHostSupervisor } = await import('../host/target-supervisor.mjs');
+  return createHostSupervisor();
 }
 
 export async function main(argv = process.argv.slice(2), io = console) {

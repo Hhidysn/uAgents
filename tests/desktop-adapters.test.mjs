@@ -288,6 +288,12 @@ test('managed doubao task waits for preflight login and resumes on the same atte
     assert.equal(waiting.attempt.submission, 'not_sent');
     assert.equal(bridge.sends, 0, 'no dispatch before the user completes first login');
     assert.equal(service.status(registered.task_id).native, null);
+    // design §15: status exposes the persisted managed-lifecycle summary
+    const lifecycle = service.status(registered.task_id).lifecycle;
+    assert.equal(lifecycle.state, 'waiting_user');
+    assert.equal(lifecycle.instance_id, 'managed-doubao-1');
+    assert.equal(lifecycle.profile_generation, 1);
+    assert.equal(lifecycle.started_by_uagents, true);
 
     // Same-UUID submit resumes the same attempt instead of duplicating.
     const resubmitted = service.submit(input, { adapterVersion: 'desktop-fixture-1' });

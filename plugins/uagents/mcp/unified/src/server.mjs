@@ -42,10 +42,17 @@ export function createToolHandlers(runtime) {
     uagents_cancel: async input => runtime.cancel(input.task_id),
     uagents_list_tasks: async input => runtime.listTasks({ cursor: input.cursor ?? null, limit: input.limit ?? 50 }),
     uagents_reconcile: async input => runtime.reconcile(input.task_id),
+    uagents_ensure: async input => runtime.ensure(input.target, { refresh: input.refresh === true }),
+    uagents_resume: async input => runtime.resume(input.task_id),
+    uagents_stop: async input => runtime.stop(input.target),
   };
 }
 
-export function createServer({ runtime = createRuntime() } = {}) {
+export function createServer({ runtime = createRuntime(), supervisor = null } = {}) {
+  // The shared host supervisor is injected by start(); hosts constructing the
+  // server directly (tests) keep null and lifecycle tools degrade to a
+  // structured unsupported error.
+  if (supervisor) runtime.supervisor = supervisor;
   const handlers = createToolHandlers(runtime);
   const server = new McpServer({ name: 'uagents-unified', version: '0.2.0-alpha.1' }, { capabilities: { tools: {} } });
   const register = (name, description, inputSchema) => server.registerTool(name, { description, inputSchema }, invoke(handlers[name]));
@@ -59,6 +66,9 @@ export function createServer({ runtime = createRuntime() } = {}) {
   register('uagents_cancel', 'Persist a cancellation request. Remote cancellation is confirmed only when the target can prove it.', taskIdSchema);
   register('uagents_list_tasks', 'List persisted tasks using cursor pagination. The hard maximum page size is 200.', z.object({ cursor: z.string().optional(), limit: z.number().int().min(1).max(200).optional() }).strict());
   register('uagents_reconcile', 'Explicitly contact the native target for the stored native identity and refine an indeterminate or waiting task. Never resubmits.', taskIdSchema);
+  register('uagents_ensure', 'Discover, verify and cache the target installation; for desktop targets start or reuse the dedicated managed instance. Never sends a prompt.', z.object({ target: z.string().min(1).max(64), refresh: z.boolean().optional() }).strict());
+  register('uagents_resume', 'Resume a task waiting for first-login on the same attempt, or reconcile a task that may already have been sent. Never creates a new attempt.', taskIdSchema);
+  register('uagents_stop', 'Stop only the ownership-proven managed instance of one desktop target. Refuses unmanaged or user-owned processes.', z.object({ target: z.string().min(1).max(64) }).strict());
   return server;
 }
 
@@ -94,7 +104,12 @@ export async function start(argv = process.argv) {
     await runRegisteredTask(stateRoot, taskId);
     return;
   }
-  serveStdio(() => createServer(), { onerror: error => process.stderr.write(`uagents unified mcp: ${error.message}\n`) });
+  // Same host control plane as the CLI and workers; best-effort, so a host
+  // without a usable state dir still serves task tools and lifecycle tools
+  // return a structured unsupported error.
+  const { createHostSupervisor } = await import('../../../src/host/target-supervisor.mjs');
+  const supervisor = await createHostSupervisor();
+  serveStdio(() => createServer({ supervisor }), { onerror: error => process.stderr.write(`uagents unified mcp: ${error.message}\n`) });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await start();

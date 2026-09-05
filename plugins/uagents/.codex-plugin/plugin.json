@@ -1,7 +1,7 @@
 {
   "name": "uagents",
-  "version": "0.2.0-alpha.1+codex.20260904135126",
-  "description": "CLI-first persistent Agent dispatch with optional MCP access and explicit model routing.",
+  "version": "0.2.0-alpha.1+codex.20260905090644",
+  "description": "CLI-first persistent Agent dispatch with managed desktop lifecycle, optional MCP access and explicit model routing.",
   "author": {
     "name": "uAgents contributors"
   },
@@ -10,7 +10,7 @@
   "interface": {
     "displayName": "uAgents",
     "shortDescription": "Call different Agents through one tracked protocol.",
-    "longDescription": "CLI-first task protocol with optional MCP access for agy, WorkBuddy, OpenCode, Doubao Work and TRAE CN. Preserves target-specific capabilities while tracking idempotency, native identity, model resolution, send ambiguity, cancellation intent and verified artifacts.",
+    "longDescription": "CLI-first task protocol with optional MCP access for agy, WorkBuddy, OpenCode, Doubao Work and TRAE CN. Discovers and verifies local installations, auto-starts Doubao Work and TRAE CN in dedicated isolated profiles across tasks, resumes first-login waits on the original attempt, and tracks idempotency, native identity, model resolution, send ambiguity, cancellation intent and verified artifacts. It never signs in, approves dialogs, buys quota or touches the user's own windows.",
     "developerName": "uAgents contributors",
     "category": "Productivity",
     "capabilities": [

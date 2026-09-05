@@ -12,19 +12,24 @@ export const BUILTIN_REGISTRY = Object.freeze({
   targets: Object.freeze({
     agy: target(['analysis', 'implementation'], { text: true, files: true, images: false }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
-    }, { transport: 'cli', model_selection: 'explicit', cancel: 'local-request', resume: false }),
+    }, { transport: 'cli', model_selection: 'explicit', cancel: 'local-request', resume: false,
+      lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),
     workbuddy: target(['analysis', 'implementation'], { text: true, files: true, images: false }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
-    }, { transport: 'cli', model_selection: 'default', cancel: 'local-request', resume: false }),
+    }, { transport: 'cli', model_selection: 'default', cancel: 'local-request', resume: false,
+      lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),
     opencode: target(['analysis'], { text: true, files: false, images: false }, { text: true, files: false, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
-    }, { transport: 'cli', model_selection: 'explicit', cancel: 'local-request', resume: false }),
+    }, { transport: 'cli', model_selection: 'explicit', cancel: 'local-request', resume: false,
+      lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),
     doubao: target(['analysis'], { text: true, files: false, images: false }, { text: true, files: false, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
-    }, { transport: 'cdp', model_selection: 'default', cancel: 'unsupported', resume: false }),
+    }, { transport: 'cdp', model_selection: 'default', cancel: 'unsupported', resume: false,
+      lifecycle: { managed: true, auto_launch: true, profile: 'isolated', ensure: true, resume: true, stop: true } }),
     trae: target(['analysis', 'implementation'], { text: true, files: false, images: false }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
-    }, { transport: 'gateway', model_selection: 'default', cancel: 'unsupported', resume: false }),
+    }, { transport: 'gateway', model_selection: 'default', cancel: 'unsupported', resume: false,
+      lifecycle: { managed: true, auto_launch: true, profile: 'isolated', ensure: true, resume: true, stop: true } }),
   }),
   models: Object.freeze({
     'workbuddy-default': Object.freeze({ target: 'workbuddy', model: null, provider: 'workbuddy', route_id: 'workbuddy-default', kind: 'backend_default', enabled: true, opt_in: false }),

@@ -5,30 +5,13 @@ import { adapterFor } from '../adapters/index.mjs';
 import { TaskService } from './task-service.mjs';
 import { runTask } from './worker.mjs';
 
-// Worker-side host control plane. Constructed best-effort: when the host store
-// or locator cannot be created, tasks continue without the managed lifecycle
-// (identical to pre-supervisor behavior). The warning is a fixed string; it
-// never includes error messages, paths or environment details.
+// Worker-side host control plane. Uses the shared factory so CLI, MCP and
+// worker subprocesses construct one identical supervisor. Best-effort: when
+// the host control plane cannot be created, tasks continue without the
+// managed lifecycle (identical to pre-supervisor behavior).
 async function createSupervisor() {
-  try {
-    const [{ HostStore }, { createAgentLocator }, { createTargetSupervisor }, { createDoubaoLauncher }, { createTraeLauncher }] = await Promise.all([
-      import('../host/host-store.mjs'),
-      import('../host/agent-locator.mjs'),
-      import('../host/target-supervisor.mjs'),
-      import('../host/doubao-launcher.mjs'),
-      import('../host/trae-launcher.mjs'),
-    ]);
-    const hostStore = new HostStore();
-    const locator = createAgentLocator({ hostStore });
-    return createTargetSupervisor({
-      hostStore,
-      locator,
-      launchers: { doubao: createDoubaoLauncher(), trae: createTraeLauncher() },
-    });
-  } catch {
-    process.stderr.write('uagents worker: host supervisor unavailable, continuing without managed lifecycle\n');
-    return null;
-  }
+  const { createHostSupervisor } = await import('../host/target-supervisor.mjs');
+  return createHostSupervisor();
 }
 
 export async function runRegisteredTask(root, taskId) {

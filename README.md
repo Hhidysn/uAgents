@@ -13,6 +13,7 @@ uAgents 是供 Codex 使用的本地统一 Agent 调度插件。`0.2.0-alpha.1` 
 - 外部发送前持久化 `possibly_sent`；发送后不确定状态不自动换 UUID、模型或 Provider 重放。
 - workspace 重叠租约、fencing token、输入快照、不可变产物捕获与 SHA-256 验证。
 - `status`/`list` 只读本地状态；只有显式 `reconcile` 才访问已有原生任务身份。
+- 受管生命周期：`submit` 自动发现、验证并缓存本机入口；豆包/TRAE 在专用隔离 Profile 中自动启动并跨 Task DB 用 Host lease 防双开；首次登录后同 UUID `submit` 或 `resume` 在原 Attempt 上恢复；`stop` 只停止所有权证据完整的实例。
 
 ## 使用
 
@@ -30,6 +31,16 @@ node "<plugin-root>\bin\uagents.mjs" result <task-id>
 
 `submit` 必须且只能选择 `--request FILE` 或 `--request-stdin`。stdin 适用于调用方可以把输入与命令文本分离的场景；不要把 prompt 或完整 JSON 放入进程参数。
 
+受管生命周期命令（Host 状态固定在 `%LOCALAPPDATA%\uAgents\host-v1`，不受 `--state-dir` 影响）：
+
+```powershell
+node "<plugin-root>\bin\uagents.mjs" ensure <target> [--refresh]
+node "<plugin-root>\bin\uagents.mjs" resume <task-id>
+node "<plugin-root>\bin\uagents.mjs" stop <target>
+```
+
+`ensure` 发现、验证并缓存安装；对桌面目标启动或复用专用实例，但不发送 Prompt。`probe` 保持只读、不启动。`resume` 对发送前登录等待在同一 Attempt 上恢复；对可能已发送的任务只 reconcile。`stop` 拒绝接管用户日常窗口或未知进程。
+
 `.mcp.json` 注册的 `uagents-unified` 是兼容入口，供没有本地 Shell 或明确要求 MCP 的宿主使用：
 
 ```text
@@ -38,6 +49,8 @@ uagents_list_models        uagents_probe
 uagents_submit             uagents_status
 uagents_result             uagents_cancel
 uagents_list_tasks         uagents_reconcile
+uagents_ensure             uagents_resume
+uagents_stop
 ```
 
 Codex 可能只把显式声明的环境变量交给插件 MCP 进程，因此环境变量鉴权的本机 Agent 不应默认走 MCP。CLI 与 MCP 只有在使用同一状态目录时才共享 Task/Attempt；切换入口也不得用新 UUID 重放已发送或不确定的任务。
@@ -58,11 +71,14 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 ## 设计与证据
 
 - [统一 Runtime 设计](docs/superpowers/specs/2026-09-04-uagents-unified-agent-runtime-design.md)
-- [可执行实施计划](docs/superpowers/plans/2026-09-04-uagents-unified-agent-runtime-implementation.md)
+- [统一 Runtime 实施计划](docs/superpowers/plans/2026-09-04-uagents-unified-agent-runtime-implementation.md)
+- [受管 Agent 生命周期设计](docs/superpowers/specs/2026-09-04-uagents-managed-agent-lifecycle-design.md)
+- [受管生命周期实施计划](docs/superpowers/plans/2026-09-05-uagents-managed-agent-lifecycle-implementation.md)
 - [当前进度](docs/status/2026-09-02-current-progress.md)
+- [受管桌面启动契约验证（Gate 0 spike）](docs/verification/2026-09-05-managed-launch-spike.md)
 - [SQLite/Windows spike](docs/verification/2026-09-04-sqlite-windows-spike.md)
 - [候选 CLI 调用契约](docs/verification/2026-09-03-cli-candidate-contracts.md)：Claude Code、Grok、Pi 仍只是候选，不在 target allowlist。
 - [历史干净安装验证](docs/verification/2026-09-02-clean-plugin-install.md)
 - [第三方资料索引](docs/research-index.md)
 
-旧的两个目标专用 MCP 已从插件声明中移除；其 CDP/gateway 运输、TRAE 可追溯上游包、许可证和第三方通知仍保留。插件不会自动启动桌面应用、登录、批准操作、购买额度或静默切换付费路线。
+旧的两个目标专用 MCP 已从插件声明中移除；其 CDP/gateway 运输、TRAE 可追溯上游包、许可证和第三方通知仍保留。桌面 Agent 由 uAgents 以专用隔离 Profile 自动启动和管理：不自动登录、不批准操作、不购买额度、不接管用户日常窗口，也不静默切换付费路线。

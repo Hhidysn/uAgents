@@ -42,8 +42,9 @@ function isPlainObject(value) {
 }
 
 // Context is whitelist-filtered: the supervisor must never accept or persist
-// prompt-like content. Only a workspace string and an optional preferred port
-// (a non-sensitive integer used for the pre-launch port identity check) pass.
+// prompt-like content. Only a workspace string, an optional preferred port
+// (a non-sensitive integer used for the pre-launch port identity check) and
+// a refresh flag for the locator cache pass.
 function safeContext(context) {
   if (!isPlainObject(context)) return {};
   const out = {};
@@ -52,6 +53,9 @@ function safeContext(context) {
   }
   if (Number.isInteger(context.preferredPort)) {
     out.preferredPort = context.preferredPort;
+  }
+  if (context.refresh === true) {
+    out.refresh = true;
   }
   return out;
 }
@@ -200,7 +204,7 @@ export function createTargetSupervisor({
     // Resolve first: CLI targets never hold a desktop instance lease, and
     // concurrent read-only resolves across Task DBs are harmless. Only the
     // launch path is serialized by the Host lease.
-    const installation = installationFrom(await locator.resolve(target));
+    const installation = installationFrom(await locator.resolve(target, { refresh: safe.refresh === true }));
     if (
       !isPlainObject(installation) ||
       typeof installation.canonical_path !== "string" ||
@@ -522,5 +526,31 @@ export function createTargetSupervisor({
     return hostStore.releaseLease(lease);
   }
 
-  return { inspect, ensure, stop, renewInstanceLease, releaseInstanceLease };
+  return { inspect, ensure, stop, renewInstanceLease, releaseInstanceLease, hostStore };
+}
+
+// Shared host control-plane factory for every entrypoint (CLI, unified MCP,
+// worker subprocess). One construction path, one Host DB per Windows user.
+// Construction is best-effort: a failure yields null so callers continue
+// without the managed lifecycle, exactly like the worker path. The warning is
+// a fixed string that never carries error messages, paths or environment.
+export async function createHostSupervisor() {
+  try {
+    const [{ HostStore }, { createAgentLocator }, { createDoubaoLauncher }, { createTraeLauncher }] = await Promise.all([
+      import("./host-store.mjs"),
+      import("./agent-locator.mjs"),
+      import("./doubao-launcher.mjs"),
+      import("./trae-launcher.mjs"),
+    ]);
+    const hostStore = new HostStore();
+    const locator = createAgentLocator({ hostStore });
+    return createTargetSupervisor({
+      hostStore,
+      locator,
+      launchers: { doubao: createDoubaoLauncher(), trae: createTraeLauncher() },
+    });
+  } catch {
+    process.stderr.write("uagents: host supervisor unavailable, continuing without managed lifecycle\n");
+    return null;
+  }
 }

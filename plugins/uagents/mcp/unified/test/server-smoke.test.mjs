@@ -38,8 +38,8 @@ test('bundled stdio server initializes and lists the unified tool surface', asyn
     send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const listed = await wait(2);
     assert.deepEqual(listed.result.tools.map(tool => tool.name).sort(), [
-      'uagents_cancel', 'uagents_get_capabilities', 'uagents_list_models', 'uagents_list_targets', 'uagents_list_tasks',
-      'uagents_probe', 'uagents_reconcile', 'uagents_result', 'uagents_status', 'uagents_submit',
+      'uagents_cancel', 'uagents_ensure', 'uagents_get_capabilities', 'uagents_list_models', 'uagents_list_targets', 'uagents_list_tasks',
+      'uagents_probe', 'uagents_reconcile', 'uagents_result', 'uagents_resume', 'uagents_status', 'uagents_stop', 'uagents_submit',
     ]);
   } finally {
     child.stdin.end();

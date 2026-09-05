@@ -44,6 +44,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
     // cycle; CLI targets only resolve and cache a verified entry.
     let verifiedEntry = null;
     let managed = null;
+    let managedLifecycle = null;
     if (supervisor) {
       const ensured = await supervisor.ensure(request.target, { workspace: request.workspace });
       if (ensured && ensured.mode !== 'cli' && ensured.lease) hostLease = ensured.lease;
@@ -57,6 +58,12 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
           profile_generation: ensured.instance.generation ?? null,
         };
       }
+      if (ensured?.lifecycle) {
+        // Non-sensitive managed-lifecycle summary persisted with events so
+        // status/result can expose it (design §15). Never contains prompts.
+        const { interaction_phase: phase, ...summary } = ensured.lifecycle;
+        managedLifecycle = { ...summary, ...(phase ? { interaction_phase: phase } : {}) };
+      }
       // Preflight login wait: the managed instance is up but surfaces a
       // login/setup screen. Persist the sanitized waiting event and stop
       // before any adapter work; the same attempt resumes via resume/submit.
@@ -64,7 +71,11 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
         service.transition(taskId, 'waiting_user', {
           attemptId,
           lease: fencingLease,
-          event: { interaction: { phase: ensured.lifecycle.interaction_phase ?? 'preflight_login' }, native_status: 'preflight_login' },
+          event: {
+            interaction: { phase: ensured.lifecycle.interaction_phase ?? 'preflight_login' },
+            native_status: 'preflight_login',
+            lifecycle: managedLifecycle,
+          },
         });
         return service.status(taskId);
       }
@@ -78,10 +89,10 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
       verifiedEntry,
       managed,
     };
-    const prepared = await adapter.prepare(request, adapterContext);
     const checkpoint = (kind, payload = {}) => persistCheckpoint(service.control, {
-      taskId, attemptId, lease: fencingLease, kind, payload: { target: request.target, ...payload },
+      taskId, attemptId, lease: fencingLease, kind, payload: { target: request.target, ...(managedLifecycle ? { lifecycle: managedLifecycle } : {}), ...payload },
     });
+    const prepared = await adapter.prepare(request, adapterContext);
     let submission;
     try {
       submission = await adapter.dispatch(prepared, { ...adapterContext, checkpoint });

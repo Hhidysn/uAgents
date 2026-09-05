@@ -218,8 +218,25 @@ export class TaskService {
       } : null,
       native: native ? { session_id: native.native_session_id, task_id: native.native_task_id, status: native.native_status, evidence_ref: native.evidence_ref } : null,
       error: taskErrorRecord(persistedError, attempt?.submission ?? 'not_sent'),
+      lifecycle: this.#latestLifecycle(database, taskId),
       created_at_ms: Number(task.created_at_ms), updated_at_ms: Number(task.updated_at_ms),
     };
+  }
+
+  // Newest persisted managed-lifecycle summary (waiting events and dispatch
+  // checkpoints carry it). Bounded scan over recent events; null when the
+  // target was never managed in this task.
+  #latestLifecycle(database, taskId) {
+    const rows = database.prepare('SELECT payload_json FROM events WHERE task_id = ? ORDER BY sequence DESC LIMIT 50').all(taskId);
+    for (const row of rows) {
+      try {
+        const payload = JSON.parse(row.payload_json);
+        if (payload && typeof payload === 'object' && !Array.isArray(payload) && payload.lifecycle && typeof payload.lifecycle === 'object') {
+          return payload.lifecycle;
+        }
+      } catch {}
+    }
+    return null;
   }
 
   #waitingPhase(database, taskId) {
@@ -264,10 +281,14 @@ function sanitizeWaitingEvent(event) {
   const interaction = event?.interaction && typeof event.interaction === 'object' && !Array.isArray(event.interaction) ? event.interaction : {};
   const nativeStatus = typeof event?.native_status === 'string' && event.native_status ? event.native_status : null;
   const error = typeof event?.error === 'string' && event.error ? redactText(event.error).slice(0, 200) : null;
+  const lifecycle = event?.lifecycle && typeof event.lifecycle === 'object' && !Array.isArray(event.lifecycle) ? event.lifecycle : null;
   return {
     interaction: { phase: typeof interaction.phase === 'string' ? interaction.phase : null },
     ...(nativeStatus ? { native_status: nativeStatus } : {}),
     ...(error ? { error } : {}),
+    // Pre-sanitized managed-lifecycle summary from the worker (state,
+    // instance/installation ids, generation, flags). Never contains prompts.
+    ...(lifecycle ? { lifecycle } : {}),
   };
 }
 

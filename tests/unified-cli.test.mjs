@@ -90,3 +90,66 @@ test('configuration validation cannot enable unsupported capabilities', async ()
   const validated = await execute(['config', 'validate', '--config', configFile]);
   assert.equal(validated.data.valid, true);
 });
+
+test('capabilities declare the managed lifecycle per target kind', async () => {
+  const doubao = await execute(['capabilities', 'doubao']);
+  assert.deepEqual(doubao.data.lifecycle, { managed: true, auto_launch: true, profile: 'isolated', ensure: true, resume: true, stop: true });
+  const opencode = await execute(['capabilities', 'opencode']);
+  assert.deepEqual(opencode.data.lifecycle, { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false });
+});
+
+test('ensure and stop delegate to the host supervisor without a state-dir dependency', async () => {
+  const ensured = [];
+  const stopped = [];
+  const supervisor = {
+    ensure: async (target, context) => {
+      ensured.push({ target, refresh: context.refresh === true });
+      return {
+        mode: 'launched',
+        lifecycle: { state: 'ready', instance_id: 'managed-doubao-1', installation_id: 'inst-doubao', profile_generation: 1, started_by_uagents: true, reused: false },
+        installation: { installation_id: 'inst-doubao', canonical_path: 'C:\\fake\\DoubaoWork.exe' },
+        instance: { instance_id: 'managed-doubao-1', port: 19222 },
+      };
+    },
+    stop: async (target) => {
+      stopped.push(target);
+      return { mode: 'stopped', instance_id: 'managed-doubao-1' };
+    },
+  };
+  const ensuredResult = await execute(['ensure', 'doubao', '--state-dir', root], { supervisor });
+  assert.equal(ensuredResult.ok, true);
+  assert.equal(ensuredResult.data.mode, 'launched');
+  assert.equal(ensuredResult.data.lifecycle.state, 'ready');
+  assert.deepEqual(ensured, [{ target: 'doubao', refresh: false }]);
+  const refreshed = await execute(['ensure', 'doubao', '--refresh', '--state-dir', root], { supervisor });
+  assert.equal(refreshed.ok, true);
+  assert.deepEqual(ensured[1], { target: 'doubao', refresh: true });
+  const stoppedResult = await execute(['stop', 'doubao', '--state-dir', root], { supervisor });
+  assert.equal(stoppedResult.ok, true);
+  assert.equal(stoppedResult.data.mode, 'stopped');
+  assert.deepEqual(stopped, ['doubao']);
+});
+
+test('ensure without a host supervisor is a structured unsupported error', async () => {
+  await assert.rejects(
+    () => execute(['ensure', 'doubao', '--state-dir', root], { supervisor: null }),
+    (error) => {
+      assert.equal(error.code, 'unsupported_capability');
+      assert.equal(error.submission, 'not_sent');
+      return true;
+    }
+  );
+});
+
+test('resume rejects tasks that are not waiting for preflight login', async () => {
+  const input = request();
+  const requestFile = path.join(root, `resume-${input.request_id}.json`);
+  fs.writeFileSync(requestFile, JSON.stringify(input));
+  await execute(['submit', '--request', requestFile, '--state-dir', root], { spawnWorker: () => {} });
+  const lines = [];
+  const exitCode = await main(['resume', input.request_id, '--state-dir', root], { log: line => lines.push(JSON.parse(line)) });
+  assert.equal(exitCode, 1);
+  assert.equal(lines[0].ok, false);
+  assert.equal(lines[0].error.code, 'resume_not_allowed');
+  assert.equal(lines[0].error.submission, 'not_sent');
+});

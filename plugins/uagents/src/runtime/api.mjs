@@ -61,6 +61,26 @@ export class UnifiedRuntime {
     return result;
   }
 
+  // Managed lifecycle: discover/verify/cache and (for desktop targets)
+  // start or reuse the dedicated instance. Never sends a prompt.
+  async ensure(target, { refresh = false } = {}) {
+    if (!this.supervisor) fail('unsupported_capability', 'Managed lifecycle is unavailable in this process.', { submission: 'not_sent' });
+    const ensured = await this.supervisor.ensure(target, { refresh });
+    return {
+      target,
+      mode: ensured.mode,
+      lifecycle: ensured.lifecycle ?? { state: ensured.mode === 'cli' ? 'cli_entry_cached' : ensured.mode, reused: ensured.mode === 'cli' },
+      installation: ensured.installation,
+      ...(ensured.instance ? { instance: ensured.instance } : {}),
+    };
+  }
+
+  // Stop only ownership-proven managed instances of one target.
+  async stop(target) {
+    if (!this.supervisor) fail('unsupported_capability', 'Managed lifecycle is unavailable in this process.', { submission: 'not_sent' });
+    return this.supervisor.stop(target);
+  }
+
   submit(input) {
     const result = this.service.submit(input);
     if (!result.duplicate || result.resumed) this.spawnWorker(this.stateRoot, result.task_id);
