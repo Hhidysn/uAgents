@@ -14,7 +14,7 @@ export function acquireExecutionLeases(control, { target, workspace, ownerNonce 
       const rows = database.prepare('SELECT * FROM leases WHERE resource_type = ? AND expires_at_ms > ?').all('workspace', now);
       const conflict = rows.find(row => canonicalWorkspacesOverlap(JSON.parse(row.metadata_json).workspace, canonical) && row.owner_nonce !== ownerNonce);
       if (conflict) fail('lease_conflict', 'An overlapping workspace is already leased.', { category: 'conflict', submission: 'not_sent', details: { resource_key: conflict.resource_key } });
-      leases.push(acquireRow(database, `workspace:${canonical}`, 'workspace', ownerNonce, ttlMs, now, { workspace: canonical }));
+      leases.push(acquireLeaseRow(database, `workspace:${canonical}`, 'workspace', ownerNonce, ttlMs, now, { workspace: canonical }));
     }
     return leases;
   });
@@ -50,12 +50,12 @@ function acquireSlot(database, prefix, resourceType, limit, ownerNonce, ttlMs, n
   for (let slot = 1; slot <= limit; slot++) {
     const key = `${prefix}:${slot}`;
     const row = database.prepare('SELECT owner_nonce, expires_at_ms FROM leases WHERE resource_key = ?').get(key);
-    if (!row || row.owner_nonce === ownerNonce || Number(row.expires_at_ms) <= now) return acquireRow(database, key, resourceType, ownerNonce, ttlMs, now, { slot });
+    if (!row || row.owner_nonce === ownerNonce || Number(row.expires_at_ms) <= now) return acquireLeaseRow(database, key, resourceType, ownerNonce, ttlMs, now, { slot });
   }
   fail('lease_conflict', `No ${resourceType} concurrency slot is available.`, { category: 'conflict', submission: 'not_sent' });
 }
 
-function acquireRow(database, resourceKey, resourceType, ownerNonce, ttlMs, now, metadata) {
+export function acquireLeaseRow(database, resourceKey, resourceType, ownerNonce, ttlMs, now, metadata) {
   const current = database.prepare('SELECT epoch, owner_nonce, expires_at_ms FROM leases WHERE resource_key = ?').get(resourceKey);
   if (current && current.owner_nonce !== ownerNonce && Number(current.expires_at_ms) > now) {
     fail('lease_conflict', `Resource is already leased: ${resourceKey}`, { category: 'conflict', submission: 'not_sent' });
