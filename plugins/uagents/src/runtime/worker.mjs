@@ -48,7 +48,9 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
       const ensured = await supervisor.ensure(request.target, { workspace: request.workspace });
       if (ensured && ensured.mode !== 'cli' && ensured.lease) hostLease = ensured.lease;
       if (ensured?.installation) verifiedEntry = ensured.installation;
-      if (ensured?.instance) {
+      if (ensured?.managed) {
+        managed = ensured.managed;
+      } else if (ensured?.instance) {
         managed = {
           port: ensured.instance.port ?? null,
           instance_id: ensured.instance.instance_id ?? null,

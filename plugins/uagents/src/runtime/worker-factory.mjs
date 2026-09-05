@@ -11,15 +11,20 @@ import { runTask } from './worker.mjs';
 // never includes error messages, paths or environment details.
 async function createSupervisor() {
   try {
-    const [{ HostStore }, { createAgentLocator }, { createTargetSupervisor }, { createDoubaoLauncher }] = await Promise.all([
+    const [{ HostStore }, { createAgentLocator }, { createTargetSupervisor }, { createDoubaoLauncher }, { createTraeLauncher }] = await Promise.all([
       import('../host/host-store.mjs'),
       import('../host/agent-locator.mjs'),
       import('../host/target-supervisor.mjs'),
       import('../host/doubao-launcher.mjs'),
+      import('../host/trae-launcher.mjs'),
     ]);
     const hostStore = new HostStore();
     const locator = createAgentLocator({ hostStore });
-    return createTargetSupervisor({ hostStore, locator, launchers: { doubao: createDoubaoLauncher() } });
+    return createTargetSupervisor({
+      hostStore,
+      locator,
+      launchers: { doubao: createDoubaoLauncher(), trae: createTraeLauncher() },
+    });
   } catch {
     process.stderr.write('uagents worker: host supervisor unavailable, continuing without managed lifecycle\n');
     return null;
