@@ -54,6 +54,17 @@ function pathEquals(left, right) {
   return left.toLowerCase() === right.toLowerCase();
 }
 
+// Ownership accepts the verified install tree, not only the exact exe: the
+// Doubao launcher (Application\DoubaoWork.exe) spawns the real listener from
+// Application\app\DoubaoWork.exe (Gate 0 spike evidence). Any executable
+// inside the verified installation's directory tree counts as the same image.
+function executableInInstallTree(executablePath, installationPath) {
+  if (typeof executablePath !== "string" || typeof installationPath !== "string") return false;
+  if (pathEquals(executablePath, installationPath)) return true;
+  const installDir = path.dirname(installationPath).toLowerCase();
+  return executablePath.toLowerCase().startsWith(installDir + path.sep);
+}
+
 function parseInstancePayload(row) {
   try {
     const payload = JSON.parse(row.payload);
@@ -137,7 +148,7 @@ export function createTargetSupervisor({
       typeof proc.started_at_ms === "number" &&
       typeof instance.process_started_at_ms === "number" &&
       Math.abs(proc.started_at_ms - instance.process_started_at_ms) <= STARTED_AT_TOLERANCE_MS;
-    const pathOk = pathEquals(proc.executable_path, installation.canonical_path);
+    const pathOk = executableInInstallTree(proc.executable_path, installation.canonical_path);
     if (!startedOk || !pathOk) return false;
     if (Number.isInteger(instance.port)) {
       let listener;

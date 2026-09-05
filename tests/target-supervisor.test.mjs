@@ -259,6 +259,29 @@ describe('target supervisor', () => {
     }
   });
 
+  test('5b) listener inside the verified install tree is accepted (doubao app subdirectory)', async () => {
+    // Gate 0 spike evidence: the Doubao launcher spawns the real listener from
+    // Application\app\DoubaoWork.exe. Ownership must accept any executable in
+    // the verified install tree, not only the exact canonical path.
+    const listenerPath = 'C:\\fake\\app\\App.exe';
+    const runner = fakeRunner({
+      processByPid: { 20740: { started_at_ms: 5555, executable_path: listenerPath } },
+      listenerByPort: { 19222: { listening: true, listener_pid: 20740, executable_path: listenerPath } },
+    });
+    const ctx = baseSetup({ runner, launcherResults: [{ process: { pid: 20740, started_at_ms: 5555 }, port: 19222 }] });
+    try {
+      const result = await ctx.supervisor.ensure('doubao');
+      assert.equal(result.mode, 'launched');
+      assert.equal(result.instance.process_id, 20740);
+      assert.equal(result.instance.state, 'ready');
+      // reuse path also accepts the tree-relative listener
+      const second = await ctx.supervisor.ensure('doubao');
+      assert.equal(second.mode, 'reuse');
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
   test('6) a port held by an unknown process is port_identity_mismatch', async () => {
     const runner = fakeRunner({
       listenerByPort: { 19222: { listening: true, listener_pid: 999, executable_path: 'C:\\unknown\\other.exe' } },
