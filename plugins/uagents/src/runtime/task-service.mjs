@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { evaluateRequest } from '../policy/evaluate.mjs';
-import { errorRecord, fail, UAgentsError } from '../protocol/errors.mjs';
+import { errorRecord, fail, redactText, UAgentsError } from '../protocol/errors.mjs';
 import { appendEvent } from '../store/database.mjs';
 import { atomicWriteJson, atomicWriteText, readTaskJson, taskDirectory } from '../store/task-files.mjs';
 import { STORE_SCHEMA_VERSION } from '../store/schema.mjs';
@@ -29,7 +29,8 @@ export class TaskService {
         if (existing.raw_hash !== materialized.raw_request_hash || existing.effective_hash !== materialized.effective_request_hash) {
           fail('request_conflict', 'request_id is already registered with different effective content.', { category: 'conflict', submission: 'not_sent' });
         }
-        return { ...this.#statusWith(database, existing.task_id), duplicate: true };
+        const resumed = this.#resumePreflightInTransaction(database, existing.task_id, { now });
+        return { ...this.#statusWith(database, existing.task_id), duplicate: true, ...(resumed ? { resumed: true } : {}) };
       }
 
       const taskId = evaluated.request.request_id;
@@ -142,7 +143,8 @@ export class TaskService {
       const currentEvidence = Number(database.prepare("SELECT coalesce(max(json_extract(payload_json, '$.evidence_strength')), 0) AS strength FROM events WHERE task_id = ?").get(taskId).strength);
       const state = transitionState({ status: row.status, evidence_strength: currentEvidence }, next, { same_native_identity: sameNativeIdentity, evidence_strength: evidenceStrength });
       database.prepare('UPDATE tasks SET status = ?, updated_at_ms = ? WHERE task_id = ?').run(state.status, now, taskId);
-      appendEvent(database, { taskId, attemptId, type: `task.${state.status}`, payload: { ...event, evidence_strength: state.evidence_strength }, now });
+      const payload = state.status === 'waiting_user' ? sanitizeWaitingEvent(event) : event;
+      appendEvent(database, { taskId, attemptId, type: `task.${state.status}`, payload: { ...payload, evidence_strength: state.evidence_strength }, now });
       const nativeStatus = typeof event.native_status === 'string' && event.native_status
         ? event.native_status : ['waiting_user', 'succeeded', 'failed', 'cancelled'].includes(state.status) ? state.status : null;
       if (attemptId && nativeStatus) database.prepare(`UPDATE native_sessions SET native_status = ? WHERE id = (
@@ -164,6 +166,21 @@ export class TaskService {
       const attempt = database.prepare('SELECT attempt_id FROM attempts WHERE task_id = ? ORDER BY ordinal DESC LIMIT 1').get(taskId);
       appendEvent(database, { taskId, attemptId: attempt?.attempt_id ?? null, type: 'control.cancel_requested', now });
       return { ...this.#statusWith(database, taskId), cancel_accepted: true };
+    });
+  }
+
+  resume(taskId, { now = this.clock() } = {}) {
+    return this.control.transaction(database => {
+      const status = this.#statusWith(database, taskId);
+      const attempt = status.attempt;
+      if (status.status === 'waiting_user' && attempt?.submission === 'not_sent' && !status.native && this.#waitingPhase(database, taskId) === 'preflight_login') {
+        this.#requeueWaitingAttempt(database, taskId, attempt.attempt_id, now);
+        return { ...this.#statusWith(database, taskId), mode: 'preflight' };
+      }
+      if (status.status === 'waiting_user' && status.native) {
+        return { ...status, mode: 'reconcile', native_identity: status.native.session_id ?? status.native.task_id };
+      }
+      fail('resume_not_allowed', `Task cannot be resumed from ${status.status}.`, { category: 'conflict', submission: 'not_sent' });
     });
   }
 
@@ -204,6 +221,54 @@ export class TaskService {
       created_at_ms: Number(task.created_at_ms), updated_at_ms: Number(task.updated_at_ms),
     };
   }
+
+  #waitingPhase(database, taskId) {
+    const row = database.prepare(`SELECT payload_json FROM events WHERE task_id = ? AND type = 'task.waiting_user' ORDER BY sequence DESC LIMIT 1`).get(taskId);
+    if (!row) return null;
+    const phase = JSON.parse(row.payload_json)?.interaction?.phase;
+    return typeof phase === 'string' && phase ? phase : null;
+  }
+
+  #resumePreflightInTransaction(database, taskId, { now }) {
+    const task = database.prepare('SELECT status FROM tasks WHERE task_id = ?').get(taskId);
+    if (!task) return null;
+    const attempt = database.prepare("SELECT attempt_id, submission FROM attempts WHERE task_id = ? ORDER BY ordinal DESC LIMIT 1").get(taskId);
+    if (task.status !== 'waiting_user' || attempt?.submission !== 'not_sent') return null;
+    const native = database.prepare('SELECT 1 FROM native_sessions WHERE attempt_id = ? LIMIT 1').get(attempt.attempt_id);
+    if (native) return null;
+    if (this.#waitingPhase(database, taskId) !== 'preflight_login') return null;
+    this.#requeueWaitingAttempt(database, taskId, attempt.attempt_id, now);
+    return true;
+  }
+
+  #requeueWaitingAttempt(database, taskId, attemptId, now) {
+    const currentEvidence = Number(database.prepare("SELECT coalesce(max(json_extract(payload_json, '$.evidence_strength')), 0) AS strength FROM events WHERE task_id = ?").get(taskId).strength);
+    const state = transitionState({ status: 'waiting_user', evidence_strength: currentEvidence }, 'queued', {});
+    database.prepare('UPDATE tasks SET status = ?, updated_at_ms = ? WHERE task_id = ?').run(state.status, now, taskId);
+    database.prepare("UPDATE attempts SET status = 'queued' WHERE attempt_id = ?").run(attemptId);
+    appendEvent(database, {
+      taskId,
+      attemptId,
+      type: `task.${state.status}`,
+      payload: {
+        resumed: true,
+        lifecycle: { resumed_from: 'waiting_user', interaction_phase: 'preflight_login' },
+        evidence_strength: state.evidence_strength,
+      },
+      now,
+    });
+  }
+}
+
+function sanitizeWaitingEvent(event) {
+  const interaction = event?.interaction && typeof event.interaction === 'object' && !Array.isArray(event.interaction) ? event.interaction : {};
+  const nativeStatus = typeof event?.native_status === 'string' && event.native_status ? event.native_status : null;
+  const error = typeof event?.error === 'string' && event.error ? redactText(event.error).slice(0, 200) : null;
+  return {
+    interaction: { phase: typeof interaction.phase === 'string' ? interaction.phase : null },
+    ...(nativeStatus ? { native_status: nativeStatus } : {}),
+    ...(error ? { error } : {}),
+  };
 }
 
 function taskErrorRecord(value, submission) {

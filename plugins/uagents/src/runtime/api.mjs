@@ -50,7 +50,7 @@ export class UnifiedRuntime {
 
   submit(input) {
     const result = this.service.submit(input);
-    if (!result.duplicate) this.spawnWorker(this.stateRoot, result.task_id);
+    if (!result.duplicate || result.resumed) this.spawnWorker(this.stateRoot, result.task_id);
     return { ...result, poll_after_ms: 250 };
   }
 
@@ -58,6 +58,15 @@ export class UnifiedRuntime {
   result(taskId) { return this.service.result(taskId); }
   cancel(taskId) { return this.service.requestCancel(taskId); }
   listTasks(options = {}) { return this.service.list(options); }
+
+  async resume(taskId) {
+    const result = this.service.resume(taskId);
+    if (result.mode === 'preflight') {
+      this.spawnWorker(this.stateRoot, result.task_id);
+      return { ...result, ok: true, resumed: true, poll_after_ms: 250 };
+    }
+    return this.reconcile(taskId);
+  }
 
   async reconcile(taskId) {
     const status = this.service.status(taskId);

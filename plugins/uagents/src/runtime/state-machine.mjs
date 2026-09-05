@@ -6,9 +6,9 @@ export const TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled']);
 const NORMAL_TRANSITIONS = new Map([
   ['registered', new Set(['queued', 'cancelled'])],
   ['queued', new Set(['starting', 'cancelled'])],
-  ['starting', new Set(['running', 'cancelled', 'indeterminate', 'failed'])],
+  ['starting', new Set(['running', 'waiting_user', 'cancelled', 'indeterminate', 'failed'])],
   ['running', new Set(['waiting_user', 'succeeded', 'failed', 'cancelled', 'indeterminate'])],
-  ['waiting_user', new Set(['running', 'succeeded', 'failed', 'cancelled', 'indeterminate'])],
+  ['waiting_user', new Set(['queued', 'running', 'succeeded', 'failed', 'cancelled', 'indeterminate'])],
   ['indeterminate', new Set(['running', 'waiting_user', 'succeeded', 'failed', 'cancelled'])],
 ]);
 
