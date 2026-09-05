@@ -1,6 +1,6 @@
 {
   "name": "uagents",
-  "version": "0.2.0-alpha.1+codex.20260905090644",
+  "version": "0.2.0-alpha.1+codex.20260905112931",
   "description": "CLI-first persistent Agent dispatch with managed desktop lifecycle, optional MCP access and explicit model routing.",
   "author": {
     "name": "uAgents contributors"
