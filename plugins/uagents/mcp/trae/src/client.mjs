@@ -9,11 +9,15 @@ export class TraeGatewayClient {
     port = Number(process.env.UAGENTS_TRAE_GATEWAY_PORT ?? process.env.TRAECN_GATEWAY_PORT ?? 8788),
     token = process.env.TRAECN_GATEWAY_TOKEN ?? '',
     fetchImpl = fetch,
+    expectedInstanceNonce = null,
   } = {}) {
     if (!Number.isInteger(port) || port < 1024 || port > 65535) fail('invalid_gateway_port', 'TRAE gateway port must be 1024–65535.');
     this.origin = `http://127.0.0.1:${port}`;
     this.token = token;
     this.fetchImpl = fetchImpl;
+    this.expectedInstanceNonce = expectedInstanceNonce === null || expectedInstanceNonce === undefined
+      ? null
+      : String(expectedInstanceNonce);
   }
 
   async request(method, pathname, { body, idempotencyKey, timeoutMs = 8000 } = {}) {
@@ -48,7 +52,13 @@ export class TraeGatewayClient {
     return value;
   }
 
-  status() { return this.request('GET', '/api/status'); }
+  async status() {
+    const value = await this.request('GET', '/api/status');
+    if (this.expectedInstanceNonce !== null && value?.instance_nonce !== this.expectedInstanceNonce) {
+      fail('gateway_identity_mismatch', 'TRAE gateway instance nonce does not match the managed launch.');
+    }
+    return value;
+  }
   submit(body, requestId) { return this.request('POST', '/api/tasks/submit', { body, idempotencyKey: requestId, timeoutMs: 20000 }); }
   task(taskId) { return this.request('GET', `/api/task/${encodeURIComponent(taskId)}`); }
 }

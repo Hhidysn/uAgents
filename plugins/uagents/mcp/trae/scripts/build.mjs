@@ -121,6 +121,23 @@ replaceExactCount(
   `: Number(process.env.TRAECN_BACKGROUND_MAX_RETRIES || 0);`,
   3,
 );
+// Instance identity: /api/status carries a startup-injected nonce so the
+// supervisor's client can verify it reached the gateway it launched (Gate 5).
+// The nonce is an opaque identity value, not a secret; the capability token
+// stays out of every response body.
+replaceOnce(
+  'src/http/handlers/status.js',
+  `function handleStatus(req, res, ctx) {
+  return ctx._statusSnapshot().then(snapshot => ctx._json(req, res, snapshot));
+}`,
+  `function handleStatus(req, res, ctx) {
+  return ctx._statusSnapshot().then(snapshot => {
+    const instanceNonce = process.env.TRAECN_GATEWAY_INSTANCE_NONCE;
+    if (instanceNonce) snapshot.instance_nonce = String(instanceNonce);
+    return ctx._json(req, res, snapshot);
+  });
+}`,
+);
 
 fs.mkdirSync(dist, { recursive: true });
 await build({

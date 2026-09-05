@@ -20,6 +20,9 @@ const env = {
   ...process.env,
   TRAECN_GATEWAY_HOST: '127.0.0.1',
   TRAECN_GATEWAY_PORT: process.env.UAGENTS_TRAE_GATEWAY_PORT ?? process.env.TRAECN_GATEWAY_PORT ?? '8788',
+  // Instance identity for the supervisor's client-side nonce check (Gate 5).
+  // The capability token keeps flowing via ...process.env and is never logged.
+  TRAECN_GATEWAY_INSTANCE_NONCE: process.env.TRAECN_GATEWAY_INSTANCE_NONCE ?? '',
   TRAECN_CDP_HOST: '127.0.0.1',
   TRAECN_REMOTE_DEBUGGING_PORT: process.env.UAGENTS_TRAE_CDP_PORT ?? process.env.TRAECN_REMOTE_DEBUGGING_PORT ?? '9223',
   TRAECN_STRICT_CDP_PORT: '1',

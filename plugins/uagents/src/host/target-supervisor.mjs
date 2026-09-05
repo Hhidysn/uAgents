@@ -26,6 +26,13 @@ import { HostStoreError, resolveHostRoot } from "./host-store.mjs";
 import { CACHE_ID_PREFIX, createDefaultRunner } from "./agent-locator.mjs";
 import { fail } from "../protocol/errors.mjs";
 
+// Launcher-provided instance fields that may be persisted. The capability
+// token is deliberately absent: it lives only in the host secrets file and in
+// memory for the current ensure result.
+const PERSISTED_LAUNCHER_FIELDS = Object.freeze([
+  "desktop_pid", "gateway_pid", "gateway_started_at_ms", "gateway_port",
+  "capability_file", "instance_nonce",
+]);
 export const INSTANCE_LEASE_PREFIX = "instance:";
 export const STARTED_AT_TOLERANCE_MS = 1000;
 export const TASKKILL_TIMEOUT_MS = 10_000;
@@ -223,9 +230,21 @@ export function createTargetSupervisor({
         let classification = null;
         if (Number.isInteger(latest.port) && typeof launcherEntry?.classify === "function") {
           try {
-            classification = await launcherEntry.classify({ port: latest.port, runPowerShell: runner });
+            classification = await launcherEntry.classify({ port: latest.port, instance: latest, env, runPowerShell: runner });
           } catch {
             classification = null;
+          }
+        }
+        if (classification?.state === "gateway_down" && typeof launcherEntry?.repair === "function") {
+          // Gateway-only recovery (design §11): the desktop instance is alive
+          // and ownership-verified; restart the gateway with the same
+          // persistence directory and nonce. If repair fails, converge by
+          // marking the record stale and launching a fresh generation.
+          try {
+            await launcherEntry.repair({ instance: latest, env, runPowerShell: runner });
+            classification = await launcherEntry.classify({ port: latest.port, instance: latest, env, runPowerShell: runner });
+          } catch {
+            classification = { state: "stale" };
           }
         }
         if (classification?.state === "stale") {
@@ -238,10 +257,28 @@ export function createTargetSupervisor({
               : (latest.state ?? "ready");
           const refreshed = { ...latest, state, last_seen_at_ms: now() };
           hostStore.upsertManagedInstance(latest.instance_id, refreshed);
+          // In-memory capability token for gateway-authenticated adapters:
+          // read from the host secrets file, never re-persisted anywhere.
+          let capabilityToken = null;
+          if (typeof launcherEntry?.readCapability === "function") {
+            try {
+              capabilityToken = await launcherEntry.readCapability({ env });
+            } catch {
+              capabilityToken = null;
+            }
+          }
           return {
             mode: "reuse",
             installation,
             instance: refreshed,
+            managed: {
+              port: refreshed.port ?? null,
+              instance_id: refreshed.instance_id,
+              profile_generation: refreshed.generation,
+              gateway_port: refreshed.gateway_port ?? null,
+              instance_nonce: refreshed.instance_nonce ?? null,
+              capability_token: capabilityToken,
+            },
             lease,
             lifecycle: state === "waiting_user"
               ? {
@@ -347,7 +384,19 @@ export function createTargetSupervisor({
         created_at_ms: now(),
         last_seen_at_ms: now(),
       };
+      // Persist only whitelisted launcher fields (never the capability token).
+      for (const field of PERSISTED_LAUNCHER_FIELDS) {
+        if (launched[field] !== undefined) instance[field] = launched[field];
+      }
       hostStore.upsertManagedInstance(instanceId, instance);
+      const managed = {
+        port: instance.port ?? null,
+        instance_id: instance.instance_id,
+        profile_generation: instance.generation,
+        gateway_port: instance.gateway_port ?? null,
+        instance_nonce: instance.instance_nonce ?? null,
+        capability_token: launched.capability_token ?? null, // in-memory only
+      };
       const lifecycle = instanceState === "waiting_user"
         ? {
             ...lifecycleSummary(instance, false),
@@ -359,6 +408,7 @@ export function createTargetSupervisor({
         mode: "launched",
         installation,
         instance,
+        managed,
         lease,
         lifecycle,
       };
@@ -446,6 +496,12 @@ export function createTargetSupervisor({
         throw notOwned("ownership_verification_failed");
       }
       await killProcessTree(latest.process_id);
+      // Managed desktop instances may carry a companion gateway process
+      // (TRAE). It is equally ours (started_by_uagents with a recorded pid),
+      // so stopping the instance stops both.
+      if (Number.isInteger(latest.gateway_pid)) {
+        await killProcessTree(latest.gateway_pid);
+      }
       const stopped = { ...latest, state: "stopped", stopped_at_ms: now() };
       hostStore.upsertManagedInstance(latest.instance_id, stopped);
       releaseOnce();
