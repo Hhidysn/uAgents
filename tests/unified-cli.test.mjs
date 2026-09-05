@@ -101,11 +101,14 @@ test('capabilities declare the managed lifecycle per target kind', async () => {
 test('ensure and stop delegate to the host supervisor without a state-dir dependency', async () => {
   const ensured = [];
   const stopped = [];
+  const released = [];
+  const lease = { resource_key: 'instance:doubao', owner_nonce: 'cli', epoch: 1, fencing_token: 'fence-1' };
   const supervisor = {
     ensure: async (target, context) => {
       ensured.push({ target, refresh: context.refresh === true });
       return {
         mode: 'launched',
+        lease,
         lifecycle: { state: 'ready', instance_id: 'managed-doubao-1', installation_id: 'inst-doubao', profile_generation: 1, started_by_uagents: true, reused: false },
         installation: { installation_id: 'inst-doubao', canonical_path: 'C:\\fake\\DoubaoWork.exe' },
         instance: { instance_id: 'managed-doubao-1', port: 19222 },
@@ -115,12 +118,15 @@ test('ensure and stop delegate to the host supervisor without a state-dir depend
       stopped.push(target);
       return { mode: 'stopped', instance_id: 'managed-doubao-1' };
     },
+    releaseInstanceLease: (leased) => { released.push(leased); },
   };
   const ensuredResult = await execute(['ensure', 'doubao', '--state-dir', root], { supervisor });
   assert.equal(ensuredResult.ok, true);
   assert.equal(ensuredResult.data.mode, 'launched');
   assert.equal(ensuredResult.data.lifecycle.state, 'ready');
   assert.deepEqual(ensured, [{ target: 'doubao', refresh: false }]);
+  // one-shot ensure must not leave the host lease behind (stop/resume follow)
+  assert.deepEqual(released, [lease]);
   const refreshed = await execute(['ensure', 'doubao', '--refresh', '--state-dir', root], { supervisor });
   assert.equal(refreshed.ok, true);
   assert.deepEqual(ensured[1], { target: 'doubao', refresh: true });

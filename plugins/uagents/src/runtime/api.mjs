@@ -62,10 +62,16 @@ export class UnifiedRuntime {
   }
 
   // Managed lifecycle: discover/verify/cache and (for desktop targets)
-  // start or reuse the dedicated instance. Never sends a prompt.
+  // start or reuse the dedicated instance. Never sends a prompt. One-shot
+  // callers (CLI/MCP tools) hold no lease after returning: no live worker
+  // exists to release it, and a residual lease would block stop/resume for
+  // one TTL window. The task path keeps the lease until the worker finishes.
   async ensure(target, { refresh = false } = {}) {
     if (!this.supervisor) fail('unsupported_capability', 'Managed lifecycle is unavailable in this process.', { submission: 'not_sent' });
     const ensured = await this.supervisor.ensure(target, { refresh });
+    if (ensured.lease) {
+      try { this.supervisor.releaseInstanceLease(ensured.lease); } catch {}
+    }
     return {
       target,
       mode: ensured.mode,
