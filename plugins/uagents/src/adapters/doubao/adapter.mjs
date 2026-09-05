@@ -22,19 +22,34 @@ export class DoubaoAdapter {
     return { models: [{ id: null, route_id: 'doubao-default', provider: 'doubao', kind: 'backend_default' }], discovery: 'configured' };
   }
 
-  async probe() {
-    try { return await this.bridge.probe(); }
+  // Managed instances run on a supervisor-assigned loopback port; the bridge
+  // must target that port instead of the process-environment default.
+  #bridgeFor(context) {
+    const port = context?.managed?.port;
+    if (!Number.isInteger(port) || port === this.bridge.port) return this.bridge;
+    if (this.bridge instanceof DoubaoDesktopBridge) {
+      return new DoubaoDesktopBridge({
+        port,
+        fetchImpl: this.bridge.fetchImpl,
+        websocketFactory: this.bridge.websocketFactory,
+      });
+    }
+    return this.bridge;
+  }
+
+  async probe(request, context) {
+    try { return await this.#bridgeFor(context).probe(); }
     catch (error) { throw normalizeError(error); }
   }
 
-  async prepare(request) {
-    try { await this.bridge.probe(); }
+  async prepare(request, context = {}) {
+    try { await this.#bridgeFor(context).probe(); }
     catch (error) { throw normalizeError(error); }
     return { request };
   }
 
   async dispatch(prepared, context) {
-    const native = await this.bridge.prepareAndSubmit(prepared.request.prompt, async patch => {
+    const native = await this.#bridgeFor(context).prepareAndSubmit(prepared.request.prompt, async patch => {
       if (patch.submission === 'may_have_been_sent') await context.checkpoint('possibly_sent');
     });
     const handle = {

@@ -58,7 +58,7 @@ function pathEquals(left, right) {
 // Doubao launcher (Application\DoubaoWork.exe) spawns the real listener from
 // Application\app\DoubaoWork.exe (Gate 0 spike evidence). Any executable
 // inside the verified installation's directory tree counts as the same image.
-function executableInInstallTree(executablePath, installationPath) {
+export function executableInInstallTree(executablePath, installationPath) {
   if (typeof executablePath !== "string" || typeof installationPath !== "string") return false;
   if (pathEquals(executablePath, installationPath)) return true;
   const installDir = path.dirname(installationPath).toLowerCase();
@@ -216,15 +216,46 @@ export function createTargetSupervisor({
       const latest = instances.length > 0 ? instances[instances.length - 1] : null;
 
       if (latest && (await verifyOwnership(latest, installation))) {
-        const refreshed = { ...latest, last_seen_at_ms: now() };
-        hostStore.upsertManagedInstance(latest.instance_id, refreshed);
-        return {
-          mode: "reuse",
-          installation,
-          instance: refreshed,
-          lease,
-          lifecycle: lifecycleSummary(refreshed, true),
-        };
+        // Surface classification is target knowledge: delegated to the
+        // launcher's optional classify hook (doubao/trae launchers provide it;
+        // plain launch functions and Gate 3.1 fakes keep ready semantics).
+        const launcherEntry = launcherTable[target];
+        let classification = null;
+        if (Number.isInteger(latest.port) && typeof launcherEntry?.classify === "function") {
+          try {
+            classification = await launcherEntry.classify({ port: latest.port, runPowerShell: runner });
+          } catch {
+            classification = null;
+          }
+        }
+        if (classification?.state === "stale") {
+          // Process alive but its surface vanished (browser crash): mark stale
+          // and fall through to a fresh launch.
+          hostStore.markManagedInstanceStale(latest.instance_id, { now: now() });
+        } else {
+          const state = classification?.state === "waiting_user" ? "waiting_user"
+            : classification?.state === "ready" ? "ready"
+              : (latest.state ?? "ready");
+          const refreshed = { ...latest, state, last_seen_at_ms: now() };
+          hostStore.upsertManagedInstance(latest.instance_id, refreshed);
+          return {
+            mode: "reuse",
+            installation,
+            instance: refreshed,
+            lease,
+            lifecycle: state === "waiting_user"
+              ? {
+                  state,
+                  instance_id: refreshed.instance_id,
+                  installation_id: refreshed.installation_id,
+                  profile_generation: refreshed.generation,
+                  started_by_uagents: refreshed.started_by_uagents === true,
+                  reused: true,
+                  interaction_phase: classification?.phase ?? "preflight_login",
+                }
+              : lifecycleSummary(refreshed, true),
+          };
+        }
       }
       if (latest) {
         // Evidence mismatch: mark stale and replace with a new generation.
@@ -301,12 +332,13 @@ export function createTargetSupervisor({
       }
 
       const instanceId = `managed-${target}-${generation}-${now()}`;
+      const instanceState = launched.state === "waiting_user" ? "waiting_user" : "ready";
       const instance = {
         instance_id: instanceId,
         target,
         installation_id: installation.installation_id,
         generation,
-        state: "ready",
+        state: instanceState,
         profile_path: profilePath,
         process_id: candidate.process_id,
         process_started_at_ms: candidate.process_started_at_ms,
@@ -316,12 +348,19 @@ export function createTargetSupervisor({
         last_seen_at_ms: now(),
       };
       hostStore.upsertManagedInstance(instanceId, instance);
+      const lifecycle = instanceState === "waiting_user"
+        ? {
+            ...lifecycleSummary(instance, false),
+            state: "waiting_user",
+            interaction_phase: launched.interaction_phase ?? "preflight_login",
+          }
+        : lifecycleSummary(instance, false);
       return {
         mode: "launched",
         installation,
         instance,
         lease,
-        lifecycle: lifecycleSummary(instance, false),
+        lifecycle,
       };
     } catch (error) {
       // Atomicity: a failed ensure must never leave a Host lease behind.

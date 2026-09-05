@@ -43,10 +43,29 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
     // targets hold the Host instance lease for the whole dispatch/observe
     // cycle; CLI targets only resolve and cache a verified entry.
     let verifiedEntry = null;
+    let managed = null;
     if (supervisor) {
       const ensured = await supervisor.ensure(request.target, { workspace: request.workspace });
       if (ensured && ensured.mode !== 'cli' && ensured.lease) hostLease = ensured.lease;
       if (ensured?.installation) verifiedEntry = ensured.installation;
+      if (ensured?.instance) {
+        managed = {
+          port: ensured.instance.port ?? null,
+          instance_id: ensured.instance.instance_id ?? null,
+          profile_generation: ensured.instance.generation ?? null,
+        };
+      }
+      // Preflight login wait: the managed instance is up but surfaces a
+      // login/setup screen. Persist the sanitized waiting event and stop
+      // before any adapter work; the same attempt resumes via resume/submit.
+      if (ensured?.lifecycle?.state === 'waiting_user') {
+        service.transition(taskId, 'waiting_user', {
+          attemptId,
+          lease: fencingLease,
+          event: { interaction: { phase: ensured.lifecycle.interaction_phase ?? 'preflight_login' }, native_status: 'preflight_login' },
+        });
+        return service.status(taskId);
+      }
     }
     const adapterContext = {
       taskId,
@@ -55,6 +74,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
       taskDirectory: taskDirectory(service.control.root, taskId),
       isCancelRequested: () => service.status(taskId).cancel_requested,
       verifiedEntry,
+      managed,
     };
     const prepared = await adapter.prepare(request, adapterContext);
     const checkpoint = (kind, payload = {}) => persistCheckpoint(service.control, {

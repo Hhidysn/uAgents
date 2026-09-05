@@ -157,3 +157,56 @@ test('desktop waiting-user task reconciles through the same native identity with
     assert.equal(service.result(waiting.task_id).response.text, '审批后完成');
   } finally { control.close(); }
 });
+
+test('managed doubao task waits for preflight login and resumes on the same attempt', async () => {
+  const control = new ControlDatabase(path.join(root, `managed-${randomUUID()}`));
+  try {
+    const service = new TaskService(control);
+    const bridge = new DoubaoBridge();
+    const adapter = new DoubaoAdapter({ bridge, pollIntervalMs: 0 });
+    const installation = {
+      installation_id: 'inst-doubao', target: 'doubao', artifact_kind: 'desktop-exe',
+      canonical_path: 'C:\\fake\\DoubaoWork\\Application\\DoubaoWork.exe',
+    };
+    const instance = { instance_id: 'managed-doubao-1', generation: 1, port: 19222, state: 'waiting_user' };
+    let loggedIn = false;
+    const supervisor = {
+      ensure: async (target, context) => {
+        assert.equal(target, 'doubao');
+        assert.equal(context.prompt, undefined, 'supervisor never receives the prompt');
+        return {
+          mode: loggedIn ? 'reuse' : 'launched',
+          installation,
+          instance,
+          lease: { resource_key: 'instance:doubao', owner_nonce: 'worker', epoch: 1, fencing_token: 'fence-1' },
+          lifecycle: loggedIn
+            ? { state: 'ready', instance_id: instance.instance_id, installation_id: installation.installation_id, profile_generation: 1, started_by_uagents: true, reused: true }
+            : { state: 'waiting_user', instance_id: instance.instance_id, installation_id: installation.installation_id, profile_generation: 1, started_by_uagents: true, reused: false, interaction_phase: 'preflight_login' },
+        };
+      },
+      renewInstanceLease: (lease) => lease,
+      releaseInstanceLease: () => {},
+    };
+    const input = baseRequest({ target: 'doubao' });
+    const registered = service.submit(input, { adapterVersion: 'desktop-fixture-1' });
+    const waiting = await runTask({ service, taskId: registered.task_id, adapter, supervisor });
+    assert.equal(waiting.status, 'waiting_user');
+    assert.equal(waiting.attempt.submission, 'not_sent');
+    assert.equal(bridge.sends, 0, 'no dispatch before the user completes first login');
+    assert.equal(service.status(registered.task_id).native, null);
+
+    // Same-UUID submit resumes the same attempt instead of duplicating.
+    const resubmitted = service.submit(input, { adapterVersion: 'desktop-fixture-1' });
+    assert.equal(resubmitted.duplicate, true);
+    assert.equal(resubmitted.resumed, true);
+    assert.equal(resubmitted.attempt.attempt_id, waiting.attempt.attempt_id);
+
+    // The user finished login in the dedicated window; the resumed worker
+    // reuses the managed instance, dispatches once and completes.
+    loggedIn = true;
+    const completed = await runTask({ service, taskId: registered.task_id, adapter, supervisor });
+    assert.equal(completed.status, 'succeeded');
+    assert.equal(bridge.sends, 1);
+    assert.equal(completed.attempt.attempt_id, waiting.attempt.attempt_id);
+  } finally { control.close(); }
+});
