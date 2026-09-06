@@ -1,4 +1,35 @@
-export const STORE_SCHEMA_VERSION = 2;
+export const STORE_SCHEMA_VERSION = 3;
+
+const NATIVE_PROCESSES_SQL = `
+CREATE TABLE IF NOT EXISTS native_processes (
+  id INTEGER PRIMARY KEY,
+  attempt_id TEXT NOT NULL UNIQUE REFERENCES attempts(attempt_id) ON DELETE RESTRICT,
+  target TEXT NOT NULL,
+  workspace_key TEXT,
+  executable_path TEXT NOT NULL,
+  executable_sha256 TEXT,
+  launch_fingerprint TEXT NOT NULL,
+  pid INTEGER,
+  process_started_at_ms INTEGER,
+  process_state TEXT NOT NULL CHECK(process_state IN ('starting', 'running', 'exited', 'unknown')),
+  exit_code INTEGER,
+  stdout_relpath TEXT NOT NULL,
+  stderr_relpath TEXT NOT NULL,
+  stdout_cursor_bytes INTEGER NOT NULL DEFAULT 0 CHECK(stdout_cursor_bytes >= 0),
+  stderr_cursor_bytes INTEGER NOT NULL DEFAULT 0 CHECK(stderr_cursor_bytes >= 0),
+  workspace_guard_state TEXT NOT NULL CHECK(workspace_guard_state IN ('held', 'released', 'unknown')),
+  observed_at_ms INTEGER NOT NULL,
+  exited_at_ms INTEGER,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  CHECK(process_state != 'running' OR (pid IS NOT NULL AND process_started_at_ms IS NOT NULL))
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS native_process_attempt_idx ON native_processes(attempt_id);
+CREATE INDEX IF NOT EXISTS native_process_guard_idx ON native_processes(workspace_guard_state, process_state);
+`;
+
+export const MIGRATION_2_TO_3 = NATIVE_PROCESSES_SQL;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS metadata (
@@ -58,6 +89,8 @@ CREATE TABLE IF NOT EXISTS native_sessions (
   evidence_ref TEXT,
   UNIQUE(attempt_id, native_session_id, native_task_id)
 ) STRICT;
+
+${NATIVE_PROCESSES_SQL}
 
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,

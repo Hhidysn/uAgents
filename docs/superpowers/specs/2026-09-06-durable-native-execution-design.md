@@ -158,9 +158,11 @@ recoverable native executions.
 Automatic v2 -> v3 migration must also be guarded against mixed-generation active execution. A v2 store has no process ledger, so v3
 must not claim durable workspace safety while a v2 Attempt may already have started native work. Before changing the metadata version,
 the migration must fail closed if the v2 store contains a nonterminal Attempt that is not provably still in a pre-dispatch
-`registered/queued + submission=not_sent` state. In particular, `starting`, `running`, `waiting_user`, `indeterminate`, or any
-`may_have_been_sent/sent` Attempt blocks automatic migration. Resolve/finish those tasks under the old runtime or a future explicit
-legacy-repair workflow first; do not fabricate v3 process identity for them.
+`registered/queued + submission=not_sent` state. In particular, `starting`, `running`, `waiting_user`, or `indeterminate` blocks
+automatic migration, as does `sent` on any nonterminal Task or `may_have_been_sent` on any Task. Historical `succeeded`, `failed`, and `cancelled`
+Tasks are allowed to migrate when their last Attempt records confirmed `sent`: v2 reached those terminal states only after its local
+observation path completed, and v3 preserves them as non-durable history without fabricating a `native_processes` row. Resolve/finish
+unsafe nonterminal tasks under the old runtime or a future explicit legacy-repair workflow first.
 
 ### 6.2 `native_processes`
 

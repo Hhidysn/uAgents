@@ -21,6 +21,7 @@ const CATEGORY_BY_CODE = new Map([
   ['native_session_mismatch', 'transport'],
   ['output_verification_failed', 'runtime'],
   ['incompatible_store_version', 'runtime'],
+  ['store_migration_blocked', 'runtime'],
   ['installation_not_found', 'target'],
   ['installation_untrusted', 'target'],
   ['installation_changed', 'target'],
@@ -52,6 +53,7 @@ const RETRYABLE_BY_CODE = new Map([
   ['gateway_identity_mismatch', true],
   ['resume_not_allowed', false],
   ['stop_not_owned', false],
+  ['store_migration_blocked', true],
 ]);
 
 const TRANSPORT_CODE_MAP = new Map([

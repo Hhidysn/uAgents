@@ -208,7 +208,7 @@ Refactor initialization into explicit branches:
 
 ```text
 open database
--> enable foreign_keys + busy_timeout + WAL
+-> enable connection-local foreign_keys + busy_timeout
 -> detect whether metadata/schema_version exists
 
 no schema metadata
@@ -225,7 +225,13 @@ schema_version == 3
 
 any other version
     -> incompatible_store_version without schema mutation
+
+after a supported v3 store is initialized/migrated/verified
+    -> enable/verify WAL with bounded SQLITE_BUSY retry
 ```
+
+`journal_mode=WAL` is intentionally delayed until after schema/version acceptance. Changing journal mode is a database mutation and a
+future/partial/migration-blocked store must be rejected without changing it merely because a newer runtime opened the file.
 
 Do not implement a generic migration framework beyond what is needed for the first real migration. A small ordered migration table is
 acceptable if it remains explicit and testable.
@@ -251,11 +257,17 @@ waiting_user
 indeterminate
 ```
 
-or when any latest Attempt has:
+or when a latest Attempt on a nonterminal Task has:
 
 ```text
 submission == may_have_been_sent | sent
 ```
+
+Terminal `succeeded`, `failed`, and `cancelled` Tasks are historical evidence, not candidates for native execution recovery. They may
+migrate when their latest Attempt says confirmed `sent`; preserve their rows exactly and leave `native_processes` empty for those Attempts.
+`may_have_been_sent` remains ambiguous even on a nominally terminal Task and therefore still blocks automatic migration.
+This distinction is required so an installed v2 state root containing completed live-smoke/history does not become permanently
+unopenable after the schema upgrade.
 
 Use a stable `store_migration_blocked` error with enough sanitized details to identify affected task IDs/statuses. Do not mutate the
 schema version before this check succeeds. Do not synthesize v3 native-process rows for old tasks with missing process evidence.
