@@ -278,10 +278,6 @@ function Invoke-Verification {
         $publishers = @(Get-FieldList -Payload $expected -Name 'publishers')
         $exeNames = @(Get-FieldList -Payload $expected -Name 'executable_names')
     }
-    $hashRequired = $false
-    $hashFlag = Get-Field -Payload $Payload -Name 'hash_required' -Default $false
-    if ($hashFlag -eq $true -or $hashFlag -eq 'true') { $hashRequired = $true }
-
     # canonical path via system resolution (handles reparse/junction)
     $canonical = $null
     try {
@@ -379,18 +375,10 @@ function Invoke-Verification {
         }
     }
 
-    # sha-256 only when required (small cli entries)
+    # SHA-256 is computed by the Node host locator after this identity check.
+    # Keep this script independent of PowerShell profiles/modules: in particular,
+    # do not rely on a profile-provided file-hash cmdlet in powershell.exe -NoProfile.
     $sha256 = $null
-    if ($hashRequired) {
-        try {
-            $hashResult = Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256 -ErrorAction SilentlyContinue
-            if ($null -ne $hashResult) { $sha256 = [string]$hashResult.Hash }
-        } catch { $sha256 = $null }
-        if ([string]::IsNullOrEmpty($sha256)) {
-            # a required hash is part of canonical identity; without it the file cannot be trusted
-            $checks['canonical_ok'] = $false
-        }
-    }
 
     $ok = $checks['canonical_ok'] -and $checks['volume_ok'] -and $checks['signature_ok'] -and $checks['product_ok'] -and $checks['publisher_ok'] -and $checks['executable_ok']
 

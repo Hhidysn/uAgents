@@ -1,11 +1,11 @@
-# OpenCode independent analysis
+# OpenCode execution
 
-Use `target=opencode`, `mode=analysis`, and one explicitly approved route returned by `uagents_list_models`. The built-in routes are:
+Use `target=opencode` and one explicitly approved route returned by `uagents_list_models`. Both `analysis` and `implementation` are supported, and declared workspace-relative file inputs are passed to OpenCode as native `--file` arguments. The built-in routes are:
 
 - `commandcode-goat/deepseek/deepseek-v4-flash`
 - `commandcode-goat/z-ai/glm-5.3-flash`
 
-The adapter runs a fresh `opencode run --pure --model <route> --format json` session, sends the prompt over stdin, and never adds `--auto`, `--continue`, or provider fallback. `--pure` disables OpenCode plugins; it is not an enforced read-only sandbox. Implementation and file inputs are rejected before launch.
+The adapter runs a fresh `opencode run --model <route> --format json --dir <workspace> --title <task>` session and sends the prompt over stdin. It does not add `--pure` or `--auto`; pass those and other non-conflicting OpenCode options in `execution.native_args` in the requested order. Dispatcher-owned `run`, `--model`, `--format`, `--dir`, and `--title` arguments cannot be overridden. `--pure` disables OpenCode plugins; it is not an enforced read-only sandbox. Declared `expected_outputs` remain optional and use the shared artifact capture/verification pipeline when present.
 
 The JSON event stream identifies the native session and final message parts but does not independently report the actual model. Therefore successful calls normally keep `model_reported=null` and `model_verified=false`; the selected route remains visible in `model_requested`, `provider`, and `route_id` without being misrepresented as runtime verification.
 

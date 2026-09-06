@@ -18,7 +18,7 @@ export const BUILTIN_REGISTRY = Object.freeze({
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
     }, { transport: 'cli', model_selection: 'default', cancel: 'local-request', resume: false,
       lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),
-    opencode: target(['analysis'], { text: true, files: false, images: false }, { text: true, files: false, images: false }, {
+    opencode: target(['analysis', 'implementation'], { text: true, files: true, images: false }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
     }, { transport: 'cli', model_selection: 'explicit', cancel: 'local-request', resume: false,
       lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),

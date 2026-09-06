@@ -1,7 +1,7 @@
 # OpenCode Native Execution Design
 
 Date: 2026-09-06
-Status: Design approved; pending written-spec review
+Status: Implemented, installed, and verified in a fresh Codex CLI process; one authorized DPF standard-submit provider E2E passed; not released
 
 ## Goal
 

@@ -1,15 +1,15 @@
 # uAgents
 
 uAgents 是供 Codex 使用的本地统一 Agent 调度插件。当前发行标识为
-`0.2.0-alpha.1+codex.20260905113451`，把 agy/Gemini、WorkBuddy、OpenCode、豆包工作和
+`0.2.0-alpha.1+codex.20260906063959`，把 agy/Gemini、WorkBuddy、OpenCode、豆包工作和
 TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时明确保留各目标不同的
 模型、文件、权限、取消和桌面连接能力。
 
 先看：[当前状态与能力矩阵](docs/status/2026-09-06-current-status.md) · [文档索引](docs/README.md)
 
-> 重要边界：OpenCode 当前只开放文本 `analysis`。它不能通过 uAgents 接收文件输入、声明文件产物，
-> 也不能执行 `implementation` 文件修改。这个限制同时存在于已安装缓存、最新提交版和当前未提交工作树；
-> 不是单纯的安装缓存过旧。
+> 重要边界：OpenCode 现在支持文本 `analysis` 和 `implementation`，也支持声明式文件输入与可选文件产物捕获。
+> uAgents 负责请求、工作区、生命周期和产物验收，不提供执行沙箱；OpenCode 的原生行为通过
+> `execution.native_args` 控制。
 
 核心特性：
 
@@ -31,13 +31,14 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 | --- | --- | --- | --- |
 | agy | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | 无图片；模型必须显式指定；分析模式不是硬只读 |
 | WorkBuddy | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | 无图片；模型由后端决定；分析模式不是硬只读 |
-| OpenCode | `analysis` | 文本 / 文本 | 不支持 `implementation`、文件输入或文件输出；仅两条显式 Command Code Flash 路线 |
+| OpenCode | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | 仅两条显式 Command Code Flash 路线；`--pure`、`--auto` 等原生行为由 `execution.native_args` 控制 |
 | 豆包工作 | `analysis` | 文本 / 文本 | 无文件/图片；无已确认原生取消；不回显可验证模型；受管桌面实例 |
 | TRAE CN | `analysis`、`implementation` | 文本 / 文本 + 文件 | 不接受显式文件输入；无图片、无已确认原生取消；模型不可靠回显；受管桌面实例 |
 
 `implementation` 与 `workspace-write` 不是同一件事：前者表示目标允许调用其原生编辑流程，后者要求
-uAgents 自身强制工作区写入边界。当前没有目标宣称 `enforced-read-only`、`workspace-write` 或
-`full-access`，因此不能把产物校验当成安全隔离。
+uAgents 自身强制工作区写入边界。`execution.permission` 为 Schema 1.0 兼容字段，不再作为能力准入门槛；
+需要的原生审批或执行行为应通过目标自己的 `execution.native_args` 配置。当前 uAgents 不提供执行沙箱，
+因此不能把产物校验当成安全隔离。
 
 已安装缓存、最新提交版和工作树的差异、验证证据及待补齐项见[当前状态文档](docs/status/2026-09-06-current-status.md)。
 

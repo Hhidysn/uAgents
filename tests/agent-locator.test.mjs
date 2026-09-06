@@ -7,8 +7,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync, rmSync, statSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -496,17 +496,19 @@ test("9) default runner surfaces timeout, bad JSON and non-zero exit as HostStor
   }
 });
 
-test("9b) cli-entry resolution records sha256 and does not require authenticode", async (t) => {
+test("9b) cli-entry resolution computes sha256 in Node without PowerShell hashing", async (t) => {
   const { store, apps } = makeTestEnv(t);
-  const cli = path.join(apps, "opencode.cmd");
-  writeFileSync(cli, "@echo off", "utf8");
+  const cli = path.join(apps, "opencode.exe");
+  writeFileSync(cli, "MZ fixture executable", "utf8");
+  const stats = statSync(cli);
+  const expectedHash = createHash("sha256").update(readFileSync(cli)).digest("hex");
 
   const cliManifest = manifest({
     target: "opencode",
     artifact_kind: "cli-entry",
     accepted_product_names: [],
     accepted_publishers: [],
-    accepted_executable_names: ["opencode.cmd", "opencode"],
+    accepted_executable_names: ["opencode.exe", "opencode.cmd", "opencode"],
     path_commands: ["opencode"],
   });
   const fake = makeFakeRunner({
@@ -518,8 +520,9 @@ test("9b) cli-entry resolution records sha256 and does not require authenticode"
         publisher: null,
         file_version: null,
         signature: { status: "NotSigned", status_message: "" },
-        sha256: "abc123def456",
-        size: 11,
+        sha256: null,
+        size: stats.size,
+        mtime_ms: Math.round(stats.mtimeMs),
       }),
     },
   });
@@ -527,10 +530,112 @@ test("9b) cli-entry resolution records sha256 and does not require authenticode"
 
   const result = await locator.resolve("opencode");
   assert.equal(result.installation.artifact_kind, "cli-entry");
-  assert.equal(result.installation.sha256, "abc123def456");
-  // the verify payload for cli entries demands a hash and never authenticode
+  assert.equal(result.installation.sha256, expectedHash);
+  // PowerShell identity verification remains separate from Node-side hashing.
   const verifyPayload = fake.calls.verify[0];
-  assert.equal(verifyPayload.hash_required, true);
+  assert.equal(verifyPayload.hash_required, undefined);
+  assert.equal(fake.calls.verify.length, 1);
+});
+
+test("9d) an npm shim discovery hint resolves and caches the real OpenCode executable", async (t) => {
+  const { store, apps } = makeTestEnv(t);
+  const npmRoot = path.join(apps, "npm path");
+  const shim = path.join(npmRoot, "opencode");
+  const binary = path.join(npmRoot, "node_modules", "opencode-ai", "bin", "opencode.exe");
+  mkdirSync(path.dirname(binary), { recursive: true });
+  writeFileSync(shim, "#!/bin/sh\nexec node_modules/opencode-ai/bin/opencode.exe\n", "utf8");
+  writeFileSync(binary, "MZ fixture native executable", "utf8");
+  const stats = statSync(binary);
+  const expectedHash = createHash("sha256").update(readFileSync(binary)).digest("hex");
+  const cliManifest = manifest({
+    target: "opencode",
+    artifact_kind: "cli-entry",
+    accepted_product_names: [],
+    accepted_publishers: [],
+    accepted_executable_names: ["opencode.exe", "opencode.cmd", "opencode.ps1", "opencode"],
+    path_commands: ["opencode"],
+  });
+  const fake = makeFakeRunner({
+    discover: discoverResponse([discoverCandidate(shim, "path")]),
+    verifyByPath: {
+      [binary.toLowerCase()]: verifyResponse({
+        canonical_path: binary,
+        product_name: null,
+        publisher: null,
+        file_version: null,
+        size: stats.size,
+        mtime_ms: Math.round(stats.mtimeMs),
+        sha256: null,
+      }),
+    },
+  });
+  const locator = createAgentLocator({ hostStore: store, runPowerShell: fake.runner, manifests: { opencode: cliManifest } });
+
+  const result = await locator.resolve("opencode");
+  assert.equal(result.installation.canonical_path, binary);
+  assert.equal(path.extname(result.installation.canonical_path).toLowerCase(), ".exe");
+  assert.equal(result.installation.sha256, expectedHash);
+  assert.equal(fake.calls.verify.length, 1);
+  assert.equal(fake.calls.verify[0].path, binary);
+  assert.equal(store.getInstallation(CACHE_ID("opencode")).canonical_path, binary);
+});
+
+test("9e) a cached OpenCode shim is not reused as the final installation entry", async (t) => {
+  const { store, apps } = makeTestEnv(t);
+  const npmRoot = path.join(apps, "cached npm");
+  const shim = path.join(npmRoot, "opencode.cmd");
+  const binary = path.join(npmRoot, "node_modules", "opencode-ai", "bin", "opencode.exe");
+  mkdirSync(path.dirname(binary), { recursive: true });
+  writeFileSync(shim, "@echo off", "utf8");
+  writeFileSync(binary, "MZ cached fixture native executable", "utf8");
+  const shimStats = statSync(shim);
+  const binaryStats = statSync(binary);
+  const expectedHash = createHash("sha256").update(readFileSync(binary)).digest("hex");
+  store.upsertInstallation(CACHE_ID("opencode"), {
+    installation_id: "inst-cached-shim",
+    target: "opencode",
+    canonical_path: shim,
+    discovery_source: "path",
+    artifact_kind: "cli-entry",
+    product_name: null,
+    publisher: null,
+    file_version: null,
+    sha256: null,
+    size: shimStats.size,
+    mtime: Math.round(shimStats.mtimeMs),
+    verifier_version: VERIFIER_VERSION,
+    status: "trusted",
+    verified_at_ms: 1600000000000,
+    last_success_at_ms: 1600000000000,
+  });
+  const cliManifest = manifest({
+    target: "opencode",
+    artifact_kind: "cli-entry",
+    accepted_product_names: [],
+    accepted_publishers: [],
+    accepted_executable_names: ["opencode.exe", "opencode.cmd", "opencode"],
+    path_commands: ["opencode"],
+  });
+  const fake = makeFakeRunner({
+    discover: discoverResponse([discoverCandidate(shim, "path")]),
+    verifyByPath: {
+      [binary.toLowerCase()]: verifyResponse({
+        canonical_path: binary,
+        product_name: null,
+        publisher: null,
+        file_version: null,
+        size: binaryStats.size,
+        mtime_ms: Math.round(binaryStats.mtimeMs),
+        sha256: null,
+      }),
+    },
+  });
+  const locator = createAgentLocator({ hostStore: store, runPowerShell: fake.runner, manifests: { opencode: cliManifest } });
+
+  const result = await locator.resolve("opencode");
+  assert.equal(result.reused_cache, false);
+  assert.equal(result.installation.canonical_path, binary);
+  assert.equal(result.installation.sha256, expectedHash);
   assert.equal(fake.calls.verify.length, 1);
 });
 

@@ -55,12 +55,45 @@ for (const target of ['agy', 'workbuddy', 'opencode']) test(`${target} adapter c
   } finally { control.close(); }
 });
 
-test('OpenCode implementation is rejected before adapter execution', () => {
+test('OpenCode implementation succeeds without expected outputs and ignores legacy permission admission', async () => {
   const control = new ControlDatabase(path.join(root, `rejected-${randomUUID()}`));
   try {
     const service = new TaskService(control);
-    assert.throws(() => service.submit(baseRequest({ mode: 'implementation' })), { code: 'unsupported_capability' });
-    assert.equal(control.raw.prepare('SELECT count(*) AS count FROM tasks').get().count, 0);
+    const input = baseRequest({
+      mode: 'implementation',
+      execution: { observation_timeout_ms: 5_000, effort: 'medium', permission: 'full-access' },
+    });
+    const driver = { command: process.execPath, args: [fakeCli, 'opencode', input.request_id, 'success'] };
+    const adapter = new OpenCodeAdapter({ testDriver: driver });
+    const registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
+    const result = await runTask({ service, taskId: registered.task_id, adapter });
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.attempt.submission, 'sent');
+    assert.deepEqual(service.result(result.task_id).artifacts, []);
+  } finally { control.close(); }
+});
+
+test('OpenCode implementation reuses verified file inputs and captures declared outputs', async () => {
+  const control = new ControlDatabase(path.join(root, `opencode-files-${randomUUID()}`));
+  const workspace = path.join(root, `workspace-${randomUUID()}`);
+  fs.mkdirSync(path.join(workspace, 'requirements'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, 'requirements', 'brief.md'), 'verified input');
+  try {
+    const service = new TaskService(control);
+    const input = baseRequest({
+      workspace,
+      mode: 'implementation',
+      inputs: [{ type: 'file', path: 'requirements/brief.md' }],
+      expected_outputs: [{ path: 'artifact.txt', type: 'file', required: true, max_bytes: 1024 }],
+    });
+    const driver = { command: process.execPath, args: [fakeCli, 'opencode', input.request_id, 'success'] };
+    const adapter = new OpenCodeAdapter({ testDriver: driver });
+    const registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
+    const stored = service.payload(registered.task_id);
+    assert.equal(stored.payload.input_snapshots[0].path, 'requirements/brief.md');
+    const result = await runTask({ service, taskId: registered.task_id, adapter });
+    assert.equal(result.status, 'succeeded');
+    assert.equal(service.result(result.task_id).artifacts[0].verified, true);
   } finally { control.close(); }
 });
 

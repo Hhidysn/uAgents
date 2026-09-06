@@ -23,10 +23,24 @@ test('request schema is strict and normalizes optional collections', () => {
   const parsed = parseRequest(request());
   assert.deepEqual(parsed.inputs, []);
   assert.deepEqual(parsed.expected_outputs, []);
+  assert.deepEqual(parsed.execution.native_args, []);
   assert.equal(parsed.execution.execution_timeout_ms, null);
   assert.throws(() => parseRequest(request({ surprise: true })), { code: 'unsupported_field' });
   assert.throws(() => parseRequest(request({ schema_version: '2.0' })), { code: 'unsupported_schema_version' });
   assert.throws(() => parseRequest(request({ prompt: '   ' })), { code: 'invalid_request' });
+});
+
+test('execution native args preserve caller order and validate bounds', () => {
+  const nativeArgs = ['--pure', '--agent', 'build', '--variant=fast'];
+  assert.deepEqual(parseRequest(request({ execution: {
+    observation_timeout_ms: 30_000, effort: 'high', permission: 'native', native_args: nativeArgs,
+  } })).execution.native_args, nativeArgs);
+  assert.throws(() => parseRequest(request({ execution: {
+    observation_timeout_ms: 30_000, effort: 'high', permission: 'native', native_args: ['']
+  } })), { code: 'invalid_request' });
+  assert.throws(() => parseRequest(request({ execution: {
+    observation_timeout_ms: 30_000, effort: 'high', permission: 'native', native_args: Array(65).fill('--auto'),
+  } })), { code: 'invalid_request' });
 });
 
 test('workspace and file paths are validated before execution', () => {

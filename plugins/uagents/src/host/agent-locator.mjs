@@ -16,16 +16,19 @@
 // never environment or secrets).
 
 import { spawn } from "node:child_process";
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { HostStoreError } from "./host-store.mjs";
 import { fail } from "../protocol/errors.mjs";
+import { nativeCliCandidates } from "../transports/cli-process.mjs";
 
 export const VERIFIER_VERSION = "windows-host-v1";
 export const DEFAULT_RUNNER_TIMEOUT_MS = 20_000;
 export const CACHE_ID_PREFIX = "installation:";
+const OPEN_CODE_SHIM_NAMES = new Set(["opencode", "opencode.cmd", "opencode.ps1"]);
 
 // NOTE: launch_recipe intentionally does NOT live in the manifest; it stays in the
 // per-target launcher modules (Gate 4/5) because it is version-controlled executable
@@ -167,6 +170,73 @@ function sameMtime(leftMs, rightMs) {
   return typeof leftMs === "number" && typeof rightMs === "number" && Math.abs(leftMs - rightMs) <= 2;
 }
 
+// Hash CLI entries in the Node host process. The PowerShell host script runs
+// with -NoProfile and is intentionally limited to identity checks; relying on
+// a profile-provided Get-FileHash makes a valid installation appear untrusted
+// on otherwise supported Windows hosts.
+export async function hashFileSha256(filePath) {
+  let before;
+  try {
+    before = await fs.stat(filePath);
+  } catch {
+    return null;
+  }
+  if (!before.isFile()) return null;
+
+  const hash = createHash("sha256");
+  try {
+    for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  } catch {
+    return null;
+  }
+
+  let after;
+  try {
+    after = await fs.stat(filePath);
+  } catch {
+    return null;
+  }
+  if (
+    !after.isFile() ||
+    before.size !== after.size ||
+    !sameMtime(before.mtimeMs, after.mtimeMs) ||
+    before.dev !== after.dev ||
+    before.ino !== after.ino
+  ) return null;
+
+  return { sha256: hash.digest("hex"), size: before.size, mtime_ms: before.mtimeMs };
+}
+
+function isOpenCodeNativeExecutable(candidatePath) {
+  return process.platform === "win32" &&
+    path.extname(candidatePath).toLowerCase() === ".exe" &&
+    path.basename(candidatePath).toLowerCase() === "opencode.exe";
+}
+
+// Discovery is allowed to return an npm shim as a hint, but only a directly
+// spawnable .exe can enter the trusted installation cache. Reuse the same
+// native npm-layout candidate generator as the CLI transport and never invoke
+// a shell to resolve the hint.
+export async function resolveNativeExecutableCandidates(target, candidatePath) {
+  if (target !== "opencode" || process.platform !== "win32") return [candidatePath];
+  if (isOpenCodeNativeExecutable(candidatePath)) return [candidatePath];
+
+  const leaf = path.basename(candidatePath).toLowerCase();
+  if (!OPEN_CODE_SHIM_NAMES.has(leaf)) return [];
+  const directory = path.dirname(path.resolve(candidatePath));
+  const candidates = nativeCliCandidates("opencode", { PATH: directory });
+  const resolved = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const normalized = path.resolve(candidate);
+    const key = normalized.toLowerCase();
+    if (seen.has(key) || !isOpenCodeNativeExecutable(normalized)) continue;
+    seen.add(key);
+    if (await statCandidate(normalized)) resolved.push(normalized);
+  }
+  return resolved;
+}
+
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -203,11 +273,17 @@ function isCacheCompatible(record, manifest) {
       return false;
     }
   }
+  if (manifest.target === "opencode" && process.platform === "win32" && !isOpenCodeNativeExecutable(record.canonical_path)) {
+    return false;
+  }
+  if (manifest.artifact_kind === "cli-entry" && !/^[a-f0-9]{64}$/i.test(String(record.sha256 ?? ""))) {
+    return false;
+  }
   return true;
 }
 
 // Verify response from the script is trusted (checks all true).
-function isTrustedResult(result) {
+function isTrustedResult(result, { requireHash = false } = {}) {
   return Boolean(
     isPlainObject(result) &&
       result.ok === true &&
@@ -217,7 +293,8 @@ function isTrustedResult(result) {
       result.checks.signature_ok === true &&
       result.checks.product_ok === true &&
       result.checks.publisher_ok === true &&
-      result.checks.executable_ok === true
+      result.checks.executable_ok === true &&
+      (!requireHash || result.checks.hash_ok === true)
   );
 }
 
@@ -417,8 +494,33 @@ function buildVerifyPayload(manifest, candidatePath) {
       publishers: manifest.accepted_publishers,
       executable_names: manifest.accepted_executable_names,
     },
-    // SHA-256 is only forced for small cli entries; desktop EXEs are not fully hashed.
-    hash_required: manifest.artifact_kind === "cli-entry",
+  };
+}
+
+async function verifyInstallation(runner, manifest, candidatePath) {
+  const result = assertVerificationDocument(
+    await runner("verify-installation", buildVerifyPayload(manifest, candidatePath))
+  );
+  return manifest.artifact_kind === "cli-entry" ? completeCliVerification(result) : result;
+}
+
+async function completeCliVerification(result) {
+  const checks = { ...(result.checks ?? {}), hash_ok: false };
+  let hashed = null;
+  if (checks.canonical_ok === true && typeof result.canonical_path === "string") {
+    hashed = await hashFileSha256(result.canonical_path);
+  }
+  const metadataMatches = Boolean(
+    hashed &&
+      (typeof result.size !== "number" || result.size === hashed.size) &&
+      (typeof result.mtime_ms !== "number" || sameMtime(result.mtime_ms, hashed.mtime_ms))
+  );
+  checks.hash_ok = metadataMatches;
+  return {
+    ...result,
+    sha256: metadataMatches ? hashed.sha256 : null,
+    checks,
+    ok: result.ok === true && checks.canonical_ok === true && checks.hash_ok === true,
   };
 }
 
@@ -522,13 +624,15 @@ export function createAgentLocator({
         });
         continue;
       }
-      const verification = assertVerificationDocument(
-        await runner("verify-installation", buildVerifyPayload(manifest, candidatePath))
-      );
+      const resolvedPaths = await resolveNativeExecutableCandidates(manifest.target, candidatePath);
+      const verification = resolvedPaths.length > 0
+        ? await verifyInstallation(runner, manifest, resolvedPaths[0])
+        : null;
       candidates.push({
         path: candidatePath,
         discovery_source: candidate.discovery_source ?? null,
         exists: true,
+        ...(manifest.target === "opencode" ? { resolved_paths: resolvedPaths } : {}),
         verification,
       });
     }
@@ -554,17 +658,21 @@ export function createAgentLocator({
     //    path only raises priority, it never bypasses trust verification.
     for (const explicitPath of explicitPathsFor(target)) {
       rememberAttempted(explicitPath);
-      const result = assertVerificationDocument(
-        await runner("verify-installation", buildVerifyPayload(manifest, explicitPath))
-      );
-      const existed = isPlainObject(result) && typeof result.canonical_path === "string";
-      if (existed && result.canonical_path) rememberAttempted(result.canonical_path);
-      if (isTrustedResult(result)) {
-        candidates.push(toCandidate(result, "explicit_config", { tier: 0 }));
+      const executablePaths = await resolveNativeExecutableCandidates(target, explicitPath);
+      if (executablePaths.length === 0) {
+        if (await statCandidate(explicitPath)) sawExistingCandidate = true;
         continue;
       }
-      if (isPlainObject(result) && result.checks && result.checks.canonical_ok === true) {
-        sawExistingCandidate = true;
+      for (const executablePath of executablePaths) {
+        rememberAttempted(executablePath);
+        const result = await verifyInstallation(runner, manifest, executablePath);
+        if (isTrustedResult(result, { requireHash: manifest.artifact_kind === "cli-entry" })) {
+          candidates.push(toCandidate(result, "explicit_config", { tier: 0 }));
+          continue;
+        }
+        if (isPlainObject(result) && result.checks && result.checks.canonical_ok === true) {
+          sawExistingCandidate = true;
+        }
       }
     }
 
@@ -588,13 +696,11 @@ export function createAgentLocator({
         } else {
           // Changed on disk: full re-verification.
           rememberAttempted(cached.canonical_path);
-          const result = assertVerificationDocument(
-            await runner("verify-installation", buildVerifyPayload(manifest, cached.canonical_path))
-          );
+          const result = await verifyInstallation(runner, manifest, cached.canonical_path);
           if (isPlainObject(result) && typeof result.canonical_path === "string") {
             rememberAttempted(result.canonical_path);
           }
-          if (isTrustedResult(result)) {
+          if (isTrustedResult(result, { requireHash: manifest.artifact_kind === "cli-entry" })) {
             if (identityMatchesRecord(cached, result)) {
               candidates.push(toCandidate(result, cached.discovery_source ?? "cache", { tier: 1 }));
             } else {
@@ -629,20 +735,30 @@ export function createAgentLocator({
     for (const candidate of discovery.candidates) {
       if (!isPlainObject(candidate)) continue;
       if (candidate.exists !== true) continue;
-      const candidatePath = typeof candidate.path === "string" ? candidate.path : "";
-      if (!candidatePath) continue;
-      if (attemptedPaths.has(candidatePath.toLowerCase())) continue;
-      const result = assertVerificationDocument(
-        await runner("verify-installation", buildVerifyPayload(manifest, candidatePath))
-      );
-      if (isPlainObject(result) && typeof result.canonical_path === "string") {
-        rememberAttempted(result.canonical_path);
-      }
-      if (isTrustedResult(result)) {
-        const source = candidate.discovery_source ?? "discovery";
-        candidates.push(toCandidate(result, source, { tier: discoveryTierFor(source) }));
-      } else {
+      const discoveredPath = typeof candidate.path === "string" ? candidate.path : "";
+      if (!discoveredPath) continue;
+      const discoveredKey = discoveredPath.toLowerCase();
+      if (attemptedPaths.has(discoveredKey)) continue;
+      const executablePaths = await resolveNativeExecutableCandidates(target, discoveredPath);
+      rememberAttempted(discoveredPath);
+      if (executablePaths.length === 0) {
         sawExistingCandidate = true;
+        continue;
+      }
+      for (const candidatePath of executablePaths) {
+        // A native candidate can be the discovered path itself (for example an
+        // explicit PATH entry that already ends in .exe). The raw discovery
+        // hint is remembered above, so allow that one same-path candidate while
+        // still suppressing candidates seen through an earlier hint.
+        if (candidatePath.toLowerCase() !== discoveredKey && attemptedPaths.has(candidatePath.toLowerCase())) continue;
+        rememberAttempted(candidatePath);
+        const result = await verifyInstallation(runner, manifest, candidatePath);
+        if (isTrustedResult(result, { requireHash: manifest.artifact_kind === "cli-entry" })) {
+          const source = candidate.discovery_source ?? "discovery";
+          candidates.push(toCandidate(result, source, { tier: discoveryTierFor(source) }));
+        } else {
+          sawExistingCandidate = true;
+        }
       }
     }
 

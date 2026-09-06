@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { createParser, invokeCli, locateCli } from '../plugins/uagents/src/transports/cli-process.mjs';
+import { buildOpenCodeArgs } from '../plugins/uagents/src/transports/opencode-driver.mjs';
 import { advisoryPrompt } from '../plugins/uagents/src/policy/advisory.mjs';
 import { childEnvironment } from '../plugins/uagents/src/runtime/child-environment.mjs';
 
@@ -26,9 +27,15 @@ function wbParser() {
 }
 
 test('Windows discovery finds native npm executable without invoking a shell', { skip: process.platform !== 'win32' }, () => {
+  const shim = path.join(root, 'npm path/opencode');
   const binary = path.join(root, 'npm path/node_modules/opencode-ai/bin/opencode.exe');
-  fs.mkdirSync(path.dirname(binary), { recursive: true }); fs.writeFileSync(binary, 'fixture only');
-  assert.equal(locateCli('opencode', { PATH: path.join(root, 'npm path') }), binary);
+  const laterBinary = path.join(root, 'later path/opencode.exe');
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  fs.mkdirSync(path.dirname(laterBinary), { recursive: true });
+  fs.writeFileSync(shim, 'npm shim fixture');
+  fs.writeFileSync(binary, 'fixture only');
+  fs.writeFileSync(laterBinary, 'later PATH candidate');
+  assert.equal(locateCli('opencode', { PATH: [path.join(root, 'npm path'), path.join(root, 'later path')].join(path.delimiter) }), binary);
   assert.throws(() => locateCli('opencode', { UAGENTS_OPENCODE_BIN: 'relative.cmd' }), { code: 'invalid_cli_path' });
 });
 
@@ -58,6 +65,19 @@ test('OpenCode returns only the final completed message and rejects mixed identi
   assert.equal(parser.finish(0).result.response, 'complete');
   assert.equal(parser.finish(0).status, 'succeeded');
   assert.throws(() => parser.event({ ...ocEvent('text', 'more', 'final', { text: 'other' }), sessionID: 'ses_other' }), { code: 'native_session_mismatch' });
+});
+
+test('OpenCode driver keeps native flags caller-controlled and maps file inputs to absolute paths', () => {
+  const input = request('opencode', {
+    native_args: ['--pure', '--auto', '--agent', 'build', '--variant=fast'],
+    inputs: [{ type: 'file', path: 'requirements/one.md' }, { type: 'file', path: 'src/two.mjs' }],
+  });
+  assert.deepEqual(buildOpenCodeArgs(input, root), [
+    'run', '--model', input.model, '--format', 'json', '--dir', root, '--title', `uAgents ${input.request_id}`,
+    '--file', path.resolve(root, 'requirements/one.md'), '--file', path.resolve(root, 'src/two.mjs'),
+    '--pure', '--auto', '--agent', 'build', '--variant=fast',
+  ]);
+  assert.equal(buildOpenCodeArgs(request('opencode'), root).includes('--pure'), false);
 });
 
 test('OpenCode turns provider authentication failures into a redacted structured error', () => {

@@ -17,7 +17,9 @@ const request = patch => ({
 test('registry exposes static capability without dynamic availability', () => {
   const registry = createRegistry();
   assert.equal('available' in registry.targets.opencode, false);
-  assert.deepEqual(registry.targets.opencode.modes, ['analysis']);
+  assert.deepEqual(registry.targets.opencode.modes, ['analysis', 'implementation']);
+  assert.deepEqual(registry.targets.opencode.inputs, { text: true, files: true, images: false });
+  assert.deepEqual(registry.targets.opencode.outputs, { text: true, files: true, images: false });
   assert.deepEqual(Object.keys(registry.models).filter(key => key.startsWith('commandcode-goat/')).sort(), [
     'commandcode-goat/deepseek/deepseek-v4-flash', 'commandcode-goat/z-ai/glm-5.3-flash',
   ]);
@@ -63,8 +65,31 @@ test('policy fails closed before worker launch', () => {
   assert.throws(() => evaluateRequest(request({ model: 'opencode-go/deepseek-v4-flash' })), error => error.code === 'model_unavailable' && error.submission === 'not_sent');
   assert.throws(() => evaluateRequest(request({ policy: { fallback: 'paid', max_cost_usd: null } })), { code: 'unsupported_capability' });
   assert.throws(() => evaluateRequest(request({ policy: { fallback: 'none', max_cost_usd: 1 } })), { code: 'unsupported_capability' });
-  assert.throws(() => evaluateRequest(request({ execution: { observation_timeout_ms: 10_000, effort: 'medium', permission: 'enforced-read-only' } })), { code: 'unsupported_capability' });
+  for (const permission of ['native', 'advisory-read-only', 'enforced-read-only', 'workspace-write', 'full-access']) {
+    assert.equal(evaluateRequest(request({ execution: { observation_timeout_ms: 10_000, effort: 'medium', permission } })).allowed, true);
+  }
   assert.throws(() => evaluateRequest(request({ execution: { observation_timeout_ms: 10_000, execution_timeout_ms: 20_000, effort: 'medium', permission: 'native' } })), { code: 'unsupported_capability' });
+});
+
+test('OpenCode native args cannot replace dispatcher-owned protocol arguments', () => {
+  const baseExecution = { observation_timeout_ms: 10_000, effort: 'medium', permission: 'native' };
+  for (const argument of ['--model', '--model=other', '--format', '--format=json', '--dir', '--dir=other', '--title', '--title=other']) {
+    assert.throws(() => evaluateRequest(request({ execution: { ...baseExecution, native_args: [argument] } })), error => (
+      error.code === 'invalid_request' && error.submission === 'not_sent' && error.message.includes('dispatcher-owned OpenCode flag')
+    ));
+  }
+  assert.throws(() => evaluateRequest(request({ execution: { ...baseExecution, native_args: ['run'] } })), { code: 'invalid_request' });
+  assert.equal(evaluateRequest(request({ execution: {
+    ...baseExecution, native_args: ['--pure', '--auto', '--agent', 'build', '--variant=fast'],
+  } })).allowed, true);
+});
+
+test('native args fail explicitly on targets without a native-arg mapping', () => {
+  assert.throws(() => evaluateRequest(request({
+    target: 'workbuddy', model: 'default', execution: {
+      observation_timeout_ms: 10_000, effort: 'medium', permission: 'native', native_args: ['--example'],
+    },
+  })), { code: 'unsupported_capability' });
 });
 
 test('fresh authoritative unavailability rejects while stale health does not', () => {

@@ -2,7 +2,7 @@ import { parseRequest } from '../protocol/schema.mjs';
 import { fail } from '../protocol/errors.mjs';
 import { createRegistry, targetDescriptor } from '../registry/registry.mjs';
 import { resolveModel } from './models.mjs';
-import { requirePermission } from './permissions.mjs';
+import { validateOpenCodeNativeArgs } from '../transports/opencode-driver.mjs';
 
 export function evaluateRequest(input, options = {}) {
   const request = parseRequest(input);
@@ -11,7 +11,6 @@ export function evaluateRequest(input, options = {}) {
   validateTargetCapabilities(request, descriptor);
   const model = resolveModel(registry, request.target, request.model);
   validateRouteHealth(model, options.health ?? null);
-  requirePermission(descriptor, request.execution.permission);
   validatePolicy(request, descriptor);
   validateWorkspace(request);
 
@@ -58,6 +57,12 @@ function validateRouteHealth(model, source) {
 }
 
 function validatePolicy(request, descriptor) {
+  if (request.target === 'opencode') validateOpenCodeNativeArgs(request.execution.native_args);
+  else if (request.execution.native_args.length) {
+    fail('unsupported_capability', `Target ${request.target} does not expose native_args through uAgents yet.`, {
+      category: 'policy', submission: 'not_sent',
+    });
+  }
   if (request.policy.fallback !== 'none') fail('unsupported_capability', 'Only fallback=none is supported.', { category: 'policy', submission: 'not_sent' });
   if (request.policy.max_cost_usd !== null) fail('unsupported_capability', 'max_cost_usd cannot be enforced by this release.', { category: 'policy', submission: 'not_sent' });
   if (request.execution.execution_timeout_ms !== null && descriptor.execution_timeout !== true) {

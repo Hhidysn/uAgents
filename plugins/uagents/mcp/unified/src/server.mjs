@@ -26,6 +26,7 @@ const requestSchema = z.object({
     observation_timeout_ms: z.number().int().optional(), execution_timeout_ms: z.number().int().nullable().optional(),
     effort: z.enum(['low', 'medium', 'high', 'max']).optional(),
     permission: z.enum(['native', 'advisory-read-only', 'enforced-read-only', 'workspace-write', 'full-access']).optional(),
+    native_args: z.array(z.string().min(1).max(4_096)).max(64).optional(),
   }).strict().optional(),
   policy: z.object({ fallback: z.string().optional(), max_cost_usd: z.number().nonnegative().nullable().optional() }).strict().optional(),
 }).strict();

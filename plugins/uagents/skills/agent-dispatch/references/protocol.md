@@ -31,7 +31,8 @@ Exactly one of `--request FILE` and `--request-stdin` is required. Do not inline
     "observation_timeout_ms": 120000,
     "execution_timeout_ms": null,
     "effort": "medium",
-    "permission": "native"
+    "permission": "native",
+    "native_args": ["--auto"]
   },
   "policy": { "fallback": "none", "max_cost_usd": null }
 }
@@ -39,7 +40,9 @@ Exactly one of `--request FILE` and `--request-stdin` is required. Do not inline
 
 Unknown fields and unsupported capability combinations are rejected before registration. File paths are relative to `workspace`, use `/`, and may not escape it. If `inputs` are declared, `workspace` is required and their identity is snapshotted before dispatch. If no workspace is supplied, uAgents creates one under the task directory.
 
-`fallback` must remain `none`. Non-null `max_cost_usd` and unsupported execution timeouts are rejected rather than estimated. `analysis` is task intent, not a hard read-only sandbox; request `enforced-read-only` only when the target advertises it.
+`fallback` must remain `none`. Non-null `max_cost_usd` and unsupported execution timeouts are rejected rather than estimated. `analysis` is task intent, not a hard read-only sandbox. `execution.permission` remains accepted and persisted for Schema 1.0 compatibility but is not a uAgents admission gate; target-native permission behavior belongs in `execution.native_args`.
+
+`execution.native_args` is an optional ordered list of target CLI arguments. This release exposes it for OpenCode only; other targets reject a non-empty list until they have their own protocol-argument mapping. For OpenCode, uAgents appends declared verified file inputs as `--file <absolute-path>` and rejects native args that try to replace the dispatcher-owned `run`, `--model`, `--format`, `--dir`, or `--title` arguments. Other non-conflicting OpenCode options, including `--pure`, `--auto`, `--agent`, and `--variant`, pass through unchanged. `expected_outputs` is optional; when declared, the shared artifact capture pipeline verifies and records the files.
 
 `advisory-read-only` adds an explicit instruction to inspect and explain without changing files or running mutating commands. WorkBuddy does not receive automatic edit acceptance for this permission, even in implementation mode. This is a prompt-level instruction, not an enforced sandbox; native permissions still apply. The stored request and its idempotency hashes retain the caller's original prompt.
 

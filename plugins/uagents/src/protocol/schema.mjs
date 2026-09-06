@@ -5,7 +5,7 @@ export const SCHEMA_VERSION = '1.0';
 export const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const REQUEST_FIELDS = new Set(['schema_version', 'request_id', 'target', 'model', 'mode', 'prompt', 'workspace', 'inputs', 'expected_outputs', 'execution', 'policy']);
-const EXECUTION_FIELDS = new Set(['observation_timeout_ms', 'execution_timeout_ms', 'effort', 'permission']);
+const EXECUTION_FIELDS = new Set(['observation_timeout_ms', 'execution_timeout_ms', 'effort', 'permission', 'native_args']);
 const POLICY_FIELDS = new Set(['fallback', 'max_cost_usd']);
 const INPUT_FIELDS = new Set(['type', 'path']);
 const OUTPUT_FIELDS = new Set(['path', 'type', 'required', 'max_bytes']);
@@ -81,9 +81,17 @@ function parseExecution(input) {
   if (value.execution_timeout_ms !== undefined && value.execution_timeout_ms !== null) integerRange(value.execution_timeout_ms, 'execution_timeout_ms', 1_000, 86_400_000);
   const effort = value.effort ?? 'medium';
   const permission = value.permission ?? 'native';
+  const nativeArgs = arrayOf(value.native_args ?? [], 'execution.native_args', 64, parseNativeArg);
   if (!EFFORTS.has(effort)) fail('invalid_request', 'execution.effort is invalid.');
   if (!PERMISSIONS.has(permission)) fail('invalid_request', 'execution.permission is invalid.');
-  return { observation_timeout_ms: observation, execution_timeout_ms: value.execution_timeout_ms ?? null, effort, permission };
+  return { observation_timeout_ms: observation, execution_timeout_ms: value.execution_timeout_ms ?? null, effort, permission, native_args: nativeArgs };
+}
+
+function parseNativeArg(value, index) {
+  if (typeof value !== 'string' || !value.trim() || Buffer.byteLength(value) > 4_096) {
+    fail('invalid_request', `execution.native_args[${index}] must be a non-empty string of at most 4096 bytes.`);
+  }
+  return value;
 }
 
 function parsePolicy(input) {

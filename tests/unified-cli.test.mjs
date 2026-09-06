@@ -19,7 +19,7 @@ test('discovery commands expose the approved static registry', async () => {
   assert.equal(targets.ok, true);
   assert.deepEqual(targets.data, ['agy', 'workbuddy', 'opencode', 'doubao', 'trae']);
   const capabilities = await execute(['capabilities', 'opencode']);
-  assert.deepEqual(capabilities.data.modes, ['analysis']);
+  assert.deepEqual(capabilities.data.modes, ['analysis', 'implementation']);
   assert.equal('available' in capabilities.data, false);
   const models = await execute(['models', 'opencode']);
   assert.deepEqual(models.data.map(model => model.route_id).sort(), [

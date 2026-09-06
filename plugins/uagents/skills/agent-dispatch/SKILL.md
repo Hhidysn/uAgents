@@ -13,7 +13,7 @@ Before submitting, read [references/protocol.md](references/protocol.md) and onl
 
 - [agy / Gemini](references/agy.md): explicit Gemini model, text or file work.
 - [WorkBuddy](references/workbuddy.md): backend-default model, text or file work.
-- [OpenCode](references/opencode-council.md): explicit approved Command Code route, independent text analysis only.
+- [OpenCode](references/opencode-council.md): explicit approved Command Code route for analysis or implementation, with declared file inputs/outputs.
 - [Doubao Work](references/doubao-work.md): backend-default desktop Agent over a prepared loopback CDP connection.
 - [TRAE CN](references/trae-cn.md): backend-default Solo Agent over the prepared local gateway.
 

@@ -2,15 +2,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
-import { errorRecord, fail, UAgentsError } from '../protocol/errors.mjs';
+import { fail } from '../protocol/errors.mjs';
 import { childEnvironment } from '../runtime/child-environment.mjs';
+import { createOpenCodeDriver, createOpenCodeParser } from './opencode-driver.mjs';
 
 // Only launch installed native entrypoints. No shell, installation, auth reads or config edits.
 // `entryOverride` is a supervisor-verified absolute entry (host cache); when
 // absent, legacy PATH discovery remains for environments without a host store.
 export function locateCli(target, env = process.env, entryOverride = null) {
   if (entryOverride) {
-    if (!path.isAbsolute(entryOverride) || !fs.existsSync(entryOverride) || !fs.statSync(entryOverride).isFile()) {
+    if (!path.isAbsolute(entryOverride) || !fs.existsSync(entryOverride) || !fs.statSync(entryOverride).isFile() ||
+        (target === 'opencode' && process.platform === 'win32' && path.basename(entryOverride).toLowerCase() !== 'opencode.exe')) {
       fail('invalid_cli_path', 'Verified CLI entry must be an existing absolute file path.');
     }
     return entryOverride;
@@ -23,27 +25,34 @@ export function locateCli(target, env = process.env, entryOverride = null) {
     }
     return override;
   }
-  const directories = (env.PATH ?? env.Path ?? '').split(path.delimiter).map(p => p.replace(/^"|"$/g, '')).filter(Boolean);
-  const candidates = target === 'workbuddy'
-    ? [env.ProgramFiles && path.join(env.ProgramFiles, 'WorkBuddy/resources/app.asar.unpacked/cli/dist/codebuddy.js'),
-       env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, 'Programs/WorkBuddy/resources/app.asar.unpacked/cli/dist/codebuddy.js')]
-    : directories.flatMap(dir => [path.join(dir, process.platform === 'win32' ? 'opencode.exe' : 'opencode'),
-      ...(process.platform === 'win32' ? [path.join(dir, 'node_modules/opencode-ai/bin/opencode.exe')] : [])]);
+  const candidates = nativeCliCandidates(target, env);
   const found = candidates.find(file => file && fs.existsSync(file) && fs.statSync(file).isFile());
   if (!found) fail('cli_not_found', `Installed ${target} CLI not found. Configure its UAGENTS path override; no installation was attempted.`);
   return found;
 }
 
+// Return deterministic native-entry candidates without consulting overrides or
+// invoking a shell. The host locator reuses this exact npm layout when a PATH
+// discovery result is only a shim hint.
+export function nativeCliCandidates(target, env = process.env) {
+  const directories = (env.PATH ?? env.Path ?? '').split(path.delimiter).map(p => p.replace(/^"|"$/g, '')).filter(Boolean);
+  return target === 'workbuddy'
+    ? [env.ProgramFiles && path.join(env.ProgramFiles, 'WorkBuddy/resources/app.asar.unpacked/cli/dist/codebuddy.js'),
+       env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, 'Programs/WorkBuddy/resources/app.asar.unpacked/cli/dist/codebuddy.js')]
+    : directories.flatMap(dir => [path.join(dir, process.platform === 'win32' ? 'opencode.exe' : 'opencode'),
+      ...(process.platform === 'win32' ? [path.join(dir, 'node_modules/opencode-ai/bin/opencode.exe')] : [])]);
+}
+
 export function nativeDriver(request, workspace, entryOverride = null) {
   const entry = locateCli(request.target, process.env, entryOverride);
   const advisoryReadOnly = isAdvisoryReadOnly(request);
-  if (request.target === 'opencode') return { command: entry, args: request.kind === 'probe' ? ['--version'] : [
-    'run', '--pure', '--model', request.model, '--format', 'json', '--dir', workspace, '--title', `uAgents ${request.request_id}`,
-  ] };
+  if (request.target === 'opencode') return createOpenCodeDriver(request, workspace, entry);
   return { command: process.execPath, args: [entry, ...(request.kind === 'probe' ? ['--version'] : [
     '-p', '--output-format', 'stream-json', '--verbose', '--session-id', request.request_id, '--max-turns', '6',
     ...(request.mode === 'implementation' && !advisoryReadOnly ? ['--permission-mode', 'acceptEdits'] : []),
-  ])], env: childEnvironment(process.env, { CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS: '1' }) };
+  ])], env: childEnvironment(process.env, { CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS: '1' }),
+    initialObservation: { native_edit_mode: request.mode === 'implementation' && !advisoryReadOnly ? 'acceptEdits' : 'inherited' },
+  };
 }
 
 const identityError = () => fail('native_session_mismatch', 'Native event identity does not match this task.');
@@ -51,29 +60,12 @@ const object = value => value && typeof value === 'object' && !Array.isArray(val
 const isAdvisoryReadOnly = request => request.permission_policy === 'advisory-read-only' || request.execution?.permission === 'advisory-read-only';
 const denied = value => typeof value === 'string' && /permission.*(denied|requested|requires|approval)|auto.reject|soft.denied|not allowed/i.test(value);
 
-function openCodeError(event) {
-  const native = object(event.error) ? event.error : {};
-  const data = object(native.data) ? native.data : {};
-  const status = Number.isInteger(data.statusCode) ? data.statusCode : null;
-  const nativeName = typeof native.name === 'string' && native.name ? native.name : null;
-  const authentication = status === 401 || status === 403;
-  const code = authentication ? 'authentication_required' : 'native_error';
-  const message = authentication
-    ? `OpenCode provider authentication failed (HTTP ${status}). Re-authenticate the configured provider.`
-    : `OpenCode reported a native error${status === null ? '.' : ` (HTTP ${status}).`}`;
-  return errorRecord(new UAgentsError(code, message, {
-    category: 'target', retryable: false, submission: 'sent',
-    details: {
-      ...(nativeName ? { native_error_name: nativeName } : {}),
-      ...(status === null ? {} : { native_http_status: status }),
-    },
-  }));
-}
-
-// Native protocols differ: WorkBuddy has a terminal result; OpenCode emits completed parts.
+// The generic process transport keeps this compatibility export for injected
+// test drivers; target-specific parsing lives in the selected driver.
 export function createParser(request, workspace, publish) {
-  let session, init, final, lastStep, stepMessage, approval = false, nativeError;
-  const textParts = new Map(), active = new Set();
+  if (request.target === 'opencode') return createOpenCodeParser(request, workspace, publish);
+  let session, init, final, approval = false, nativeError;
+  const active = new Set();
   function identity(id) {
     if (typeof id !== 'string' || !id || (session && id !== session) ||
         (request.target === 'workbuddy' && id !== request.request_id)) identityError();
@@ -83,70 +75,34 @@ export function createParser(request, workspace, publish) {
     stderr(text) { if (denied(text)) approval = true; },
     event(event) {
       if (!object(event) || typeof event.type !== 'string') fail('invalid_event', 'Invalid native event.');
-      if (request.target === 'workbuddy') {
-        if (event.session_id !== undefined) identity(event.session_id);
-        if (event.type === 'system' && event.subtype === 'init') {
-          if (init) fail('duplicate_init', 'Repeated native initialization.');
-          identity(event.session_id);
-          if (typeof event.cwd !== 'string' || path.resolve(event.cwd).toLowerCase() !== path.resolve(workspace).toLowerCase()) identityError();
-          init = event;
-          publish({ model_reported: typeof event.model === 'string' ? event.model : null, native_permission_mode: event.permissionMode ?? null });
-        } else if (event.type === 'result') {
-          if (final) fail('duplicate_result', 'Repeated native result.');
-          identity(event.session_id);
-          if (!init || typeof event.subtype !== 'string' || typeof event.is_error !== 'boolean') fail('invalid_result', 'Invalid WorkBuddy result.');
-          final = event;
-          if (Array.isArray(event.permission_denials) && event.permission_denials.length) approval = true;
-        } else if (event.type === 'system' && typeof event.task_id === 'string') {
-          if (event.subtype === 'task_started') active.add(event.task_id);
-          const taskStatus = event.status ?? event.patch?.status;
-          if (['completed', 'failed', 'stopped', 'killed', 'cancelled'].includes(taskStatus)) active.delete(event.task_id);
-          if (['failed', 'stopped', 'killed', 'cancelled'].includes(taskStatus)) nativeError = 'native_background_task_failed';
-        }
-        return;
-      }
-      identity(event.sessionID);
-      if (event.type === 'error') {
-        nativeError = openCodeError(event); return;
-      }
-      const part = event.part;
-      if (!object(part)) fail('invalid_event', 'Missing OpenCode part.');
-      identity(part.sessionID);
-      if (typeof part.messageID !== 'string' || typeof part.id !== 'string') fail('invalid_event', 'Missing part identity.');
-      if (event.type === 'text') {
-        if (part.messageID !== stepMessage) identityError();
-        if (typeof part.text !== 'string') fail('invalid_result', 'Invalid text part.');
-        const previous = textParts.get(part.id);
-        if (previous && previous.messageID !== part.messageID) identityError();
-        textParts.set(part.id, { messageID: part.messageID, text: part.text });
-      } else if (event.type === 'step_start') {
-        lastStep = null; stepMessage = part.messageID; textParts.clear();
-      }
-      else if (event.type === 'step_finish') {
-        if (part.messageID !== stepMessage) identityError();
-        if (typeof part.reason !== 'string') fail('invalid_result', 'Missing finish reason.');
-        lastStep = part;
-      } else if (event.type === 'tool_use') {
-        publish({ last_tool: typeof part.tool === 'string' ? part.tool : null });
-        if (denied(part.state?.error)) approval = true;
+      if (event.session_id !== undefined) identity(event.session_id);
+      if (event.type === 'system' && event.subtype === 'init') {
+        if (init) fail('duplicate_init', 'Repeated native initialization.');
+        identity(event.session_id);
+        if (typeof event.cwd !== 'string' || path.resolve(event.cwd).toLowerCase() !== path.resolve(workspace).toLowerCase()) identityError();
+        init = event;
+        publish({ model_reported: typeof event.model === 'string' ? event.model : null, native_permission_mode: event.permissionMode ?? null });
+      } else if (event.type === 'result') {
+        if (final) fail('duplicate_result', 'Repeated native result.');
+        identity(event.session_id);
+        if (!init || typeof event.subtype !== 'string' || typeof event.is_error !== 'boolean') fail('invalid_result', 'Invalid WorkBuddy result.');
+        final = event;
+        if (Array.isArray(event.permission_denials) && event.permission_denials.length) approval = true;
+      } else if (event.type === 'system' && typeof event.task_id === 'string') {
+        if (event.subtype === 'task_started') active.add(event.task_id);
+        const taskStatus = event.status ?? event.patch?.status;
+        if (['completed', 'failed', 'stopped', 'killed', 'cancelled'].includes(taskStatus)) active.delete(event.task_id);
+        if (['failed', 'stopped', 'killed', 'cancelled'].includes(taskStatus)) nativeError = 'native_background_task_failed';
       }
     },
     finish(code) {
-      let response = '', usage = null, nativeStatus, status = 'unknown', error;
-      if (request.target === 'workbuddy') {
-        nativeStatus = final?.subtype ?? null;
-        response = typeof final?.result === 'string' ? final.result : '';
-        usage = final?.usage ?? null;
-        if (nativeError || final?.is_error === true) { status = 'failed'; error = nativeError ?? 'native_error'; }
-        else if (final?.subtype === 'success' && code === 0 && response.trim() && active.size === 0) status = 'succeeded';
-        if (active.size) error = 'native_background_tasks_unconfirmed';
-      } else {
-        nativeStatus = lastStep?.reason ?? null;
-        response = [...textParts.values()].filter(part => part.messageID === lastStep?.messageID).map(part => part.text).join('\n');
-        usage = lastStep?.tokens ?? null;
-        if (nativeError) { status = 'failed'; error = nativeError; }
-        else if (code === 0 && nativeStatus === 'stop' && response.trim()) status = 'succeeded';
-      }
+      const nativeStatus = final?.subtype ?? null;
+      const response = typeof final?.result === 'string' ? final.result : '';
+      const usage = final?.usage ?? null;
+      let status = 'unknown', error;
+      if (nativeError || final?.is_error === true) { status = 'failed'; error = nativeError ?? 'native_error'; }
+      else if (final?.subtype === 'success' && code === 0 && response.trim() && active.size === 0) status = 'succeeded';
+      if (active.size) error = 'native_background_tasks_unconfirmed';
       if (approval) { status = 'needs_user'; error = 'native_approval_required'; }
       if (!error && status === 'unknown') error = 'native_completion_unconfirmed';
       return { status, ...(error ? { error } : {}), native_status: nativeStatus, native_exit_code: code, retry_safe: false,
@@ -162,7 +118,10 @@ export function invokeCli(directory, workspace, request, publish, testDriver, en
     const child = (testDriver?.spawn ?? spawn)(driver.command, driver.args, {
       cwd: workspace, windowsHide: true, env: driver.env ?? childEnvironment(), stdio: ['pipe', 'pipe', 'pipe'],
     });
-    const parser = createParser(request, workspace, publish), decoder = new StringDecoder('utf8');
+    const parser = typeof driver.createParser === 'function'
+      ? driver.createParser(publish)
+      : createParser(request, workspace, publish);
+    const decoder = new StringDecoder('utf8');
     const advisoryReadOnly = isAdvisoryReadOnly(request);
     let sent = false, stopped = false, finished = false, outcome, closeTimer, buffer = '', bytes = 0, version = '', stderr = '';
     const finish = value => {
@@ -190,7 +149,9 @@ export function invokeCli(directory, workspace, request, publish, testDriver, en
         if (request.kind === 'probe') { child.stdin.end(); return; }
         // These CLIs need input before a handshake. Mark ambiguity before writing, then validate output identity.
         publish({ status: 'running', submission: 'may_have_been_sent', model_reported: null,
-          native_edit_mode: request.target === 'workbuddy' && request.mode === 'implementation' && !advisoryReadOnly ? 'acceptEdits' : 'inherited' });
+          ...(driver.initialObservation ?? {
+            native_edit_mode: request.target === 'workbuddy' && request.mode === 'implementation' && !advisoryReadOnly ? 'acceptEdits' : 'inherited',
+          }) });
         sent = true;
         child.stdin.end(`uAgents task workspace: ${workspace}\nMode: ${request.mode}. Expected files: ${JSON.stringify(request.expected_outputs)}\nWork only on this task. Do not delegate or start background work. You are not alone; do not revert others' edits.\n\n${request.prompt}`);
       } catch { stop(sent ? 'unknown' : 'failed', 'submission_failed'); }
