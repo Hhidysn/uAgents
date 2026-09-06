@@ -6,7 +6,7 @@ Design: `docs/superpowers/specs/2026-09-07-redundant-timeout-guardian-design.md`
 
 Baseline: `eb34812 docs: record verified timeout release acceptance`
 
-Status: Source implementation is committed as `c20172d` and provider-free verified. Core `257/257` plus MCP `11/9/2` (`279/279` total) pass. Release-candidate metadata is `0.2.0-alpha.1+codex.20260907011733`; installation/fresh-cache acceptance remains.
+Status: Completed and locally release-accepted. Source implementation is `c20172d`, release metadata is `553c8cd`, and installed version is `0.2.0-alpha.1+codex.20260907011733`. Core `257/257` plus MCP `11/9/2` (`279/279` total) pass; repository/marketplace/cache release files match `120/120`, and a fresh read-only Codex process loaded the new cache and confirmed `execution_timeout=true` without invoking a target/provider task.
 
 ## 1. Commit boundary
 
