@@ -14,7 +14,7 @@ Gate D 已把 **Windows 源码中的 OpenCode production path** 接到 durable c
 
 OpenCode durable recovery 是“恢复观察/协调”，不是多轮会话续写：uAgents 不会在自动恢复中添加 `opencode run --session` 或 `--continue`，也不会重新发送原 prompt。`cancel` 或 `observation_timeout_ms` 只结束当前 observer；它们不等于 native execution cancellation，仍存活或状态不明的 native process 继续持有/保守保持 workspace guard。Windows **当前源码**已新增 verified `execution_timeout_ms`：独立 per-Attempt guardian 在发送前完成 durable ready handshake，deadline 从 `dispatch.possibly_sent` 持久化时间开始，超时后只终止 PID/start-time/executable 仍匹配的 owned process tree，并在 root death + descendant quiescence 得到证明后释放 guard。本地 tree 终止不会冒充 provider/native cancelled；确认本地终止仍以 `indeterminate + execution_timeout` 收敛，无法确认终止则保持 `execution_timeout_termination_unconfirmed` 与保守 guard。非 Windows OpenCode 仍拒绝该能力。
 
-> 安装差异：`0.2.0-alpha.1+codex.20260906212805` 是上一轮 Durable Native Execution RC，**不包含本轮 execution-timeout 源码变更**。当前工作树已经领先 marketplace/source cache；必须在本轮源码提交、最终门禁和新 build metadata 后重新安装，才能把 timeout 能力视为“已安装”。
+> 安装差异：当前源码 manifest 已提升到 `0.2.0-alpha.1+codex.20260906234542`，包含 `3fb582e` verified execution-timeout；当前 marketplace/source cache 仍是上一轮 `0.2.0-alpha.1+codex.20260906212805`，**尚未包含本轮 execution-timeout**。必须完成本轮正常插件安装与 fresh-cache 验收后，才能把 timeout 能力视为“已安装”。
 
 Verified execution-timeout 当前源码门禁已通过：Core `254/254` + MCP `11/9/2`，共 `276/276`。其中包含真实 Windows harmless Node process-tree termination、guardian durable-ready fail-closed、live Worker timeout、Worker 先死亡后 guardian 独立执行 deadline、prompt count 始终为 1、guard quiescence 后第二 writer 才能进入，以及原 Attempt reconcile 零 spawn/零 resend。没有执行真实 OpenCode/provider timeout 请求。
 
@@ -36,9 +36,9 @@ OpenCode 在当前工作树和当前安装缓存中都支持 `analysis` 和 `imp
 
 | 层次 | 当前事实 | 结论 |
 | --- | --- | --- |
-| 插件 manifest | `0.2.0-alpha.1+codex.20260906212805` | 当前工作树、marketplace 源和新安装缓存的版本字符串相同 |
+| 插件 manifest | `0.2.0-alpha.1+codex.20260906234542` | 当前工作树已生成 timeout release-candidate identity；marketplace/cache 仍待同步 |
 | Durable 已提交基线 | `686b02d`（Gate A）、`6702f32`（Gate B）、`f71a891`（Gate C）、`fa01ca5`（Gate D）、`2fd090b`（RC metadata） | 当前源码、个人 marketplace 源和新缓存均包含 durable OpenCode production/recovery |
-| 当前源码 | Gate A–E durable baseline + verified execution-timeout follow-up | timeout follow-up 仍在当前工作树，尚未重新打包安装；已安装 cache 只代表上一 durable RC |
+| 当前源码 | Gate A–E durable baseline + `3fb582e` verified execution-timeout follow-up | 源码功能提交已完成，当前仅待 release metadata 提交、安装和 fresh-cache 验收 |
 | marketplace 源 | `C:\Users\24590\plugins\uagents` | 从当前提交同步 117 个已跟踪插件文件；旧源完整备份 |
 | 实际安装缓存 | `C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260906212805` | `codex plugin add uagents@personal --json` 返回并启用的当前版本 |
 | 旧缓存 | `...0.2.0-alpha.1+codex.20260906063959`、`...0.2.0-alpha.1+codex.20260905113451` | 均保留用于回滚，不是当前 marketplace 安装版本 |

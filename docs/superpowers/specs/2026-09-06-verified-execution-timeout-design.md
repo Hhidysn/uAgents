@@ -2,7 +2,7 @@
 
 Date: 2026-09-06
 
-Status: Implemented and provider-free source verified. Core `254/254` plus MCP `11/9/2` (`276/276` total) pass. Release packaging/install acceptance for this follow-up is still pending.
+Status: Implemented and provider-free source verified. Core `254/254` plus MCP `11/9/2` (`276/276` total) pass. Release candidate metadata is `0.2.0-alpha.1+codex.20260906234542`; install/fresh-cache acceptance is still pending.
 
 Baseline: `841d87b docs: record durable execution release acceptance`
 
