@@ -148,7 +148,9 @@ describe('preflight waiting_user and resume', () => {
       assert.throws(() => service.resume(cancelled.task_id), { code: 'resume_not_allowed' });
 
       const registered = service.submit(request(), { adapterVersion: 'fake-1' });
-      assert.throws(() => service.resume(registered.task_id), { code: 'resume_not_allowed' });
+      const resumed = service.resume(registered.task_id);
+      assert.equal(resumed.mode, 'dispatch');
+      assert.equal(resumed.attempt.attempt_id, registered.attempt.attempt_id);
     });
   });
 });

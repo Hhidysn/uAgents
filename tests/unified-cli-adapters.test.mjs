@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { AgyAdapter } from '../plugins/uagents/src/adapters/agy/adapter.mjs';
 import { OpenCodeAdapter } from '../plugins/uagents/src/adapters/opencode/adapter.mjs';
 import { WorkBuddyAdapter } from '../plugins/uagents/src/adapters/workbuddy/adapter.mjs';
+import { nativeDriver } from '../plugins/uagents/src/transports/cli-process.mjs';
 import { validateAdapter } from '../plugins/uagents/src/adapters/contract.mjs';
 import { ControlDatabase } from '../plugins/uagents/src/store/database.mjs';
 import { TaskService } from '../plugins/uagents/src/runtime/task-service.mjs';
@@ -169,4 +170,25 @@ test('worker without a supervisor keeps legacy behavior', async () => {
     assert.equal(result.status, 'succeeded');
     assert.equal(result.attempt.submission, 'sent');
   } finally { control.close(); }
+});
+
+test('CLI adapters preserve advisory permission and WorkBuddy does not auto-accept edits', async () => {
+  const entry = path.join(root, `codebuddy-${randomUUID()}.js`);
+  fs.writeFileSync(entry, '// fixture entry');
+  const input = baseRequest({
+    target: 'workbuddy', model: 'default', mode: 'implementation',
+    prompt: 'Review the workspace.',
+    expected_outputs: [],
+    execution: { observation_timeout_ms: 5_000, effort: 'medium', permission: 'advisory-read-only' },
+  });
+  const adapter = new WorkBuddyAdapter({ testDriver: { command: process.execPath, args: [] } });
+  const prepared = await adapter.prepare(input, {});
+  assert.equal(prepared.legacy.permission_policy, 'advisory-read-only');
+  const advisory = nativeDriver(prepared.legacy, root, entry);
+  assert.equal(advisory.args.includes('--permission-mode'), false);
+
+  const nativeInput = { ...input, request_id: randomUUID(), execution: { ...input.execution, permission: 'native' } };
+  const nativePrepared = await adapter.prepare(nativeInput, {});
+  const native = nativeDriver(nativePrepared.legacy, root, entry);
+  assert.deepEqual(native.args.slice(-2), ['--permission-mode', 'acceptEdits']);
 });

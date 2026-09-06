@@ -69,6 +69,148 @@ export class TaskService {
 
   status(taskId) { return this.#statusWith(this.control.raw, taskId); }
 
+  // Claim the original attempt only after the worker has acquired the task
+  // leases.  The claim is the second, task-local half of dispatch ownership:
+  // two workers for the same request can never both pass this update while
+  // the attempt is still unsent.  A claim whose lease is no longer present is
+  // stale and may be replaced by a recovery worker, but a live claim is
+  // returned to the caller as busy.
+  claimAttempt(taskId, attemptId, lease, { now = this.clock() } = {}) {
+    return this.control.transaction(database => {
+      if (!lease) fail('lease_conflict', 'A dispatch lease is required to claim an attempt.', { category: 'conflict', submission: 'not_sent' });
+      assertFencing(database, lease, now);
+      const task = database.prepare('SELECT status, cancel_requested FROM tasks WHERE task_id = ?').get(taskId);
+      if (!task) fail('task_not_found', `Unknown task: ${taskId}`);
+      const attempt = database.prepare('SELECT * FROM attempts WHERE attempt_id = ? AND task_id = ?').get(attemptId, taskId);
+      if (!attempt) fail('task_not_found', 'Attempt does not belong to the task.');
+      const native = database.prepare('SELECT 1 FROM native_sessions WHERE attempt_id = ? LIMIT 1').get(attemptId);
+      if (native || attempt.submission !== 'not_sent' || !['registered', 'queued'].includes(task.status) || Number(task.cancel_requested) === 1) {
+        return { claimed: false, reason: native ? 'native_identity' : attempt.submission !== 'not_sent' ? 'submission_started' : Number(task.cancel_requested) === 1 ? 'cancel_requested' : 'state_changed', status: this.#statusWith(database, taskId) };
+      }
+
+      const ownerActive = hasActiveLease(database, attempt.owner_nonce, attempt.fencing_token, now);
+      const sameOwner = attempt.owner_nonce === lease.owner_nonce && attempt.fencing_token === lease.fencing_token;
+      if (ownerActive && !sameOwner) {
+        return { claimed: false, reason: 'attempt_owned', status: this.#statusWith(database, taskId) };
+      }
+
+      // The WHERE clause repeats the safety predicates so the ownership
+      // decision remains atomic even if this method is changed to use a
+      // deferred transaction in a future store implementation.
+      const result = database.prepare(`UPDATE attempts
+        SET owner_nonce = ?, fencing_token = ?, status = 'dispatching',
+            heartbeat_at_ms = ?, started_at_ms = coalesce(started_at_ms, ?)
+        WHERE attempt_id = ? AND task_id = ? AND submission = 'not_sent'
+          AND NOT EXISTS (SELECT 1 FROM native_sessions WHERE attempt_id = ?)
+          AND EXISTS (SELECT 1 FROM tasks WHERE task_id = ? AND status IN ('registered', 'queued') AND cancel_requested = 0)`)
+        .run(lease.owner_nonce, lease.fencing_token, now, now, attemptId, taskId, attemptId, taskId);
+      if (Number(result.changes) !== 1) return { claimed: false, reason: 'claim_lost', status: this.#statusWith(database, taskId) };
+      return { claimed: true, attempt_id: attemptId, status: this.#statusWith(database, taskId) };
+    });
+  }
+
+  // Return whether a registered/queued task can be dispatched on its existing
+  // attempt. Duplicate queued submits and explicit resume share this check;
+  // preflight login remains the only unsent waiting_user resume path.
+  // It clears only a stale
+  // unsent claim; any native identity or possibly-sent marker is permanent.
+  recoverUnsent(taskId, { now = this.clock() } = {}) {
+    return this.control.transaction(database => {
+      const task = database.prepare('SELECT status FROM tasks WHERE task_id = ?').get(taskId);
+      if (!task) fail('task_not_found', `Unknown task: ${taskId}`);
+      const attempt = database.prepare('SELECT * FROM attempts WHERE task_id = ? ORDER BY ordinal DESC LIMIT 1').get(taskId);
+      const native = attempt ? database.prepare('SELECT 1 FROM native_sessions WHERE attempt_id = ? LIMIT 1').get(attempt.attempt_id) : null;
+      if (!attempt || !['registered', 'queued'].includes(task.status) || attempt.submission !== 'not_sent' || native) {
+        return { recoverable: false, reason: native ? 'native_identity' : attempt?.submission !== 'not_sent' ? 'submission_started' : 'state_changed', status: this.#statusWith(database, taskId) };
+      }
+      // A task lease is held from worker start through the resource wait.  It
+      // covers the period before the attempt owner fields are populated and
+      // prevents duplicate submit/restart callers from treating a live
+      // queued worker as abandoned.
+      const taskLease = database.prepare('SELECT 1 FROM leases WHERE resource_key = ? AND expires_at_ms > ?').get(`task:${taskId}`, now);
+      if (taskLease || hasActiveLease(database, attempt.owner_nonce, attempt.fencing_token, now)) {
+        return { recoverable: false, reason: 'attempt_owned', status: this.#statusWith(database, taskId) };
+      }
+
+      const staleClaim = Boolean(attempt.owner_nonce || attempt.fencing_token);
+      if (staleClaim) {
+        database.prepare(`UPDATE attempts SET owner_nonce = NULL, fencing_token = NULL,
+          heartbeat_at_ms = NULL, status = CASE WHEN ? = 'registered' THEN 'registered' ELSE 'queued' END
+          WHERE attempt_id = ? AND task_id = ? AND submission = 'not_sent'`)
+          .run(task.status, attempt.attempt_id, taskId);
+        appendEvent(database, {
+          taskId,
+          attemptId: attempt.attempt_id,
+          type: 'task.recovered',
+          payload: { reason: 'stale_unsent_worker', submission: 'not_sent' },
+          now,
+        });
+      }
+      return { recoverable: true, recovered: staleClaim, task_id: taskId, attempt_id: attempt.attempt_id, status: this.#statusWith(database, taskId) };
+    });
+  }
+
+  // Convert a queued/registered cancellation intent into a confirmed
+  // cancellation without requiring a lease.  No external send can happen
+  // while submission is not_sent and no native session exists.
+  cancelUnsent(taskId, attemptId = null, { now = this.clock() } = {}) {
+    return this.control.transaction(database => {
+      const task = database.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId);
+      if (!task) fail('task_not_found', `Unknown task: ${taskId}`);
+      const attempt = database.prepare('SELECT * FROM attempts WHERE task_id = ? AND (? IS NULL OR attempt_id = ?) ORDER BY ordinal DESC LIMIT 1')
+        .get(taskId, attemptId, attemptId);
+      const native = attempt ? database.prepare('SELECT 1 FROM native_sessions WHERE attempt_id = ? LIMIT 1').get(attempt.attempt_id) : null;
+      if (!attempt || !task.cancel_requested || !['registered', 'queued', 'starting'].includes(task.status) || attempt.submission !== 'not_sent' || native) {
+        return { cancelled: false, status: this.#statusWith(database, taskId) };
+      }
+      const currentEvidence = Number(database.prepare("SELECT coalesce(max(json_extract(payload_json, '$.evidence_strength')), 0) AS strength FROM events WHERE task_id = ?").get(taskId).strength);
+      const state = transitionState({ status: task.status, evidence_strength: currentEvidence }, 'cancelled', {});
+      database.prepare('UPDATE tasks SET status = ?, updated_at_ms = ? WHERE task_id = ?').run(state.status, now, taskId);
+      database.prepare('UPDATE attempts SET status = ?, finished_at_ms = ? WHERE attempt_id = ?').run('cancelled', now, attempt.attempt_id);
+      appendEvent(database, {
+        taskId,
+        attemptId: attempt.attempt_id,
+        type: 'task.cancelled',
+        payload: { reason: 'cancelled_before_send', submission: 'not_sent', evidence_strength: state.evidence_strength },
+        now,
+      });
+      return { cancelled: true, status: this.#statusWith(database, taskId) };
+    });
+  }
+
+  // Persist a bounded lease wait as another queued event.  Keeping the task
+  // queued and the attempt unsent makes duplicate submit/restart recovery
+  // possible without inventing a second attempt.
+  recordLeaseWait(taskId, attemptId, { waitMs = 0, error = null, reason = 'lease_conflict', now = this.clock() } = {}) {
+    return this.control.transaction(database => {
+      const task = database.prepare('SELECT status FROM tasks WHERE task_id = ?').get(taskId);
+      if (!task) fail('task_not_found', `Unknown task: ${taskId}`);
+      const attempt = database.prepare('SELECT submission FROM attempts WHERE task_id = ? AND attempt_id = ?').get(taskId, attemptId);
+      if (!attempt) fail('task_not_found', 'Attempt does not belong to the task.');
+      if (!['registered', 'queued'].includes(task.status) || attempt.submission !== 'not_sent') return this.#statusWith(database, taskId);
+      const persistedError = error ? {
+        code: error.code ?? 'lease_conflict',
+        category: error.category ?? 'conflict',
+        message: error.message ?? 'The task is waiting for an execution lease.',
+        retryable: true,
+        submission: 'not_sent',
+      } : null;
+      appendEvent(database, {
+        taskId,
+        attemptId,
+        type: 'task.queued',
+        payload: {
+          ...(persistedError ? { error: persistedError } : {}),
+          queue: { reason, wait_ms: Math.max(0, Number(waitMs) || 0), recoverable: true },
+        },
+        now,
+      });
+      database.prepare('UPDATE tasks SET status = ?, updated_at_ms = ? WHERE task_id = ?').run('queued', now, taskId);
+      database.prepare("UPDATE attempts SET status = 'queued' WHERE attempt_id = ? AND submission = 'not_sent'").run(attemptId);
+      return this.#statusWith(database, taskId);
+    });
+  }
+
   payload(taskId) {
     const directory = taskDirectory(this.control.root, taskId);
     return { request: readTaskJson(directory, 'request.json'), payload: readTaskJson(directory, 'payload.json'), decision: readTaskJson(directory, 'decision.json') };
@@ -143,6 +285,9 @@ export class TaskService {
       const currentEvidence = Number(database.prepare("SELECT coalesce(max(json_extract(payload_json, '$.evidence_strength')), 0) AS strength FROM events WHERE task_id = ?").get(taskId).strength);
       const state = transitionState({ status: row.status, evidence_strength: currentEvidence }, next, { same_native_identity: sameNativeIdentity, evidence_strength: evidenceStrength });
       database.prepare('UPDATE tasks SET status = ?, updated_at_ms = ? WHERE task_id = ?').run(state.status, now, taskId);
+      if (attemptId && state.status === 'queued') {
+        database.prepare("UPDATE attempts SET status = 'queued' WHERE attempt_id = ? AND submission = 'not_sent'").run(attemptId);
+      }
       const payload = state.status === 'waiting_user' ? sanitizeWaitingEvent(event) : event;
       appendEvent(database, { taskId, attemptId, type: `task.${state.status}`, payload: { ...payload, evidence_strength: state.evidence_strength }, now });
       const nativeStatus = typeof event.native_status === 'string' && event.native_status
@@ -179,6 +324,10 @@ export class TaskService {
       }
       if (status.status === 'waiting_user' && status.native) {
         return { ...status, mode: 'reconcile', native_identity: status.native.session_id ?? status.native.task_id };
+      }
+      if (['registered', 'queued'].includes(status.status) && attempt?.submission === 'not_sent' && !status.native) {
+        const recovered = this.recoverUnsent(taskId, { now });
+        if (recovered.recoverable) return { ...recovered.status, mode: 'dispatch', resumed: true };
       }
       fail('resume_not_allowed', `Task cannot be resumed from ${status.status}.`, { category: 'conflict', submission: 'not_sent' });
     });
@@ -306,4 +455,11 @@ function taskErrorRecord(value, submission) {
   return errorRecord(new UAgentsError(code, `The native Agent reported ${code}.`, {
     category: 'target', retryable: false, submission,
   }));
+}
+
+function hasActiveLease(database, ownerNonce, fencingToken, now) {
+  if (!ownerNonce || !fencingToken) return false;
+  return Boolean(database.prepare(`SELECT 1 FROM leases
+    WHERE owner_nonce = ? AND fencing_token = ? AND expires_at_ms > ? LIMIT 1`)
+    .get(ownerNonce, fencingToken, now));
 }

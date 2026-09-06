@@ -20,6 +20,15 @@ export function acquireExecutionLeases(control, { target, workspace, ownerNonce 
   });
 }
 
+// A task lease serializes all workers for one request while they wait for
+// shared execution resources.  It deliberately lives in the same fenced
+// leases table as the global/target/workspace leases so recovery can decide
+// whether an unsent worker is still live without a daemon or process lookup.
+export function acquireTaskLease(control, { taskId, ownerNonce = randomUUID(), ttlMs = 30_000, now = Date.now() }) {
+  if (typeof taskId !== 'string' || !taskId) fail('invalid_request', 'taskId is required for a task lease.', { category: 'user', submission: 'not_sent' });
+  return control.transaction(database => acquireLeaseRow(database, `task:${taskId}`, 'task', ownerNonce, ttlMs, now, { task_id: taskId }));
+}
+
 export function renewLeases(control, leases, { ttlMs = 30_000, now = Date.now() } = {}) {
   return control.transaction(database => leases.map(lease => {
     const result = database.prepare('UPDATE leases SET expires_at_ms = ? WHERE resource_key = ? AND owner_nonce = ? AND fencing_token = ? AND epoch = ?')

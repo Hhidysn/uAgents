@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { createParser, invokeCli, locateCli } from '../plugins/uagents/src/transports/cli-process.mjs';
+import { advisoryPrompt } from '../plugins/uagents/src/policy/advisory.mjs';
 import { childEnvironment } from '../plugins/uagents/src/runtime/child-environment.mjs';
 
 const root = path.resolve('.local', 'test-runs', randomUUID(), 'CLI transport');
@@ -117,4 +118,38 @@ test('worker and native CLI environments preserve arbitrary provider variables',
     UAGENTS_TEST_MARKER: 'native-cli',
   });
   assert.equal(parent.UAGENTS_TEST_MARKER, undefined);
+});
+
+test('CLI transport forwards the advisory prompt to the native process', async () => {
+  const original = { prompt: 'Inspect the workspace.', execution: { permission: 'advisory-read-only' } };
+  const prompt = advisoryPrompt(original);
+  const input = request('workbuddy', { prompt, permission_policy: 'advisory-read-only' });
+  const child = new EventEmitter();
+  Object.assign(child, {
+    stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), unref() {},
+    kill() {},
+  });
+  let received = '';
+  child.stdin.setEncoding('utf8');
+  child.stdin.on('data', chunk => { received += chunk; });
+  child.stdin.on('finish', () => {
+    child.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: input.request_id, cwd: root, model: 'fixture-default' }) + '\n');
+    child.stdout.write(JSON.stringify(wbResult(input.request_id)) + '\n');
+    child.stdout.end();
+    child.stderr.end();
+    setImmediate(() => child.emit('close', 0));
+  });
+  const result = await invokeCli(root, root, input, () => {}, {
+    command: 'fixture', args: [], spawn() { setImmediate(() => child.emit('spawn')); return child; },
+  });
+  assert.equal(result.status, 'succeeded');
+  assert.equal(received.endsWith(prompt), true);
+  assert.match(received, /Do not edit, create, delete, rename, or overwrite files\./);
+});
+
+test('advisory prompt leaves other permission prompts byte-for-byte unchanged', () => {
+  const prompt = '  preserve leading/trailing whitespace\n中文\n';
+  for (const permission of ['native', 'enforced-read-only', 'workspace-write', 'full-access']) {
+    assert.equal(advisoryPrompt({ prompt, execution: { permission } }), prompt);
+  }
 });

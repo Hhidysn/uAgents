@@ -67,7 +67,7 @@ export function createServer({ runtime = createRuntime(), supervisor = null } = 
   register('uagents_list_tasks', 'List persisted tasks using cursor pagination. The hard maximum page size is 200.', z.object({ cursor: z.string().optional(), limit: z.number().int().min(1).max(200).optional() }).strict());
   register('uagents_reconcile', 'Explicitly contact the native target for the stored native identity and refine an indeterminate or waiting task. Never resubmits.', taskIdSchema);
   register('uagents_ensure', 'Discover, verify and cache the target installation; for desktop targets start or reuse the dedicated managed instance. Never sends a prompt.', z.object({ target: z.string().min(1).max(64), refresh: z.boolean().optional() }).strict());
-  register('uagents_resume', 'Resume a task waiting for first-login on the same attempt, or reconcile a task that may already have been sent. Never creates a new attempt.', taskIdSchema);
+  register('uagents_resume', 'Resume an abandoned unsent task or first-login wait on the same attempt, or reconcile a waiting native task. Never creates a new attempt.', taskIdSchema);
   register('uagents_stop', 'Stop only the ownership-proven managed instance of one desktop target. Refuses unmanaged or user-owned processes.', z.object({ target: z.string().min(1).max(64) }).strict());
   return server;
 }
@@ -82,6 +82,7 @@ function createRuntime() {
         detached: true, windowsHide: true, env: childEnvironment(), stdio: 'ignore',
       });
       child.unref();
+      return child;
     },
   });
 }

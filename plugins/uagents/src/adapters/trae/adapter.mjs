@@ -28,10 +28,6 @@ export class TraeAdapter {
     this.client = client;
     this.pollIntervalMs = pollIntervalMs;
     this.now = now;
-    // Set by prepare() when a managed instance context is present; used by
-    // dispatch/observe/reconcile so the whole task lifecycle talks to the
-    // gateway the supervisor launched (port, token in memory, nonce check).
-    this.activeClient = null;
   }
 
   // Managed instances run on supervisor-assigned ports with a capability
@@ -39,13 +35,31 @@ export class TraeAdapter {
   // managed context the legacy environment-configured client is kept.
   #clientFor(context) {
     const managed = context?.managed;
-    if (!managed || !Number.isInteger(managed.gateway_port)) return this.client;
-    if (managed.instance_nonce === null || managed.instance_nonce === undefined) return this.client;
+    if (managed === null || managed === undefined) return this.client;
+    if (!Number.isInteger(managed.gateway_port) || managed.gateway_port < 1024 || managed.gateway_port > 65535) {
+      fail('managed_instance_identity_mismatch', 'The managed TRAE instance has no valid gateway port.', {
+        submission: 'may_have_been_sent',
+        details: { cause_code: 'managed_gateway_port_missing' },
+      });
+    }
+    if (managed.instance_nonce === null || managed.instance_nonce === undefined || String(managed.instance_nonce).length === 0) {
+      fail('managed_instance_identity_mismatch', 'The managed TRAE instance has no gateway nonce.', {
+        submission: 'may_have_been_sent',
+        details: { cause_code: 'managed_instance_nonce_missing' },
+      });
+    }
+    if (typeof managed.capability_token !== 'string' || managed.capability_token.length === 0) {
+      fail('gateway_identity_mismatch', 'The managed TRAE gateway capability is unavailable.', {
+        submission: 'may_have_been_sent',
+        details: { cause_code: 'capability_token_missing' },
+      });
+    }
+    if (typeof this.client.forManagedContext === 'function') return this.client.forManagedContext(managed);
     return new TraeGatewayClient({
       port: managed.gateway_port,
       token: typeof managed.capability_token === 'string' && managed.capability_token.length > 0 ? managed.capability_token : '',
       expectedInstanceNonce: managed.instance_nonce,
-      fetchImpl: this.client.fetchImpl,
+      fetchImpl: typeof this.client.fetchImpl === 'function' ? this.client.fetchImpl : fetch,
     });
   }
 
@@ -61,22 +75,22 @@ export class TraeAdapter {
     return { models: [{ id: null, route_id: 'trae-default', provider: 'trae', kind: 'backend_default' }], discovery: 'configured' };
   }
 
-  async probe() {
-    try { return publicProbe(await this.client.status()); }
-    catch (error) { throw normalizeError(error); }
+  async probe(request, context = {}) {
+    try { return publicProbe(await this.#clientFor(context).status()); }
+    catch (error) { throw normalizeError(normalizeGatewayClientError(error)); }
   }
 
   async prepare(request, context = {}) {
-    this.activeClient = this.#clientFor(context);
+    const client = this.#clientFor(context);
     let probe;
-    try { probe = publicProbe(await this.activeClient.status()); }
+    try { probe = publicProbe(await client.status()); }
     catch (error) { throw normalizeError(normalizeGatewayClientError(error)); }
     if (!probe.identity_confirmed) fail('trae_identity_unconfirmed', probe.next_action, { submission: 'not_sent' });
     return { request, probe };
   }
 
-  async dispatch(prepared, context) {
-    const client = this.activeClient ?? this.client;
+  async dispatch(prepared, context = {}) {
+    const client = this.#clientFor(context);
     await context.checkpoint('possibly_sent');
     let native;
     try {
@@ -105,8 +119,19 @@ export class TraeAdapter {
     return { handle };
   }
 
-  async *observe(handle, { signal } = {}) {
-    const client = this.activeClient ?? this.client;
+  async *observe(handle, context = {}) {
+    const { signal } = context;
+    let client;
+    try {
+      client = this.#clientFor(context);
+      // A worker has already performed prepare() immediately before observe,
+      // but checking the nonce here keeps the observation path safe when a
+      // caller supplies a reconstructed context after a process restart.
+      if (context?.managed) await client.status();
+    } catch (error) {
+      yield nativeEvent('indeterminate', { error: error.code ?? 'result_inspection_failed', native_status: 'unknown', evidence_strength: 1 });
+      return;
+    }
     const deadline = handle.deadline_at_ms ?? this.now() + 7_200_000;
     while (this.now() <= deadline) {
       let native;
@@ -126,10 +151,21 @@ export class TraeAdapter {
 
   async cancel() { return { confirmed: false }; }
 
-  async reconcile(native) {
-    const client = this.activeClient ?? this.client;
-    try { return mapTraeNative(await client.task(native.task_id ?? native.session_id)); }
-    catch (error) { return nativeEvent('indeterminate', { error: error.code ?? 'result_inspection_failed', native_status: 'unknown', evidence_strength: 3 }); }
+  async reconcile(native, context = {}) {
+    let client;
+    try {
+      client = this.#clientFor(context);
+      // task() is authenticated, but the task endpoint does not carry the
+      // gateway nonce. Verify the original managed gateway before querying a
+      // persisted native task identity.
+      if (context?.managed) await client.status();
+      return mapTraeNative(await client.task(native.task_id ?? native.session_id));
+    }
+    catch (error) {
+      // A failed read leaves the native state unknown; it is intentionally
+      // weaker than a later stable result from the same identity.
+      return nativeEvent('indeterminate', { error: error.code ?? 'result_inspection_failed', native_status: 'unknown', evidence_strength: 1 });
+    }
   }
 }
 

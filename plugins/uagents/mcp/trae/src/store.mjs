@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +15,7 @@ function within(parent, child) {
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }
 
-function stateRoot(input = process.env.UAGENTS_STATE_DIR ?? process.env.PLUGIN_DATA) {
+function stateRoot(input = process.env.UAGENTS_STATE_DIR ?? process.env.PLUGIN_DATA ?? path.join(os.homedir(), '.uagents', 'trae-cn')) {
   if (!input || !path.isAbsolute(input)) fail('state_dir_required', 'Set PLUGIN_DATA or an absolute UAGENTS_STATE_DIR.');
   const resolved = path.resolve(input, process.env.PLUGIN_DATA && input === process.env.PLUGIN_DATA ? 'trae-cn' : '');
   const realPlugin = fs.realpathSync(pluginRoot);

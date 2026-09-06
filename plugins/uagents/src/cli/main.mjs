@@ -32,7 +32,7 @@ export async function execute(argv, options = {}) {
   // hosts can pin the lifecycle behavior.
   const supervisor = 'supervisor' in options
     ? options.supervisor
-    : ['ensure', 'stop'].includes(command) ? await createSupervisor() : null;
+    : ['ensure', 'stop', 'reconcile', 'resume'].includes(command) ? await createSupervisor() : null;
   const runtime = new UnifiedRuntime({ stateRoot, registry, spawnWorker: options.spawnWorker, supervisor });
   try {
     if (command === 'probe') return ok(await runtime.probe(required(subject, 'target'), { model: values.model ?? 'default' }));

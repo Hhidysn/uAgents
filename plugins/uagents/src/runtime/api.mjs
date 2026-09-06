@@ -88,9 +88,41 @@ export class UnifiedRuntime {
   }
 
   submit(input) {
-    const result = this.service.submit(input);
-    if (!result.duplicate || result.resumed) this.spawnWorker(this.stateRoot, result.task_id);
+    let result = this.service.submit(input);
+    if (!result.duplicate || result.resumed) this.#launchWorker(result.task_id);
+    else if (result.status === 'queued') {
+      const recovery = this.service.recoverUnsent(result.task_id);
+      if (recovery.recoverable) {
+        this.#launchWorker(result.task_id);
+        result = { ...recovery.status, duplicate: true, resumed: true };
+      }
+    }
     return { ...result, poll_after_ms: 250 };
+  }
+
+  #launchWorker(taskId) {
+    try {
+      const child = this.spawnWorker(this.stateRoot, taskId);
+      // Launch errors arrive asynchronously, often after a one-shot CLI has
+      // closed this runtime. Record through a fresh connection and keep the
+      // same unsent task recoverable. Never persist the native error text.
+      child?.once?.('error', () => {
+        let control;
+        try {
+          control = new ControlDatabase(this.stateRoot);
+          const service = new TaskService(control);
+          const status = service.status(taskId);
+          service.recordLeaseWait(taskId, status.attempt.attempt_id, {
+            reason: 'worker_launch_failed',
+            error: { code: 'worker_launch_failed', message: 'The local worker could not be started.' },
+          });
+        } catch {} finally { control?.close(); }
+      });
+    } catch {
+      fail('worker_launch_failed', 'The local worker could not be started. Resume the same task to retry.', {
+        category: 'runtime', retryable: true, submission: 'not_sent', details: { task_id: taskId },
+      });
+    }
   }
 
   status(taskId) { return this.service.status(taskId); }
@@ -100,8 +132,8 @@ export class UnifiedRuntime {
 
   async resume(taskId) {
     const result = this.service.resume(taskId);
-    if (result.mode === 'preflight') {
-      this.spawnWorker(this.stateRoot, result.task_id);
+    if (result.mode === 'preflight' || result.mode === 'dispatch') {
+      this.#launchWorker(result.task_id);
       return { ...result, ok: true, resumed: true, poll_after_ms: 250 };
     }
     return this.reconcile(taskId);
@@ -109,7 +141,7 @@ export class UnifiedRuntime {
 
   async reconcile(taskId) {
     const status = this.service.status(taskId);
-    return reconcileTask({ service: this.service, taskId, adapter: this.adapterFactory(status.target) });
+    return reconcileTask({ service: this.service, taskId, adapter: this.adapterFactory(status.target), supervisor: this.supervisor });
   }
 }
 
@@ -124,4 +156,5 @@ export function spawnSourceWorker(root, taskId) {
     detached: true, windowsHide: true, env: childEnvironment(), stdio: 'ignore',
   });
   child.unref();
+  return child;
 }

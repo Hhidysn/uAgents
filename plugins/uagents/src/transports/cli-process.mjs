@@ -36,17 +36,19 @@ export function locateCli(target, env = process.env, entryOverride = null) {
 
 export function nativeDriver(request, workspace, entryOverride = null) {
   const entry = locateCli(request.target, process.env, entryOverride);
+  const advisoryReadOnly = isAdvisoryReadOnly(request);
   if (request.target === 'opencode') return { command: entry, args: request.kind === 'probe' ? ['--version'] : [
     'run', '--pure', '--model', request.model, '--format', 'json', '--dir', workspace, '--title', `uAgents ${request.request_id}`,
   ] };
   return { command: process.execPath, args: [entry, ...(request.kind === 'probe' ? ['--version'] : [
     '-p', '--output-format', 'stream-json', '--verbose', '--session-id', request.request_id, '--max-turns', '6',
-    ...(request.mode === 'implementation' ? ['--permission-mode', 'acceptEdits'] : []),
+    ...(request.mode === 'implementation' && !advisoryReadOnly ? ['--permission-mode', 'acceptEdits'] : []),
   ])], env: childEnvironment(process.env, { CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS: '1' }) };
 }
 
 const identityError = () => fail('native_session_mismatch', 'Native event identity does not match this task.');
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
+const isAdvisoryReadOnly = request => request.permission_policy === 'advisory-read-only' || request.execution?.permission === 'advisory-read-only';
 const denied = value => typeof value === 'string' && /permission.*(denied|requested|requires|approval)|auto.reject|soft.denied|not allowed/i.test(value);
 
 function openCodeError(event) {
@@ -161,6 +163,7 @@ export function invokeCli(directory, workspace, request, publish, testDriver, en
       cwd: workspace, windowsHide: true, env: driver.env ?? childEnvironment(), stdio: ['pipe', 'pipe', 'pipe'],
     });
     const parser = createParser(request, workspace, publish), decoder = new StringDecoder('utf8');
+    const advisoryReadOnly = isAdvisoryReadOnly(request);
     let sent = false, stopped = false, finished = false, outcome, closeTimer, buffer = '', bytes = 0, version = '', stderr = '';
     const finish = value => {
       if (finished) return;
@@ -187,7 +190,7 @@ export function invokeCli(directory, workspace, request, publish, testDriver, en
         if (request.kind === 'probe') { child.stdin.end(); return; }
         // These CLIs need input before a handshake. Mark ambiguity before writing, then validate output identity.
         publish({ status: 'running', submission: 'may_have_been_sent', model_reported: null,
-          native_edit_mode: request.target === 'workbuddy' && request.mode === 'implementation' ? 'acceptEdits' : 'inherited' });
+          native_edit_mode: request.target === 'workbuddy' && request.mode === 'implementation' && !advisoryReadOnly ? 'acceptEdits' : 'inherited' });
         sent = true;
         child.stdin.end(`uAgents task workspace: ${workspace}\nMode: ${request.mode}. Expected files: ${JSON.stringify(request.expected_outputs)}\nWork only on this task. Do not delegate or start background work. You are not alone; do not revert others' edits.\n\n${request.prompt}`);
       } catch { stop(sent ? 'unknown' : 'failed', 'submission_failed'); }

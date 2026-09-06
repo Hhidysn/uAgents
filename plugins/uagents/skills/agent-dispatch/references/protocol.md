@@ -41,6 +41,8 @@ Unknown fields and unsupported capability combinations are rejected before regis
 
 `fallback` must remain `none`. Non-null `max_cost_usd` and unsupported execution timeouts are rejected rather than estimated. `analysis` is task intent, not a hard read-only sandbox; request `enforced-read-only` only when the target advertises it.
 
+`advisory-read-only` adds an explicit instruction to inspect and explain without changing files or running mutating commands. WorkBuddy does not receive automatic edit acceptance for this permission, even in implementation mode. This is a prompt-level instruction, not an enforced sandbox; native permissions still apply. The stored request and its idempotency hashes retain the caller's original prompt.
+
 ## Queries
 
 - `status <task-id>`: SQLite-only status read.
@@ -49,7 +51,7 @@ Unknown fields and unsupported capability combinations are rejected before regis
 - `list [--cursor <cursor>] [--limit <n>]`: cursor pagination, maximum 200.
 - `reconcile <task-id>`: explicitly queries the stored native identity; never sends the prompt again.
 - `ensure <target> [--refresh]`: discover, verify and cache the installation; start or reuse the managed instance for desktop targets. Never sends a prompt. `--refresh` forces rediscovery instead of the cached path.
-- `resume <task-id>`: for a task in `waiting_user` with `interaction.phase=preflight_login`, resumes the same attempt after the user completes first login; for a task with a native identity, reconciles it. Everything else is refused with `resume_not_allowed`.
+- `resume <task-id>`: recovers a `registered/queued` task only when it is unsent, has no native identity and has no live worker lease; also resumes first-login waits on the same attempt. A `waiting_user` task with a native identity is reconciled. Other states are refused with `resume_not_allowed`; use `reconcile` for an indeterminate task with a native identity.
 - `stop <target>`: stops only the ownership-proven managed instance (pid + start time + canonical path). User windows and unknown processes are never touched.
 
 MCP equivalents are `uagents_status`, `uagents_result`, `uagents_cancel`, `uagents_list_tasks`, `uagents_reconcile`, `uagents_ensure`, `uagents_resume`, and `uagents_stop`. Keep the same explicit `--state-dir` on every CLI command when using a non-default state root. Managed-lifecycle state lives separately in `%LOCALAPPDATA%\uAgents\host-v1` and is shared by every entrypoint regardless of `--state-dir`.
@@ -57,6 +59,10 @@ MCP equivalents are `uagents_status`, `uagents_result`, `uagents_cancel`, `uagen
 ## Managed lifecycle
 
 `submit` auto-prepares the target: the Worker resolves a trusted installation through the per-user host control plane and, for desktop targets, starts or reuses a dedicated isolated-profile instance before any adapter runs. Two different state dirs can never control the same desktop instance because both must hold the same Host lease. A fresh desktop profile that surfaces a login or setup screen parks the task in `waiting_user` with `interaction.phase=preflight_login` and `submission=not_sent`; after the user logs in once, the same UUID `submit` or `resume` requeues the same attempt. Status and result responses expose a `lifecycle` summary (`state`, `instance_id`, `installation_id`, `profile_generation`, `started_by_uagents`, `reused`) for managed targets.
+
+Resource contention keeps the worker queued with a task lease and bounded backoff (up to 30 seconds by default). If the wait expires, the task remains queued with a retryable error; resubmit the identical request with the same UUID or use `resume` after resources become available. Duplicate submission of a newly registered task is read-only; if its worker failed to start, use `resume`. A live worker is not displaced, and a possibly-sent attempt is never redispatched. Queued workers observe cancellation before sending.
+
+Managed desktop reconciliation uses the original instance and profile generation saved at acceptance. The Supervisor verifies that exact instance and supplies the original connection to the adapter; it never starts, repairs or replaces an instance during reconciliation. An unavailable or changed instance produces a structured error without falling back to the default port. Gateway capabilities remain in memory and are not written to task records.
 
 `status` and `result` always include `error`. It is `null` when the current state has no recorded failure. Native failures use the same structured fields as protocol errors: `code`, `category`, `message`, `retryable`, `schema_version`, `submission`, and `details`. Provider headers, response bodies, credentials, and tokens are never persisted in this record.
 

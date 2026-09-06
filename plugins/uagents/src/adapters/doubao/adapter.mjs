@@ -25,13 +25,35 @@ export class DoubaoAdapter {
   // Managed instances run on a supervisor-assigned loopback port; the bridge
   // must target that port instead of the process-environment default.
   #bridgeFor(context) {
-    const port = context?.managed?.port;
-    if (!Number.isInteger(port) || port === this.bridge.port) return this.bridge;
+    const managed = context?.managed;
+    // A missing managed context is the explicit legacy path used by old task
+    // records and direct adapter callers. Once a managed context is supplied,
+    // however, silently falling back to the environment-configured bridge can
+    // query or mutate a different desktop instance.
+    if (managed === null || managed === undefined) return this.bridge;
+    const port = managed?.port;
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      fail('managed_instance_identity_mismatch', 'The managed Doubao instance has no valid CDP port.', {
+        submission: 'may_have_been_sent',
+        details: { cause_code: 'managed_port_missing' },
+      });
+    }
+    if (port === this.bridge.port) return this.bridge;
     if (this.bridge instanceof DoubaoDesktopBridge) {
       return new DoubaoDesktopBridge({
         port,
         fetchImpl: this.bridge.fetchImpl,
         websocketFactory: this.bridge.websocketFactory,
+      });
+    }
+    if (typeof this.bridge.forPort === 'function') return this.bridge.forPort(port);
+    // Constructor-injected test transports may not expose a port at all. Keep
+    // that explicit injection usable, while refusing a custom transport that
+    // declares a different concrete port (which would be a real fallback).
+    if (Number.isInteger(this.bridge.port) && this.bridge.port !== port) {
+      fail('managed_instance_identity_mismatch', 'The Doubao bridge cannot bind to the managed CDP port.', {
+        submission: 'may_have_been_sent',
+        details: { cause_code: 'managed_bridge_unavailable' },
       });
     }
     return this.bridge;
@@ -64,12 +86,14 @@ export class DoubaoAdapter {
     return { handle };
   }
 
-  async *observe(handle, { signal } = {}) {
+  async *observe(handle, context = {}) {
+    const { signal } = context;
+    const bridge = this.#bridgeFor(context);
     const deadline = handle.deadline_at_ms ?? this.now() + 1_200_000;
     while (this.now() <= deadline) {
       let observed;
       try {
-        observed = await this.bridge.inspect(handle.target_id, handle.native_conversation_id, handle.user_message_index);
+        observed = await bridge.inspect(handle.target_id, handle.native_conversation_id, handle.user_message_index);
       } catch (error) {
         yield nativeEvent('indeterminate', { error: error.code ?? 'result_inspection_failed', native_status: 'unknown' });
         return;
@@ -84,11 +108,27 @@ export class DoubaoAdapter {
 
   async cancel() { return { confirmed: false }; }
 
-  async reconcile(native) {
+  async reconcile(native, context = {}) {
+    let bridge;
     try {
-      return mapDoubaoObservation(await this.bridge.inspect(native.task_id, native.session_id, 0));
+      bridge = this.#bridgeFor(context);
     } catch (error) {
-      return nativeEvent('indeterminate', { error: error.code ?? 'result_inspection_failed', native_status: 'unknown', evidence_strength: 3 });
+      return nativeEvent('indeterminate', {
+        error: error.code ?? 'managed_instance_identity_mismatch',
+        native_status: 'unknown',
+        evidence_strength: 1,
+      });
+    }
+    try {
+      return mapDoubaoObservation(await bridge.inspect(
+        native.task_id,
+        native.session_id,
+        Number.isInteger(native.user_message_index) ? native.user_message_index : 0,
+      ));
+    } catch (error) {
+      // A failed read leaves the native state unknown; it is intentionally
+      // weaker than a later stable result from the same identity.
+      return nativeEvent('indeterminate', { error: error.code ?? 'result_inspection_failed', native_status: 'unknown', evidence_strength: 1 });
     }
   }
 }

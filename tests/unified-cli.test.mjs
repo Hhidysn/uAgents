@@ -147,15 +147,18 @@ test('ensure without a host supervisor is a structured unsupported error', async
   );
 });
 
-test('resume rejects tasks that are not waiting for preflight login', async () => {
+test('resume recovers a registered unsent task without creating another attempt', async () => {
   const input = request();
   const requestFile = path.join(root, `resume-${input.request_id}.json`);
   fs.writeFileSync(requestFile, JSON.stringify(input));
   await execute(['submit', '--request', requestFile, '--state-dir', root], { spawnWorker: () => {} });
-  const lines = [];
-  const exitCode = await main(['resume', input.request_id, '--state-dir', root], { log: line => lines.push(JSON.parse(line)) });
-  assert.equal(exitCode, 1);
-  assert.equal(lines[0].ok, false);
-  assert.equal(lines[0].error.code, 'resume_not_allowed');
-  assert.equal(lines[0].error.submission, 'not_sent');
+  const before = await execute(['status', input.request_id, '--state-dir', root]);
+  const spawns = [];
+  const resumed = await execute(['resume', input.request_id, '--state-dir', root], {
+    spawnWorker: (...args) => spawns.push(args), supervisor: null,
+  });
+  assert.equal(resumed.data.resumed, true);
+  assert.equal(resumed.data.attempt.attempt_id, before.data.attempt.attempt_id);
+  assert.equal(resumed.data.attempt.submission, 'not_sent');
+  assert.deepEqual(spawns, [[root, input.request_id]]);
 });

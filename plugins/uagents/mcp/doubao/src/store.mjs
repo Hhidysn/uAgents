@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -29,7 +30,7 @@ export function atomicJson(file, value) {
 
 function isWithin(parent,child){const relative=path.relative(parent,child);return relative===''||(!relative.startsWith(`..${path.sep}`)&&relative!=='..'&&!path.isAbsolute(relative));}
 
-export function dataRoot(input = process.env.UAGENTS_STATE_DIR ?? process.env.PLUGIN_DATA) {
+export function dataRoot(input = process.env.UAGENTS_STATE_DIR ?? process.env.PLUGIN_DATA ?? path.join(os.homedir(), '.uagents', 'doubao-work')) {
   if (!input || !path.isAbsolute(input)) fail('state_dir_required', 'Set PLUGIN_DATA or an absolute UAGENTS_STATE_DIR.');
   const resolved = path.resolve(input, process.env.PLUGIN_DATA && input === process.env.PLUGIN_DATA ? 'doubao-work' : '');
   const realPlugin=fs.realpathSync(pluginRoot);let ancestor=resolved;

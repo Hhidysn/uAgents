@@ -22,3 +22,4 @@ auth.json
 credentials.json
 Thumbs.db
 .DS_Store
+/third-part-research/

@@ -1,6 +1,15 @@
 # uAgents
 
-uAgents 是供 Codex 使用的本地统一 Agent 调度插件。`0.2.0-alpha.1` 把 agy/Gemini、WorkBuddy、OpenCode、豆包工作和 TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时保留各目标不同的模型、文件、权限、取消和桌面连接能力。
+uAgents 是供 Codex 使用的本地统一 Agent 调度插件。当前发行标识为
+`0.2.0-alpha.1+codex.20260905113451`，把 agy/Gemini、WorkBuddy、OpenCode、豆包工作和
+TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时明确保留各目标不同的
+模型、文件、权限、取消和桌面连接能力。
+
+先看：[当前状态与能力矩阵](docs/status/2026-09-06-current-status.md) · [文档索引](docs/README.md)
+
+> 重要边界：OpenCode 当前只开放文本 `analysis`。它不能通过 uAgents 接收文件输入、声明文件产物，
+> 也不能执行 `implementation` 文件修改。这个限制同时存在于已安装缓存、最新提交版和当前未提交工作树；
+> 不是单纯的安装缓存过旧。
 
 核心特性：
 
@@ -14,6 +23,23 @@ uAgents 是供 Codex 使用的本地统一 Agent 调度插件。`0.2.0-alpha.1` 
 - workspace 重叠租约、fencing token、输入快照、不可变产物捕获与 SHA-256 验证。
 - `status`/`list` 只读本地状态；只有显式 `reconcile` 才访问已有原生任务身份。
 - 受管生命周期：`submit` 自动发现、验证并缓存本机入口；豆包/TRAE 在专用隔离 Profile 中自动启动并跨 Task DB 用 Host lease 防双开；首次登录后同 UUID `submit` 或 `resume` 在原 Attempt 上恢复；`stop` 只停止所有权证据完整的实例。
+- 资源冲突时有界排队；未发送任务可用同 UUID 恢复，任务租约和原子 Attempt claim 防止重复发送。受管桌面恢复绑定原实例，`advisory-read-only` 会传递只读提示并关闭 WorkBuddy 隐式编辑自动接受。
+
+## 目标能力速览
+
+| 目标 | 模式 | 输入 / 输出 | 当前关键边界 |
+| --- | --- | --- | --- |
+| agy | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | 无图片；模型必须显式指定；分析模式不是硬只读 |
+| WorkBuddy | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | 无图片；模型由后端决定；分析模式不是硬只读 |
+| OpenCode | `analysis` | 文本 / 文本 | 不支持 `implementation`、文件输入或文件输出；仅两条显式 Command Code Flash 路线 |
+| 豆包工作 | `analysis` | 文本 / 文本 | 无文件/图片；无已确认原生取消；不回显可验证模型；受管桌面实例 |
+| TRAE CN | `analysis`、`implementation` | 文本 / 文本 + 文件 | 不接受显式文件输入；无图片、无已确认原生取消；模型不可靠回显；受管桌面实例 |
+
+`implementation` 与 `workspace-write` 不是同一件事：前者表示目标允许调用其原生编辑流程，后者要求
+uAgents 自身强制工作区写入边界。当前没有目标宣称 `enforced-read-only`、`workspace-write` 或
+`full-access`，因此不能把产物校验当成安全隔离。
+
+已安装缓存、最新提交版和工作树的差异、验证证据及待补齐项见[当前状态文档](docs/status/2026-09-06-current-status.md)。
 
 ## 使用
 
@@ -39,7 +65,7 @@ node "<plugin-root>\bin\uagents.mjs" resume <task-id>
 node "<plugin-root>\bin\uagents.mjs" stop <target>
 ```
 
-`ensure` 发现、验证并缓存安装；对桌面目标启动或复用专用实例，但不发送 Prompt。`probe` 保持只读、不启动。`resume` 对发送前登录等待在同一 Attempt 上恢复；对可能已发送的任务只 reconcile。`stop` 拒绝接管用户日常窗口或未知进程。
+`ensure` 发现、验证并缓存安装；对桌面目标启动或复用专用实例，但不发送 Prompt。`probe` 保持只读、不启动。`resume` 可恢复无活跃 Worker 的 `registered/queued` 未发送任务，或发送前登录等待，均沿用原 Attempt；对带原生身份的 `waiting_user` 只 reconcile。`indeterminate` 应显式使用 `reconcile`，不会重新发送。`stop` 拒绝接管用户日常窗口或未知进程。
 
 `.mcp.json` 注册的 `uagents-unified` 是兼容入口，供没有本地 Shell 或明确要求 MCP 的宿主使用：
 
@@ -71,10 +97,13 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 ## 设计与证据
 
 - [统一 Runtime 设计](docs/superpowers/specs/2026-09-04-uagents-unified-agent-runtime-design.md)
+- [Runtime 可靠性修复设计](docs/superpowers/specs/2026-09-05-runtime-reliability-fixes-design.md)
+- [Runtime 可靠性修复验证](docs/verification/2026-09-06-runtime-reliability-fixes.md)
 - [统一 Runtime 实施计划](docs/superpowers/plans/2026-09-04-uagents-unified-agent-runtime-implementation.md)
 - [受管 Agent 生命周期设计](docs/superpowers/specs/2026-09-04-uagents-managed-agent-lifecycle-design.md)
 - [受管生命周期实施计划](docs/superpowers/plans/2026-09-05-uagents-managed-agent-lifecycle-implementation.md)
-- [当前进度](docs/status/2026-09-02-current-progress.md)
+- [当前状态与能力矩阵](docs/status/2026-09-06-current-status.md)
+- [历史进度快照](docs/status/2026-09-02-current-progress.md)
 - [受管桌面启动契约验证（Gate 0 spike）](docs/verification/2026-09-05-managed-launch-spike.md)
 - [SQLite/Windows spike](docs/verification/2026-09-04-sqlite-windows-spike.md)
 - [候选 CLI 调用契约](docs/verification/2026-09-03-cli-candidate-contracts.md)：Claude Code、Grok、Pi 仍只是候选，不在 target allowlist。

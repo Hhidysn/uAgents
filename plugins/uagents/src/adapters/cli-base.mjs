@@ -145,7 +145,7 @@ export class CliAdapter {
       target: this.target,
       model: this.target === 'opencode' ? request.route_id : this.target === 'workbuddy' ? 'workbuddy-default' : request.model_resolved,
       mode: request.mode,
-      permission_policy: 'native',
+      permission_policy: request.execution.permission,
       expected_outputs: request.expected_outputs.map(output => output.path),
       kind,
       ...(kind === 'run' ? { prompt: request.prompt } : {}),

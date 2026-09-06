@@ -1,42 +1,153 @@
+import { randomUUID } from 'node:crypto';
+import { advisoryPrompt } from '../policy/advisory.mjs';
 import { fail } from '../protocol/errors.mjs';
 import { captureArtifacts } from '../artifacts/capture.mjs';
 import { taskDirectory } from '../store/task-files.mjs';
 import { persistCheckpoint } from './checkpoints.mjs';
 import { verifyInputSnapshots } from './effective-request.mjs';
-import { acquireExecutionLeases, releaseLeases, renewLeases } from './leases.mjs';
+import { acquireExecutionLeases, acquireTaskLease, releaseLeases, renewLeases } from './leases.mjs';
 import { statusFromNativeEvent, TERMINAL_STATES } from './state-machine.mjs';
 
 export async function runTask({ service, taskId, adapter, leaseOptions = {}, supervisor = null }) {
   let status = service.status(taskId);
-  if (status.status !== 'registered' && status.status !== 'queued') fail('invalid_state_transition', `Task cannot be dispatched from ${status.status}.`);
+  if (status.status !== 'registered' && status.status !== 'queued') {
+    // A duplicate worker may observe the owner after it has moved the task to
+    // starting, or may start after the task reached a terminal state.  Both
+    // cases are safe no-ops; only waiting_user/indeterminate are rejected so
+    // callers cannot accidentally turn an observation state into dispatch.
+    if ((status.status === 'starting' && status.attempt?.submission === 'not_sent' && !status.native) || TERMINAL_STATES.has(status.status)) return status;
+    fail('invalid_state_transition', `Task cannot be dispatched from ${status.status}.`);
+  }
   const attemptId = status.attempt.attempt_id;
   if (status.status === 'registered') status = service.transition(taskId, 'queued', { attemptId });
   const stored = service.payload(taskId);
-  const request = { ...stored.request, prompt: stored.payload.prompt };
-  const leases = acquireExecutionLeases(service.control, { target: request.target, workspace: request.workspace, ...leaseOptions });
-  const fencingLease = leases[0];
+  const originalRequest = { ...stored.request, prompt: stored.payload.prompt };
+  const request = { ...originalRequest, prompt: advisoryPrompt(originalRequest) };
+  const ownerNonce = leaseOptions.ownerNonce ?? randomUUID();
   const leaseTtlMs = leaseOptions.ttlMs ?? 30_000;
-  const heartbeatIntervalMs = leaseOptions.heartbeatIntervalMs ?? Math.max(100, Math.floor(leaseTtlMs / 3));
+  const taskLeaseTtlMs = leaseOptions.taskLeaseTtlMs ?? leaseTtlMs;
+  const maxLeaseWaitMs = boundedNumber(
+    leaseOptions.maxLeaseWaitMs,
+    30_000,
+  );
+  const initialRetryMs = boundedNumber(
+    leaseOptions.leaseRetryIntervalMs,
+    50,
+  );
+  const maxRetryMs = Math.max(initialRetryMs, boundedNumber(leaseOptions.maxLeaseRetryIntervalMs, 1_000));
+  const waitStartedAt = Date.now();
+  const leases = [];
+  let taskLease = null;
+  const releaseAcquiredLeases = () => {
+    if (leases.length) {
+      try { releaseLeases(service.control, leases.splice(0, leases.length)); } catch {}
+    }
+    if (taskLease) {
+      try { releaseLeases(service.control, [taskLease]); } catch {}
+      taskLease = null;
+    }
+  };
+
+  // Keep a task-scoped fenced claim while waiting for global/target/workspace
+  // resources.  A bounded wait leaves the attempt queued, and the persisted
+  // state can be picked up by a later duplicate submit or restart.
+  let retryMs = initialRetryMs;
+  let lastLeaseConflict = null;
+  while (!leases.length) {
+    const current = service.status(taskId);
+    if (current.status !== 'registered' && current.status !== 'queued') {
+      releaseAcquiredLeases();
+      return current;
+    }
+    if (current.cancel_requested) {
+      const cancelled = service.cancelUnsent(taskId, attemptId);
+      if (cancelled.cancelled || TERMINAL_STATES.has(cancelled.status.status)) {
+        releaseAcquiredLeases();
+        return cancelled.status;
+      }
+    }
+    try {
+      if (!taskLease) taskLease = acquireTaskLease(service.control, {
+        taskId,
+        ownerNonce,
+        ttlMs: taskLeaseTtlMs,
+        now: service.clock(),
+      });
+      const acquired = acquireExecutionLeases(service.control, {
+        target: request.target,
+        workspace: request.workspace,
+        ...leaseOptions,
+        ownerNonce,
+        now: service.clock(),
+      });
+      leases.push(...acquired);
+      break;
+    } catch (error) {
+      if (!isUnsentLeaseConflict(error)) {
+        releaseAcquiredLeases();
+        throw error;
+      }
+      lastLeaseConflict = error;
+      const elapsed = Date.now() - waitStartedAt;
+      if (elapsed >= maxLeaseWaitMs) {
+        const queued = service.recordLeaseWait(taskId, attemptId, { waitMs: elapsed, error, now: service.clock() });
+        releaseAcquiredLeases();
+        return queued;
+      }
+      // Renew the task claim before sleeping so a long resource wait cannot
+      // look like an abandoned worker to duplicate-submit recovery.
+      if (taskLease) {
+        try {
+          taskLease = renewLeases(service.control, [taskLease], { ttlMs: taskLeaseTtlMs, now: service.clock() })[0];
+        } catch (renewError) {
+          if (!isUnsentLeaseConflict(renewError)) {
+            releaseAcquiredLeases();
+            throw renewError;
+          }
+          taskLease = null;
+        }
+      }
+      const remaining = Math.max(0, maxLeaseWaitMs - (Date.now() - waitStartedAt));
+      const slept = await waitForLease(retryMs > remaining ? remaining : retryMs, leaseOptions.signal);
+      if (!slept) {
+        const queued = service.recordLeaseWait(taskId, attemptId, {
+          waitMs: Date.now() - waitStartedAt,
+          error: lastLeaseConflict,
+          reason: leaseOptions.signal?.aborted ? 'lease_wait_aborted' : 'lease_conflict',
+          now: service.clock(),
+        });
+        releaseAcquiredLeases();
+        return queued;
+      }
+      retryMs = Math.min(maxRetryMs, Math.max(1, retryMs * 2));
+    }
+  }
+
+  const fencingLease = leases[0];
+  const heartbeatIntervalMs = leaseOptions.heartbeatIntervalMs ?? Math.max(10, Math.min(1_000, Math.floor(Math.min(leaseTtlMs, taskLeaseTtlMs) / 3)));
   let heartbeatError = null;
   let heartbeat;
   let hostLease = null;
-  service.control.transaction(database => {
-    database.prepare('UPDATE attempts SET owner_nonce = ?, fencing_token = ? WHERE attempt_id = ?')
-      .run(fencingLease.owner_nonce, fencingLease.fencing_token, attemptId);
-  });
-  service.heartbeat(attemptId, fencingLease);
-  heartbeat = setInterval(() => {
-    if (heartbeatError) return;
-    try {
-      const renewed = renewLeases(service.control, leases, { ttlMs: leaseTtlMs });
-      leases.splice(0, leases.length, ...renewed);
-      if (hostLease && supervisor) hostLease = supervisor.renewInstanceLease(hostLease, { ttlMs: leaseTtlMs });
-      service.heartbeat(attemptId, leases[0]);
-    } catch (error) { heartbeatError = error; }
-  }, heartbeatIntervalMs);
-  heartbeat.unref?.();
 
   try {
+    const claim = service.claimAttempt(taskId, attemptId, fencingLease);
+    if (!claim.claimed) {
+      const cancelled = service.cancelUnsent(taskId, attemptId);
+      return cancelled.cancelled ? cancelled.status : claim.status;
+    }
+    service.heartbeat(attemptId, fencingLease);
+    heartbeat = setInterval(() => {
+      if (heartbeatError) return;
+      try {
+        const renewed = renewLeases(service.control, leases, { ttlMs: leaseTtlMs });
+        leases.splice(0, leases.length, ...renewed);
+        taskLease = renewLeases(service.control, [taskLease], { ttlMs: taskLeaseTtlMs })[0];
+        if (hostLease && supervisor) hostLease = supervisor.renewInstanceLease(hostLease, { ttlMs: leaseTtlMs });
+        service.heartbeat(attemptId, leases[0]);
+      } catch (error) { heartbeatError = error; }
+    }, heartbeatIntervalMs);
+    heartbeat.unref?.();
+
     service.transition(taskId, 'starting', { attemptId, lease: fencingLease });
     verifyInputSnapshots(request.workspace, stored.payload.input_snapshots);
     // Managed lifecycle: after `starting`, before any adapter work. Desktop
@@ -68,6 +179,8 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
       // login/setup screen. Persist the sanitized waiting event and stop
       // before any adapter work; the same attempt resumes via resume/submit.
       if (ensured?.lifecycle?.state === 'waiting_user') {
+        const cancelled = service.cancelUnsent(taskId, attemptId);
+        if (cancelled.cancelled) return cancelled.status;
         service.transition(taskId, 'waiting_user', {
           attemptId,
           lease: fencingLease,
@@ -92,7 +205,11 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
     const checkpoint = (kind, payload = {}) => persistCheckpoint(service.control, {
       taskId, attemptId, lease: fencingLease, kind, payload: { target: request.target, ...(managedLifecycle ? { lifecycle: managedLifecycle } : {}), ...payload },
     });
+    const cancelledBeforePrepare = service.cancelUnsent(taskId, attemptId);
+    if (cancelledBeforePrepare.cancelled) return cancelledBeforePrepare.status;
     const prepared = await adapter.prepare(request, adapterContext);
+    const cancelledBeforeDispatch = service.cancelUnsent(taskId, attemptId);
+    if (cancelledBeforeDispatch.cancelled) return cancelledBeforeDispatch.status;
     let submission;
     try {
       submission = await adapter.dispatch(prepared, { ...adapterContext, checkpoint });
@@ -153,11 +270,40 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
     throw error;
   } finally {
     clearInterval(heartbeat);
-    releaseLeases(service.control, leases);
+    releaseAcquiredLeases();
     if (hostLease && supervisor) {
       try { supervisor.releaseInstanceLease(hostLease); } catch {}
     }
   }
+}
+
+function isUnsentLeaseConflict(error) {
+  return error?.code === 'lease_conflict' && (error?.submission ?? 'not_sent') === 'not_sent';
+}
+
+function boundedNumber(value, fallback) {
+  if (value === undefined || value === null || value === '') return Math.max(0, Number(fallback));
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : Math.max(0, Number(fallback));
+}
+
+function waitForLease(ms, signal) {
+  if (signal?.aborted) return Promise.resolve(false);
+  const delay = Math.max(0, Number(ms) || 0);
+  if (!delay) return Promise.resolve(true);
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener?.('abort', onAbort);
+      resolve(value);
+    };
+    const onAbort = () => finish(false);
+    const timer = setTimeout(() => finish(true), delay);
+    signal?.addEventListener?.('abort', onAbort, { once: true });
+  });
 }
 
 async function finishCancellation({ service, adapter, taskId, attemptId, lease, handle }) {

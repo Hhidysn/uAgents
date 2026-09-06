@@ -437,6 +437,185 @@ export function createTargetSupervisor({
     }
   }
 
+  // Reconcile an already accepted native task against the exact managed
+  // desktop instance recorded with that attempt. This deliberately does not
+  // call ensure(): a stale or missing instance is an identity failure, and
+  // must never be replaced while a native task may still be running.
+  async function reconcile(target, lifecycle = {}) {
+    const lease = leaseFor(target);
+    try {
+      if (
+        !isPlainObject(lifecycle) ||
+        typeof lifecycle.instance_id !== "string" ||
+        lifecycle.instance_id.length === 0 ||
+        !Number.isInteger(lifecycle.profile_generation) ||
+        lifecycle.profile_generation < 1
+      ) {
+        fail("managed_instance_identity_mismatch", "The task has no valid persisted managed instance identity", {
+          category: "target",
+          retryable: true,
+          submission: "may_have_been_sent",
+          details: { cause_code: "lifecycle_identity_missing" },
+        });
+      }
+
+      const instance = hostStore.getManagedInstance(lifecycle.instance_id);
+      if (
+        !isPlainObject(instance) ||
+        instance.instance_id !== lifecycle.instance_id ||
+        instance.target !== target ||
+        instance.generation !== lifecycle.profile_generation ||
+        instance.started_by_uagents !== true ||
+        ["stale", "stopped"].includes(instance.state)
+      ) {
+        fail("managed_instance_identity_mismatch", "The persisted managed instance is no longer valid", {
+          category: "target",
+          retryable: true,
+          submission: "may_have_been_sent",
+          details: { cause_code: "instance_record_mismatch" },
+        });
+      }
+      if (lifecycle.started_by_uagents !== undefined && lifecycle.started_by_uagents !== true) {
+        fail("managed_instance_identity_mismatch", "The task lifecycle does not identify a uAgents-managed instance", {
+          category: "target",
+          retryable: true,
+          submission: "may_have_been_sent",
+          details: { cause_code: "lifecycle_owner_mismatch" },
+        });
+      }
+      if (
+        lifecycle.installation_id !== undefined &&
+        lifecycle.installation_id !== instance.installation_id
+      ) {
+        fail("managed_instance_identity_mismatch", "The task lifecycle installation does not match the managed instance", {
+          category: "target",
+          retryable: true,
+          submission: "may_have_been_sent",
+          details: { cause_code: "installation_identity_mismatch" },
+        });
+      }
+
+      // The installation cache is the trust anchor captured by ensure. Do not
+      // resolve a new installation here: doing so could make a replacement
+      // install look like the original desktop instance.
+      const installation = hostStore.getInstallation(`${CACHE_ID_PREFIX}${target}`);
+      if (
+        !isPlainObject(installation) ||
+        installation.target !== target ||
+        installation.installation_id !== instance.installation_id ||
+        typeof installation.canonical_path !== "string" ||
+        installation.canonical_path.length === 0
+      ) {
+        fail("managed_instance_identity_mismatch", "The original managed installation cannot be verified", {
+          category: "target",
+          retryable: true,
+          submission: "may_have_been_sent",
+          details: { cause_code: "installation_cache_missing" },
+        });
+      }
+      if (!(await verifyOwnership(instance, installation))) {
+        fail("managed_instance_identity_mismatch", "The original managed instance failed ownership verification", {
+          category: "target",
+          retryable: true,
+          submission: "may_have_been_sent",
+          details: { cause_code: "ownership_verification_failed" },
+        });
+      }
+
+      const launcherEntry = launcherTable[target];
+      let capabilityToken = null;
+      if (typeof launcherEntry?.readCapability === "function") {
+        try {
+          capabilityToken = await launcherEntry.readCapability({ env });
+        } catch {
+          capabilityToken = null;
+        }
+        if (typeof capabilityToken !== "string" || capabilityToken.length === 0) {
+          fail("gateway_identity_mismatch", "The original managed gateway capability is unavailable", {
+            category: "target",
+            retryable: true,
+            submission: "may_have_been_sent",
+            details: { cause_code: "capability_file_missing" },
+          });
+        }
+      }
+
+      // A launcher classifier may perform an inexpensive nonce/surface check
+      // (TRAE uses this to reject a foreign gateway). It is validation only:
+      // reconciliation never repairs or launches an instance.
+      let classification = null;
+      if (Number.isInteger(instance.port) && typeof launcherEntry?.classify === "function") {
+        try {
+          classification = await launcherEntry.classify({ port: instance.port, instance, env, runPowerShell: runner });
+        } catch {
+          classification = null;
+        }
+        if (classification?.state === "stale") {
+          fail("managed_instance_identity_mismatch", "The original managed desktop surface is no longer valid", {
+            category: "target",
+            retryable: true,
+            submission: "may_have_been_sent",
+            details: { cause_code: "surface_identity_mismatch" },
+          });
+        }
+      }
+
+      if (!Number.isInteger(instance.port) || instance.port < 1024 || instance.port > 65535) {
+        fail("managed_instance_identity_mismatch", "The original managed instance has no valid desktop port", {
+          category: "target",
+          retryable: true,
+          submission: "may_have_been_sent",
+          details: { cause_code: "managed_port_missing" },
+        });
+      }
+      if (target === "trae" && (
+        !Number.isInteger(instance.gateway_port) ||
+        instance.gateway_port < 1024 ||
+        instance.gateway_port > 65535 ||
+        instance.instance_nonce === null ||
+        instance.instance_nonce === undefined ||
+        String(instance.instance_nonce).length === 0
+      )) {
+        fail("managed_instance_identity_mismatch", "The original managed TRAE gateway identity is incomplete", {
+          category: "target",
+          retryable: true,
+          submission: "may_have_been_sent",
+          details: { cause_code: "gateway_identity_missing" },
+        });
+      }
+
+      return {
+        mode: "reconcile",
+        target,
+        installation,
+        instance,
+        managed: {
+          port: instance.port,
+          instance_id: instance.instance_id,
+          profile_generation: instance.generation,
+          gateway_port: instance.gateway_port ?? null,
+          instance_nonce: instance.instance_nonce ?? null,
+          capability_token: capabilityToken,
+        },
+        lease,
+        lifecycle: {
+          state: instance.state ?? "ready",
+          instance_id: instance.instance_id,
+          installation_id: instance.installation_id,
+          profile_generation: instance.generation,
+          started_by_uagents: true,
+          reused: true,
+          ...(classification?.phase ? { interaction_phase: classification.phase } : {}),
+        },
+      };
+    } catch (error) {
+      // A failed validation must not strand the host lease. No process is
+      // started or stopped on this path.
+      try { hostStore.releaseLease(lease); } catch {}
+      throw error;
+    }
+  }
+
   function killProcessTree(pid) {
     return new Promise((resolvePromise) => {
       let settled = false;
@@ -536,7 +715,7 @@ export function createTargetSupervisor({
     return hostStore.releaseLease(lease);
   }
 
-  return { inspect, ensure, stop, renewInstanceLease, releaseInstanceLease, hostStore };
+  return { inspect, ensure, reconcile, stop, renewInstanceLease, releaseInstanceLease, hostStore };
 }
 
 // Shared host control-plane factory for every entrypoint (CLI, unified MCP,
