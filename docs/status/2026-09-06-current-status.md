@@ -2,11 +2,15 @@
 
 ## Durable Native Execution 进展（2026-09-06 后续实现）
 
-OpenCode v1 的已安装发布级能力保持不变；其后的 durable-execution 可靠性工作正在源码分阶段实现，尚未重新安装或发布。Gate A 已以 `686b02d feat: add durable native process ledger` 提交：控制库升级为 schema v3，并持久化每个 Attempt 的 provisional/native process identity、transcript cursor 与 workspace guard 状态。Gate B 已在当前工作树实现并通过本地门禁：Windows `inspect-process` 能区分“确认不存在”和 CIM 检查失败，新增只读 `inspect-process-tree`；PID/start-time/executable identity 使用保守匹配，PID reuse 不会被 adopt；根进程退出本身不能释放 workspace guard，只有 descendant quiescence 得到确认后才能释放。
+OpenCode v1 的已安装发布级能力保持不变；其后的 durable-execution 可靠性工作正在源码分阶段实现，尚未重新安装或发布。Gate A 已以 `686b02d feat: add durable native process ledger` 提交，Gate B 已以 `6702f32 feat: guard durable workspace executions` 提交。Gate B 的 Windows `inspect-process` 能区分“确认不存在”和 CIM 检查失败，并通过只读 `inspect-process-tree`、PID/start-time/executable identity 与 descendant quiescence 保守维护 workspace guard。
 
-workspace admission 现在在最终 lease 事务中重新检查所有重叠、未释放的 durable guard。旧 Worker lease 即使过期，只要旧 native process 仍存活、descendant 仍存在或检查结果不确定，新的重叠 workspace 请求都不会进入执行。已有 native-process row 的同一 Attempt 也不能回到 fresh dispatch/recover/cancel-as-unsent 路径；后续 Gate C/D 会为它增加只观察/只 reconcile 的恢复通道，而不是重新发送 prompt。
+workspace admission 现在在最终 lease 事务中重新检查所有重叠、未释放的 durable guard。旧 Worker lease 即使过期，只要旧 native process 仍存活、descendant 仍存在或检查结果不确定，新的重叠 workspace 请求都不会进入执行。已有 native-process row 的同一 Attempt 也不能回到 fresh dispatch/recover/cancel-as-unsent 路径。
 
-当前 Gate B 只增加宿主进程证据与 workspace admission，没有改造 OpenCode/agy/WorkBuddy 的 native spawn/dispatch/observe 流程，也没有执行新的 provider 调用。下一阶段是 Gate C：file-backed stdout/stderr、exactly-once prompt boundary、early native-session acceptance，以及 Worker 重启后的 transcript replay。
+Gate C 已在当前源码工作树实现通用 durable CLI substrate，但尚未接入生产 OpenCode/agy/WorkBuddy。它使用 `native/<attempt-id>/stdout.log`、`stderr.log`、`exit.json` 的 file-backed 输出；先创建 transcript，再写 provisional process guard，再 spawn；在首个 prompt byte 之前验证 child PID/start/executable 并持久化 `possibly_sent`。native child 使用 detached + file-backed stdout/stderr，因此真实 provider-free fixture 已证明观察 Worker 被强制终止后，native process 仍可继续写 terminal transcript，且 prompt count 始终为 1。
+
+`accepted` checkpoint 现在可安全重放：完全相同的 target/session/task identity 是幂等 no-op，不重复写 `native_sessions` 或 `dispatch.accepted`；冲突 identity/target fail-closed；恢复中首次发现 identity 也不会把已 `indeterminate` 的 Task 强行改回 `running`。stdout 仍保持 1 MiB 解析安全上限，stderr durable limit 为 64 KiB；partial UTF-8、partial line、parser failure 后未提交行重试、PID mismatch、pre-bind child exit、checkpoint/spawn failure 和 observation timeout 不杀 durable process 等路径都有 provider-free 回归。最终完整门禁为 Core `235/235` + MCP `11/9/2`，共 `257/257` 通过；`agent-dispatch` skill validator、插件 validator 和 `git diff --check` 也全部通过。
+
+Gate C 没有修改 `CliAdapter`、`cli-process.mjs` 或 `opencode-driver.mjs` 的生产路径，也没有执行新的 provider 调用。下一阶段 Gate D 才会把 OpenCode 接到 durable controller，并增加 same-Attempt durable resume/reconcile 与公开 observation-timeout 语义；在 Gate D 完成前，当前已安装 OpenCode 仍使用既有 uninterrupted-run transport。
 
 日期：2026-09-06（Asia/Shanghai）。项目目录：`F:\documents\software\uAgents`。
 
