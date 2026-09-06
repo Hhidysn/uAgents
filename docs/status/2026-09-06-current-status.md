@@ -18,7 +18,7 @@ Verified execution-timeout 已完成本地 release-candidate 安装验收。源�
 
 Verified execution-timeout 门禁已通过：Core `254/254` + MCP `11/9/2`，共 `276/276`。其中包含真实 Windows harmless Node process-tree termination、guardian durable-ready fail-closed、live Worker timeout、Worker 先死亡后 guardian 独立执行 deadline、prompt count 始终为 1、guard quiescence 后第二 writer 才能进入，以及原 Attempt reconcile 零 spawn/零 resend。没有执行真实 OpenCode/provider timeout 请求。
 
-2026-09-07 的下一可靠性 follow-up 已在当前源码完成：单 timeout guardian 升级为 `primary + secondary` 双 guardian；fresh send 必须看到两个 slot 各自与实际 child PID 匹配的 durable ready；deadline 后使用 5 秒 TTL / 1 秒 heartbeat 的 Attempt-scoped fenced claim 串行化 termination；claimant 死亡后 survivor 可在 TTL 过期后接管，旧 claimant 的 timeout/process/guard 写入会被 fencing 拒绝。provider-free Windows destructive fixture 已证明“先杀一个 ready guardian，再杀 Worker”后，剩余 guardian 仍按原 deadline 终止 native tree，prompt 仍为 1，reconcile 仍零 spawn/零 resend。本轮源码门禁为 Core `257/257` + MCP `11/9/2`，共 `279/279`。**当前已安装 `0.2.0-alpha.1+codex.20260906234542` 仍是单 guardian release candidate；双 guardian 当前仅在源码中，尚待新的 build metadata 与安装验收。**
+2026-09-07 的下一可靠性 follow-up 已提交为 `c20172d feat: make timeout guardians redundant`：单 timeout guardian 升级为 `primary + secondary` 双 guardian；fresh send 必须看到两个 slot 各自与实际 child PID 匹配的 durable ready；deadline 后使用 5 秒 TTL / 1 秒 heartbeat 的 Attempt-scoped fenced claim 串行化 termination；claimant 死亡后 survivor 可在 TTL 过期后接管，旧 claimant 的 timeout/process/guard 写入会被 fencing 拒绝。provider-free Windows destructive fixture 已证明“先杀一个 ready guardian，再杀 Worker”后，剩余 guardian 仍按原 deadline 终止 native tree，prompt 仍为 1，reconcile 仍零 spawn/零 resend。本轮源码门禁为 Core `257/257` + MCP `11/9/2`，共 `279/279`。manifest 已提升为 `0.2.0-alpha.1+codex.20260907011733`；**当前实际安装 cache 仍是 `...20260906234542`，所以双 guardian 尚待本轮正常安装与 fresh-cache 验收。**
 
 新版本已通过正常 `codex plugin add uagents@personal --json` 安装。仓库 tracked plugin、个人 marketplace source 和新 cache 的发布集合均为 `120` 个文件、`4,134,966` 字节，逐文件 SHA-256 `120/120` 一致且 marketplace/cache 无额外文件。旧 marketplace source 保留为 `C:\Users\24590\plugins\uagents-backup-before-20260906234542`，旧 cache 未删除。独立 fresh `codex exec --ephemeral --sandbox read-only` 明确加载新 cache 的 `agent-dispatch` Skill，并从该 cache 只读查询得到 `opencode.execution_timeout=true`、`analysis + implementation`、files in/out true 和两条既有 Flash route。
 
@@ -40,9 +40,9 @@ OpenCode 在当前工作树和当前安装缓存中都支持 `analysis` 和 `imp
 
 | 层次 | 当前事实 | 结论 |
 | --- | --- | --- |
-| 插件 manifest | `0.2.0-alpha.1+codex.20260906234542` | 当前工作树、marketplace source 和新安装 cache 的版本字符串相同 |
+| 插件 manifest | `0.2.0-alpha.1+codex.20260907011733` | 当前工作树已生成双 guardian release-candidate identity；marketplace/cache 尚待同步 |
 | Durable 已提交基线 | `686b02d`（Gate A）、`6702f32`（Gate B）、`f71a891`（Gate C）、`fa01ca5`（Gate D）、`2fd090b`（RC metadata） | 当前源码、个人 marketplace 源和新缓存均包含 durable OpenCode production/recovery |
-| 当前源码 | Gate A–E durable baseline + `3fb582e` verified execution-timeout + `a231a5a` RC metadata | 已安装并完成 provider-free fresh-process 验收；仍不是公开发行版 |
+| 当前源码 | Durable baseline + `3fb582e` verified timeout + `c20172d` redundant guardian follow-up | 双 guardian 源码已提交并通过 `279/279`；当前待 RC metadata 提交、安装与 fresh-process 验收 |
 | marketplace 源 | `C:\Users\24590\plugins\uagents` | 从当前提交同步 120 个 tracked 插件文件；旧源完整备份 |
 | 实际安装缓存 | `C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260906234542` | `codex plugin add uagents@personal --json` 返回并启用的当前版本 |
 | 旧缓存 | `...0.2.0-alpha.1+codex.20260906212805`、`...0.2.0-alpha.1+codex.20260906063959`、`...0.2.0-alpha.1+codex.20260905113451` | 均保留用于回滚，不是当前 marketplace 安装版本 |

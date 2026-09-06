@@ -1,7 +1,7 @@
 # uAgents
 
 uAgents 是供 Codex 使用的本地统一 Agent 调度插件。当前发行标识为
-`0.2.0-alpha.1+codex.20260906234542`，把 agy/Gemini、WorkBuddy、OpenCode、豆包工作和
+`0.2.0-alpha.1+codex.20260907011733`，把 agy/Gemini、WorkBuddy、OpenCode、豆包工作和
 TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时明确保留各目标不同的
 模型、文件、权限、取消和桌面连接能力。
 

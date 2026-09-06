@@ -4,7 +4,7 @@ Date: 2026-09-07
 
 Baseline: `eb34812 docs: record verified timeout release acceptance`
 
-Status: Source implementation complete and provider-free verified. Core `257/257` plus MCP `11/9/2` (`279/279` total) pass. The currently installed `0.2.0-alpha.1+codex.20260906234542` cache remains the preceding single-guardian release candidate until this follow-up receives new build metadata and installation acceptance.
+Status: Source implementation is committed as `c20172d` and provider-free verified. Core `257/257` plus MCP `11/9/2` (`279/279` total) pass. Release-candidate metadata is `0.2.0-alpha.1+codex.20260907011733`; installation/fresh-cache acceptance is pending. The currently installed `...20260906234542` cache remains the preceding single-guardian build until that acceptance completes.
 
 ## 1. Problem
 
