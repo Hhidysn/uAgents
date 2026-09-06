@@ -6,7 +6,7 @@ Design: `docs/superpowers/specs/2026-09-06-verified-execution-timeout-design.md`
 
 Baseline: `841d87b docs: record durable execution release acceptance`
 
-Status: Source implementation is committed as `3fb582e`. Core `254/254` plus MCP `11/9/2` (`276/276` total) pass provider-free. Release candidate metadata is `0.2.0-alpha.1+codex.20260906234542`; installation and fresh-cache acceptance remain.
+Status: Complete for the local release candidate. Source implementation is `3fb582e`, release metadata is `a231a5a`, and version `0.2.0-alpha.1+codex.20260906234542` is installed and fresh-cache verified. Core `254/254` plus MCP `11/9/2` (`276/276` total) pass provider-free; repository/marketplace/cache tracked files match by SHA-256 (`120/120`). No real OpenCode/provider timeout smoke was run.
 
 ## 1. Commit boundary
 

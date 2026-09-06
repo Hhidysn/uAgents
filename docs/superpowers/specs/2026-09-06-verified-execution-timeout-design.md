@@ -2,7 +2,7 @@
 
 Date: 2026-09-06
 
-Status: Implemented and provider-free source verified. Core `254/254` plus MCP `11/9/2` (`276/276` total) pass. Release candidate metadata is `0.2.0-alpha.1+codex.20260906234542`; install/fresh-cache acceptance is still pending.
+Status: Implemented, installed, and fresh-cache verified as `0.2.0-alpha.1+codex.20260906234542`. Core `254/254` plus MCP `11/9/2` (`276/276` total) pass provider-free. Repository/marketplace/cache tracked files are SHA-256 identical (`120/120`), and a fresh read-only Codex process confirmed `execution_timeout=true` from the new installed cache. No real OpenCode/provider timeout smoke was run.
 
 Baseline: `841d87b docs: record durable execution release acceptance`
 

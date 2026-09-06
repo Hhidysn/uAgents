@@ -22,6 +22,7 @@
 
 ## 验证证据
 
+- [Verified Execution Timeout 安装验收（2026-09-06）](verification/2026-09-06-verified-execution-timeout-release.md)
 - [Durable Native Execution Gate E 安装验收（2026-09-06）](verification/2026-09-06-durable-native-execution-release.md)
 - [Runtime 可靠性修复验证（2026-09-06）](verification/2026-09-06-runtime-reliability-fixes.md)
 - [安装后受管生命周期 E2E](verification/2026-09-05-installed-lifecycle-e2e.md)
