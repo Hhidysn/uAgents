@@ -26,7 +26,11 @@ export const DURABLE_STDERR_PARSER_WINDOW_CHARS = 8192;
 export const DEFAULT_PROCESS_IDENTITY_BUDGET_MS = 2_000;
 export const DEFAULT_PROCESS_IDENTITY_RETRY_MS = 40;
 export const DEFAULT_ACCEPT_POLL_MS = 20;
-export const EXECUTION_TIMEOUT_SETTLE_MS = 12_000;
+// Covers one guardian-claim failover (5s TTL) plus a full owned-tree
+// termination budget (10s) with margin for Windows inspection latency. The
+// observer may report unconfirmed after this window, but it must not beat a
+// healthy redundant guardian that is still inside its documented failover.
+export const EXECUTION_TIMEOUT_SETTLE_MS = 20_000;
 
 export function prepareDurableExecution({
   driver,
@@ -198,7 +202,11 @@ export async function launchAndAccept({
 
   if (prepared.request.execution_timeout_ms !== null && prepared.request.execution_timeout_ms !== undefined) {
     try {
-      await timeoutGuardianLauncher({ control, attemptId: prepared.attemptId });
+      await timeoutGuardianLauncher({
+        control,
+        attemptId: prepared.attemptId,
+        executionTimeoutMs: prepared.request.execution_timeout_ms,
+      });
     } catch (error) {
       if (!closeTracker.closed) await terminatePreSendChild(child, closeTracker, { control, prepared, inspector, lease, now });
       throw error;

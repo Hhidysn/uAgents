@@ -140,6 +140,6 @@ Required tests include:
 
 Normal acceptance remains provider-free. A real OpenCode provider timeout smoke requires explicit authorization.
 
-## 12. Known limitation
+## 12. Follow-up reliability work
 
-The guardian is intentionally independent of the task Worker, but it is still a local process. External forced termination of the guardian itself after the ready handshake is outside the first implementation's guarantee. The design avoids claiming stronger fault tolerance than the local host can prove; future work could add a host-level guardian supervisor/heartbeat if this failure mode becomes operationally important.
+The first release used one guardian and therefore documented guardian-process death after ready as an explicit limitation. The follow-up design at `docs/superpowers/specs/2026-09-07-redundant-timeout-guardian-design.md` replaces that single point with two ready-before-send guardians plus a short-lived fenced timeout claim. It intentionally stops at single-guardian fault tolerance rather than introducing a global daemon or claiming survival after simultaneous loss of both guardians.

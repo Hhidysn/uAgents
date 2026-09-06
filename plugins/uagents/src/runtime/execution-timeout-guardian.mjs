@@ -1,9 +1,9 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ControlDatabase } from '../store/database.mjs';
-import { readTaskJson, taskDirectory } from '../store/task-files.mjs';
 import { createProcessInspector } from '../host/process-inspector.mjs';
 import { createProcessTerminator } from '../host/process-terminator.mjs';
 import { getNativeProcess } from './native-processes.mjs';
@@ -11,26 +11,73 @@ import { refreshWorkspaceExecutionGuard } from './workspace-execution-guard.mjs'
 import {
   enforceExecutionTimeout,
   executionDeadlineAt,
-  executionTimeoutGuardianReadyEvidence,
+  executionTimeoutGuardianReadySlots,
   executionTimeoutEvidence,
-  recordExecutionTimeoutCleared,
   recordExecutionTimeoutGuardianReady,
   recordExecutionTimeoutStarted,
+  releaseExecutionTimeoutClaim,
+  renewExecutionTimeoutClaim,
+  tryAcquireExecutionTimeoutClaim,
 } from './execution-timeout.mjs';
 
 const SOURCE_FILE = fileURLToPath(import.meta.url);
 export const DEFAULT_GUARDIAN_POLL_MS = 250;
 export const DEFAULT_GUARDIAN_SEND_GRACE_MS = 30_000;
 export const DEFAULT_GUARDIAN_READY_TIMEOUT_MS = 5_000;
+export const DEFAULT_GUARDIAN_CLAIM_TTL_MS = 5_000;
+export const DEFAULT_GUARDIAN_CLAIM_HEARTBEAT_MS = 1_000;
+export const EXECUTION_TIMEOUT_GUARDIAN_SLOTS = Object.freeze(['primary', 'secondary']);
 
-export function launchExecutionTimeoutGuardian({
+export async function launchExecutionTimeoutGuardian({
   control,
   attemptId,
+  executionTimeoutMs,
   spawnImpl = spawn,
   sourceFile = SOURCE_FILE,
   readyTimeoutMs = DEFAULT_GUARDIAN_READY_TIMEOUT_MS,
   readyPollMs = 20,
 } = {}) {
+  const timeoutMs = Number(executionTimeoutMs);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw guardianLaunchError(new Error('execution timeout is invalid'));
+  }
+  const launched = [];
+  try {
+    for (const slot of EXECUTION_TIMEOUT_GUARDIAN_SLOTS) {
+      launched.push(await launchExecutionTimeoutGuardianSlot({
+        control,
+        attemptId,
+        executionTimeoutMs: timeoutMs,
+        slot,
+        spawnImpl,
+        sourceFile,
+        readyTimeoutMs,
+        readyPollMs,
+      }));
+    }
+    return {
+      ready: true,
+      pids: launched.map(entry => entry.pid).filter(pid => Number.isSafeInteger(pid)),
+      slots: launched.map(entry => entry.slot),
+    };
+  } catch (error) {
+    for (const entry of launched) {
+      try { entry.child?.kill?.(); } catch {}
+    }
+    throw error;
+  }
+}
+
+function launchExecutionTimeoutGuardianSlot({
+  control,
+  attemptId,
+  executionTimeoutMs,
+  slot,
+  spawnImpl,
+  sourceFile,
+  readyTimeoutMs,
+  readyPollMs,
+}) {
   return new Promise((resolve, reject) => {
     let child;
     let settled = false;
@@ -50,13 +97,19 @@ export function launchExecutionTimeoutGuardian({
     const onExit = () => finish(reject, guardianLaunchError(new Error('guardian exited before ready')));
     const checkReady = () => {
       try {
-        if (!executionTimeoutGuardianReadyEvidence(control, attemptId)) return;
+        const ready = executionTimeoutGuardianReadySlots(control, attemptId).find(entry => entry.slot === slot);
+        if (!ready || Number(ready.pid) !== Number(child.pid)) return;
         child.unref?.();
-        finish(resolve, { pid: Number.isSafeInteger(child.pid) ? child.pid : null, ready: true });
+        finish(resolve, {
+          pid: Number.isSafeInteger(child.pid) ? child.pid : null,
+          ready: true,
+          slot,
+          child,
+        });
       } catch {}
     };
     try {
-      child = spawnImpl(process.execPath, [sourceFile, control.root, attemptId], {
+      child = spawnImpl(process.execPath, [sourceFile, control.root, attemptId, slot, String(executionTimeoutMs)], {
         detached: true,
         windowsHide: true,
         shell: false,
@@ -85,10 +138,14 @@ export function launchExecutionTimeoutGuardian({
 }
 
 export async function runExecutionTimeoutGuardian(root, attemptId, {
+  slot = 'primary',
+  executionTimeoutMs = null,
   inspector = null,
   terminator = null,
   pollMs = DEFAULT_GUARDIAN_POLL_MS,
   sendGraceMs = DEFAULT_GUARDIAN_SEND_GRACE_MS,
+  claimTtlMs = DEFAULT_GUARDIAN_CLAIM_TTL_MS,
+  claimHeartbeatMs = DEFAULT_GUARDIAN_CLAIM_HEARTBEAT_MS,
   now = Date.now,
   sleep = delay,
 } = {}) {
@@ -99,8 +156,7 @@ export async function runExecutionTimeoutGuardian(root, attemptId, {
   try {
     const attempt = control.raw.prepare('SELECT task_id, submission FROM attempts WHERE attempt_id = ?').get(attemptId);
     if (!attempt) return { mode: 'missing_attempt' };
-    const request = readTaskJson(taskDirectory(control.root, attempt.task_id), 'request.json');
-    const timeoutMs = request?.execution?.execution_timeout_ms;
+    const timeoutMs = Number(executionTimeoutMs);
     if (!Number.isSafeInteger(Number(timeoutMs)) || Number(timeoutMs) <= 0) return { mode: 'disabled' };
     const initialProcess = getNativeProcess(control, attemptId);
     if (!initialProcess || initialProcess.workspace_guard_state === 'released' ||
@@ -109,7 +165,11 @@ export async function runExecutionTimeoutGuardian(root, attemptId, {
         typeof initialProcess.executable_path !== 'string' || !initialProcess.executable_path) {
       return { mode: 'process_identity_unavailable' };
     }
-    recordExecutionTimeoutGuardianReady(control, attemptId, { now: Number(now()) });
+    recordExecutionTimeoutGuardianReady(control, attemptId, {
+      slot,
+      pid: process.pid,
+      now: Number(now()),
+    });
 
     for (;;) {
       if (executionTimeoutEvidence(control, attemptId)) return { mode: 'evidence_exists' };
@@ -144,21 +204,50 @@ export async function runExecutionTimeoutGuardian(root, attemptId, {
       }
 
       recordExecutionTimeoutStarted(control, attemptId, { now: Number(now()) });
-      const result = await enforceExecutionTimeout({
-        control,
-        attemptId,
-        inspector: resolvedInspector,
-        terminator: resolvedTerminator,
-        now,
+      const ownerNonce = `execution-timeout:${attemptId}:${slot}:${process.pid}:${randomUUID()}`;
+      let claim = tryAcquireExecutionTimeoutClaim(control, attemptId, {
+        ownerNonce,
+        ttlMs: claimTtlMs,
+        now: Number(now()),
       });
-      if (result.already_exited) {
-        recordExecutionTimeoutCleared(control, attemptId, { now: Number(now()) });
-        return { mode: 'process_complete' };
+      if (!claim) {
+        await sleep(Math.max(1, Number(pollMs) || DEFAULT_GUARDIAN_POLL_MS));
+        continue;
       }
-      return {
-        mode: result.termination_confirmed ? 'timeout_terminated' : 'timeout_unconfirmed',
-        termination_confirmed: result.termination_confirmed === true,
-      };
+
+      let claimLost = false;
+      const heartbeat = setInterval(() => {
+        if (claimLost) return;
+        try {
+          claim = renewExecutionTimeoutClaim(control, claim, {
+            ttlMs: claimTtlMs,
+            now: Number(now()),
+          });
+        } catch {
+          claimLost = true;
+        }
+      }, Math.max(1, Number(claimHeartbeatMs) || DEFAULT_GUARDIAN_CLAIM_HEARTBEAT_MS));
+      heartbeat.unref?.();
+
+      try {
+        if (executionTimeoutEvidence(control, attemptId)) return { mode: 'evidence_exists' };
+        const result = await enforceExecutionTimeout({
+          control,
+          attemptId,
+          inspector: resolvedInspector,
+          terminator: resolvedTerminator,
+          lease: claim,
+          now,
+        });
+        return {
+          mode: result.termination_confirmed ? 'timeout_terminated' : 'timeout_unconfirmed',
+          termination_confirmed: result.termination_confirmed === true,
+          claim_lost: claimLost,
+        };
+      } finally {
+        clearInterval(heartbeat);
+        try { releaseExecutionTimeoutClaim(control, claim); } catch {}
+      }
     }
   } finally {
     control.close();
@@ -182,7 +271,10 @@ function guardianLaunchError(cause) {
 }
 
 if (process.argv[1] && samePath(process.argv[1], SOURCE_FILE)) {
-  runExecutionTimeoutGuardian(process.argv[2], process.argv[3])
+  runExecutionTimeoutGuardian(process.argv[2], process.argv[3], {
+    slot: process.argv[4] ?? 'legacy',
+    executionTimeoutMs: Number(process.argv[5]),
+  })
     .then(() => process.exit(0))
     .catch(() => process.exit(1));
 }

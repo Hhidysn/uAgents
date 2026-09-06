@@ -16,6 +16,8 @@
 - [统一 Runtime 实施计划](superpowers/plans/2026-09-04-uagents-unified-agent-runtime-implementation.md)
 - [受管生命周期实施计划](superpowers/plans/2026-09-05-uagents-managed-agent-lifecycle-implementation.md)
 - [Runtime 可靠性修复计划](superpowers/plans/2026-09-05-runtime-reliability-fixes.md)
+- [冗余 execution-timeout guardian 设计](superpowers/specs/2026-09-07-redundant-timeout-guardian-design.md)
+- [冗余 execution-timeout guardian 实施计划](superpowers/plans/2026-09-07-redundant-timeout-guardian-plan.md)
 - [Verified Execution Timeout 实施计划](superpowers/plans/2026-09-06-verified-execution-timeout-plan.md)
 
 设计和计划描述“要做什么、如何验收”，不自动代表已安装或已通过真实 Agent 验证。

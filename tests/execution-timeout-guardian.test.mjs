@@ -20,6 +20,7 @@ import {
 import {
   executionTimeoutEvidence,
   recordExecutionTimeoutGuardianReady,
+  tryAcquireExecutionTimeoutClaim,
 } from '../plugins/uagents/src/runtime/execution-timeout.mjs';
 
 const root = path.resolve('.local', 'test-runs', randomUUID(), 'execution-timeout-guardian');
@@ -35,36 +36,53 @@ test('guardian launch waits for durable ready evidence, is detached, prompt-free
     execution: { observation_timeout_ms: 5_000, effort: 'medium', permission: 'native' },
     policy: { fallback: 'none', max_cost_usd: null },
   });
-  let invocation;
-  const child = new EventEmitter();
-  child.pid = 1234;
-  child.unref = () => { child.unrefCalled = true; };
+  const invocations = [];
+  const children = [];
   try {
     const launched = launchExecutionTimeoutGuardian({
       control,
       attemptId: registered.attempt.attempt_id,
+      executionTimeoutMs: 1_000,
       sourceFile: path.join(root, 'guardian.mjs'),
       readyTimeoutMs: 500,
       readyPollMs: 5,
       spawnImpl(command, args, options) {
-        invocation = { command, args, options };
+        const child = new EventEmitter();
+        child.pid = 1234 + children.length;
+        child.unref = () => { child.unrefCalled = true; };
+        child.kill = () => { child.killed = true; };
+        children.push(child);
+        invocations.push({ command, args, options, child });
+        const slot = args.at(-2);
         queueMicrotask(() => {
           child.emit('spawn');
-          setTimeout(() => recordExecutionTimeoutGuardianReady(control, registered.attempt.attempt_id), 10);
+          setTimeout(() => recordExecutionTimeoutGuardianReady(control, registered.attempt.attempt_id, {
+            slot,
+            pid: child.pid,
+          }), 10);
         });
         return child;
       },
     });
     const result = await launched;
-    assert.equal(result.pid, 1234);
     assert.equal(result.ready, true);
-    assert.equal(invocation.command, process.execPath);
-    assert.deepEqual(invocation.args.slice(-2), [control.root, registered.attempt.attempt_id]);
-    assert.equal(invocation.options.detached, true);
-    assert.equal(invocation.options.shell, false);
-    assert.equal(invocation.options.stdio, 'ignore');
-    assert.equal(Object.keys(invocation.options.env).some(key => /api|token|key/i.test(key)), false);
-    assert.equal(child.unrefCalled, true);
+    assert.deepEqual(result.slots, ['primary', 'secondary']);
+    assert.deepEqual(result.pids, [1234, 1235]);
+    assert.equal(invocations.length, 2);
+    for (const [index, invocation] of invocations.entries()) {
+      assert.equal(invocation.command, process.execPath);
+      assert.deepEqual(invocation.args.slice(-4), [
+        control.root,
+        registered.attempt.attempt_id,
+        index === 0 ? 'primary' : 'secondary',
+        '1000',
+      ]);
+      assert.equal(invocation.options.detached, true);
+      assert.equal(invocation.options.shell, false);
+      assert.equal(invocation.options.stdio, 'ignore');
+      assert.equal(Object.keys(invocation.options.env).some(key => /api|token|key/i.test(key)), false);
+      assert.equal(invocation.child.unrefCalled, true);
+    }
   } finally { control.close(); }
 });
 
@@ -85,6 +103,7 @@ test('guardian process exit before durable ready evidence fails closed', async (
     await assert.rejects(() => launchExecutionTimeoutGuardian({
       control,
       attemptId: registered.attempt.attempt_id,
+      executionTimeoutMs: 1_000,
       sourceFile: path.join(root, 'guardian.mjs'),
       readyTimeoutMs: 100,
       readyPollMs: 5,
@@ -93,6 +112,50 @@ test('guardian process exit before durable ready evidence fails closed', async (
         return child;
       },
     }), error => error.code === 'execution_timeout_guardian_unavailable');
+  } finally { control.close(); }
+});
+
+test('secondary guardian failure after primary ready kills the primary and fails closed before send', async () => {
+  const stateRoot = path.join(root, `secondary-not-ready-${randomUUID()}`);
+  const control = new ControlDatabase(stateRoot);
+  const service = new TaskService(control);
+  const registered = service.submit({
+    schema_version: '1.0', request_id: randomUUID(), target: 'opencode',
+    model: 'commandcode-goat/deepseek/deepseek-v4-flash', mode: 'analysis', prompt: 'fixture',
+    execution: { observation_timeout_ms: 5_000, effort: 'medium', permission: 'native' },
+    policy: { fallback: 'none', max_cost_usd: null },
+  });
+  const children = [];
+  try {
+    await assert.rejects(() => launchExecutionTimeoutGuardian({
+      control,
+      attemptId: registered.attempt.attempt_id,
+      executionTimeoutMs: 1_000,
+      sourceFile: path.join(root, 'guardian.mjs'),
+      readyTimeoutMs: 200,
+      readyPollMs: 5,
+      spawnImpl(_command, args) {
+        const child = new EventEmitter();
+        child.pid = 5100 + children.length;
+        child.exitCode = null;
+        child.unref = () => {};
+        child.kill = () => { child.killed = true; };
+        children.push(child);
+        const slot = args.at(-2);
+        queueMicrotask(() => {
+          child.emit('spawn');
+          if (slot === 'primary') {
+            recordExecutionTimeoutGuardianReady(control, registered.attempt.attempt_id, { slot, pid: child.pid });
+          } else {
+            child.exitCode = 1;
+            child.emit('exit', 1);
+          }
+        });
+        return child;
+      },
+    }), error => error.code === 'execution_timeout_guardian_unavailable' && error.submission === 'not_sent');
+    assert.equal(children.length, 2);
+    assert.equal(children[0].killed, true);
   } finally { control.close(); }
 });
 
@@ -107,6 +170,7 @@ test('guardian persists confirmed timeout evidence and releases the guard', asyn
       now: Date.now() - 5_000,
     });
     const result = await runExecutionTimeoutGuardian(fixture.control.root, fixture.attemptId, {
+      executionTimeoutMs: 1_000,
       inspector: liveFixtureInspector(),
       terminator: { terminateOwnedProcessTree: async () => ({ kind: 'terminated', reason: 'owned_process_tree_quiescent' }) },
       pollMs: 1,
@@ -130,6 +194,7 @@ test('guardian records unconfirmed timeout without releasing an uncertain writer
       now: Date.now() - 5_000,
     });
     const result = await runExecutionTimeoutGuardian(fixture.control.root, fixture.attemptId, {
+      executionTimeoutMs: 1_000,
       inspector: liveFixtureInspector(),
       terminator: { terminateOwnedProcessTree: async () => ({ kind: 'unconfirmed', reason: 'native_process_identity_mismatch' }) },
       pollMs: 1,
@@ -139,6 +204,47 @@ test('guardian records unconfirmed timeout without releasing an uncertain writer
     const processRecord = getNativeProcess(fixture.control, fixture.attemptId);
     assert.equal(processRecord.process_state, 'unknown');
     assert.equal(processRecord.workspace_guard_state, 'unknown');
+  } finally { fixture.control.close(); }
+});
+
+test('secondary guardian takes over an expired dead claimant and enforces the deadline once', async () => {
+  const fixture = createFixture('claim-failover');
+  let clock = 2_010;
+  let terminateCalls = 0;
+  try {
+    persistCheckpoint(fixture.control, {
+      taskId: fixture.taskId,
+      attemptId: fixture.attemptId,
+      kind: 'possibly_sent',
+      payload: { target: 'opencode' },
+      now: 0,
+    });
+    const deadClaim = tryAcquireExecutionTimeoutClaim(fixture.control, fixture.attemptId, {
+      ownerNonce: 'dead-primary',
+      ttlMs: 50,
+      now: 2_000,
+    });
+    assert.ok(deadClaim);
+
+    const result = await runExecutionTimeoutGuardian(fixture.control.root, fixture.attemptId, {
+      slot: 'secondary',
+      executionTimeoutMs: 1_000,
+      inspector: liveFixtureInspector(),
+      terminator: {
+        terminateOwnedProcessTree: async () => {
+          terminateCalls += 1;
+          return { kind: 'terminated', reason: 'owned_process_tree_quiescent' };
+        },
+      },
+      claimTtlMs: 100,
+      claimHeartbeatMs: 20,
+      pollMs: 10,
+      now: () => clock,
+      sleep: async ms => { clock += ms; },
+    });
+    assert.equal(result.mode, 'timeout_terminated');
+    assert.equal(terminateCalls, 1);
+    assert.equal(executionTimeoutEvidence(fixture.control, fixture.attemptId).termination_confirmed, true);
   } finally { fixture.control.close(); }
 });
 
@@ -155,10 +261,9 @@ function createFixture(label) {
     execution: { observation_timeout_ms: 5_000, execution_timeout_ms: null, effort: 'medium', permission: 'native' },
     policy: { fallback: 'none', max_cost_usd: null },
   });
-  // The source request is still rejected for a non-null execution timeout at
-  // this implementation slice. Patch only the prompt-free persisted request
-  // fixture so the guardian can exercise its deadline behavior before the
-  // capability gate is opened.
+  // Keep this helper platform-independent: the request fixture is registered
+  // without a timeout, then the persisted request is patched so direct
+  // guardian tests do not depend on the Windows-only policy capability gate.
   const requestFile = path.join(control.root, 'tasks', task.task_id, 'request.json');
   const request = JSON.parse(fs.readFileSync(requestFile, 'utf8'));
   request.execution.execution_timeout_ms = 1_000;

@@ -1,5 +1,6 @@
 import { createProcessTerminator } from '../host/process-terminator.mjs';
 import { appendEvent } from '../store/database.mjs';
+import { acquireLeaseRow, assertFencing, releaseLeases, renewLeases } from './leases.mjs';
 import {
   getNativeProcess,
   markProcessExited,
@@ -40,6 +41,22 @@ export function executionTimeoutGuardianReadyEvidence(control, attemptId) {
   return eventEvidence(control, attemptId, 'execution.timeout_guardian_ready');
 }
 
+export function executionTimeoutGuardianReadySlots(control, attemptId) {
+  const rows = control?.raw?.prepare?.(`SELECT payload_json, created_at_ms FROM events
+    WHERE attempt_id = ? AND type = 'execution.timeout_guardian_ready'
+    ORDER BY sequence ASC`).all(attemptId) ?? [];
+  const slots = new Map();
+  for (const row of rows) {
+    try {
+      const payload = JSON.parse(row.payload_json);
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) continue;
+      const slot = typeof payload.slot === 'string' && payload.slot ? payload.slot : 'legacy';
+      if (!slots.has(slot)) slots.set(slot, { ...payload, created_at_ms: Number(row.created_at_ms) });
+    } catch {}
+  }
+  return [...slots.values()];
+}
+
 export function executionTimeoutClearedEvidence(control, attemptId) {
   return eventEvidence(control, attemptId, 'execution.timeout_cleared');
 }
@@ -55,8 +72,30 @@ export function recordExecutionTimeoutStarted(control, attemptId, { now = Date.n
   return recordControlEvidence(control, attemptId, 'execution.timeout_started', { phase: 'termination_started' }, Number(now));
 }
 
-export function recordExecutionTimeoutGuardianReady(control, attemptId, { now = Date.now() } = {}) {
-  return recordControlEvidence(control, attemptId, 'execution.timeout_guardian_ready', { phase: 'ready' }, Number(now));
+export function recordExecutionTimeoutGuardianReady(control, attemptId, {
+  slot = 'legacy',
+  pid = null,
+  now = Date.now(),
+} = {}) {
+  const timestamp = Number(now);
+  return control.transaction(database => {
+    const attempt = database.prepare('SELECT task_id FROM attempts WHERE attempt_id = ?').get(attemptId);
+    if (!attempt) return null;
+    const existing = database.prepare(`SELECT payload_json, created_at_ms FROM events
+      WHERE attempt_id = ? AND type = 'execution.timeout_guardian_ready'
+      AND json_extract(payload_json, '$.slot') = ? ORDER BY sequence ASC LIMIT 1`).get(attemptId, slot);
+    if (existing) {
+      try { return { ...JSON.parse(existing.payload_json), created_at_ms: Number(existing.created_at_ms), replayed: true }; }
+      catch { return null; }
+    }
+    const payload = {
+      phase: 'ready',
+      slot,
+      pid: Number.isSafeInteger(Number(pid)) && Number(pid) > 0 ? Number(pid) : null,
+    };
+    appendEvent(database, { taskId: attempt.task_id, attemptId, type: 'execution.timeout_guardian_ready', payload, now: timestamp });
+    return { ...payload, created_at_ms: timestamp, replayed: false };
+  });
 }
 
 export function recordExecutionTimeoutCleared(control, attemptId, { reason = 'process_already_exited', now = Date.now() } = {}) {
@@ -66,10 +105,12 @@ export function recordExecutionTimeoutCleared(control, attemptId, { reason = 'pr
 export function recordExecutionTimeoutEvidence(control, attemptId, {
   terminationConfirmed,
   reason = null,
+  lease = null,
   now = Date.now(),
 } = {}) {
   const timestamp = Number(now);
   return control.transaction(database => {
+    if (lease) assertFencing(database, lease, timestamp);
     const attempt = database.prepare('SELECT task_id FROM attempts WHERE attempt_id = ?').get(attemptId);
     if (!attempt) return null;
     const existing = database.prepare(`SELECT payload_json, created_at_ms FROM events
@@ -92,6 +133,31 @@ export function recordExecutionTimeoutEvidence(control, attemptId, {
     });
     return { ...payload, created_at_ms: timestamp, replayed: false };
   });
+}
+
+export function tryAcquireExecutionTimeoutClaim(control, attemptId, {
+  ownerNonce,
+  ttlMs = 5_000,
+  now = Date.now(),
+} = {}) {
+  if (typeof ownerNonce !== 'string' || !ownerNonce) return null;
+  const resourceKey = `execution-timeout:${attemptId}`;
+  return control.transaction(database => {
+    const attempt = database.prepare('SELECT 1 FROM attempts WHERE attempt_id = ?').get(attemptId);
+    if (!attempt) return null;
+    const current = database.prepare('SELECT owner_nonce, expires_at_ms FROM leases WHERE resource_key = ?').get(resourceKey);
+    if (current && current.owner_nonce !== ownerNonce && Number(current.expires_at_ms) > Number(now)) return null;
+    return acquireLeaseRow(database, resourceKey, 'execution_timeout', ownerNonce, ttlMs, Number(now), { attempt_id: attemptId });
+  });
+}
+
+export function renewExecutionTimeoutClaim(control, claim, { ttlMs = 5_000, now = Date.now() } = {}) {
+  return renewLeases(control, [claim], { ttlMs, now: Number(now) })[0];
+}
+
+export function releaseExecutionTimeoutClaim(control, claim) {
+  if (!claim) return;
+  releaseLeases(control, [claim]);
 }
 
 function eventEvidence(control, attemptId, type) {
@@ -134,12 +200,24 @@ export async function enforceExecutionTimeout({
   const timestamp = Number(now());
 
   if (result?.kind === 'already_exited') {
+    // Once the durable execution deadline has been reached, an owned tree
+    // that is already quiescent cannot be proven to have completed before the
+    // deadline. Treat this conservatively as a confirmed execution timeout
+    // rather than clearing the timeout merely because another guardian (or a
+    // natural exit racing the deadline) made the root disappear first.
+    recordExecutionTimeoutEvidence(control, attemptId, {
+      terminationConfirmed: true,
+      reason: result.reason ?? 'owned_process_tree_quiescent_at_deadline',
+      lease,
+      now: timestamp,
+    });
     markProcessExited(control, attemptId, { exitCode: record.exit_code, exitedAtMs: timestamp }, { lease, now: timestamp });
     releaseWorkspaceGuard(control, attemptId, { lease, quiescenceProven: true, now: timestamp + 1 });
     return {
-      timed_out: false,
+      timed_out: true,
       already_exited: true,
       termination_confirmed: true,
+      error: 'execution_timeout',
       reason: result.reason,
       process: getNativeProcess(control, attemptId),
     };
@@ -149,6 +227,7 @@ export async function enforceExecutionTimeout({
     recordExecutionTimeoutEvidence(control, attemptId, {
       terminationConfirmed: true,
       reason: result.reason ?? 'owned_process_tree_quiescent',
+      lease,
       now: timestamp,
     });
     markProcessExited(control, attemptId, { exitCode: null, exitedAtMs: timestamp }, { lease, now: timestamp });
@@ -165,6 +244,7 @@ export async function enforceExecutionTimeout({
   recordExecutionTimeoutEvidence(control, attemptId, {
     terminationConfirmed: false,
     reason: result?.reason ?? 'termination_not_confirmed',
+    lease,
     now: timestamp,
   });
   try {

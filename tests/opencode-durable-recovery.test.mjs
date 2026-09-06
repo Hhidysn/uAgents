@@ -10,7 +10,10 @@ import { TaskService } from '../plugins/uagents/src/runtime/task-service.mjs';
 import { runTask } from '../plugins/uagents/src/runtime/worker.mjs';
 import { reconcileTask } from '../plugins/uagents/src/runtime/reconcile.mjs';
 import { getNativeProcess } from '../plugins/uagents/src/runtime/native-processes.mjs';
-import { executionTimeoutEvidence } from '../plugins/uagents/src/runtime/execution-timeout.mjs';
+import {
+  executionTimeoutEvidence,
+  executionTimeoutGuardianReadySlots,
+} from '../plugins/uagents/src/runtime/execution-timeout.mjs';
 import { createProcessInspector } from '../plugins/uagents/src/host/process-inspector.mjs';
 import { OpenCodeAdapter } from '../plugins/uagents/src/adapters/opencode/adapter.mjs';
 
@@ -190,13 +193,15 @@ test('OpenCode execution timeout terminates the verified native tree and reports
   }
 });
 
-test('execution-timeout guardian survives Worker death, kills once, and frees the workspace without prompt replay', { skip: process.platform !== 'win32' }, async () => {
+test('redundant timeout guardian survives one guardian death plus Worker death without prompt replay', { skip: process.platform !== 'win32' }, async () => {
   const root = path.join(base, `guardian-worker-death-${randomUUID()}`);
   const workspace = path.join(root, 'workspace');
   fs.mkdirSync(workspace, { recursive: true });
   const control = new ControlDatabase(root);
   let runner = null;
   let nativePid = null;
+  let killedGuardianPid = null;
+  let survivorGuardianPid = null;
   try {
     const service = new TaskService(control);
     const first = request({
@@ -211,9 +216,21 @@ test('execution-timeout guardian survives Worker death, kills once, and frees th
       const status = service.status(registered.task_id);
       const processRecord = getNativeProcess(control, status.attempt.attempt_id);
       if (processRecord?.pid) nativePid = processRecord.pid;
-      return status.status === 'running' && status.attempt.submission === 'sent' && status.native?.session_id === 'ses_fixture';
+      const guardians = executionTimeoutGuardianReadySlots(control, registered.attempt.attempt_id);
+      if (guardians.length >= 2) {
+        killedGuardianPid = guardians[0].pid;
+        survivorGuardianPid = guardians[1].pid;
+      }
+      return status.status === 'running' && status.attempt.submission === 'sent' && status.native?.session_id === 'ses_fixture' && guardians.length >= 2;
     });
     assert.equal(lines(path.join(workspace, 'received.txt')), 1);
+
+    assert.ok(Number.isSafeInteger(killedGuardianPid) && killedGuardianPid > 0);
+    assert.ok(Number.isSafeInteger(survivorGuardianPid) && survivorGuardianPid > 0);
+    assert.notEqual(killedGuardianPid, survivorGuardianPid);
+    process.kill(killedGuardianPid);
+    await waitFor(async () => (await createProcessInspector().inspectProcess({ pid: killedGuardianPid })).kind === 'absent');
+
     runner.kill();
     await waitForExit(runner);
 
@@ -258,6 +275,8 @@ test('execution-timeout guardian survives Worker death, kills once, and frees th
   } finally {
     if (runner && runner.exitCode === null) try { runner.kill(); } catch {}
     if (nativePid) try { process.kill(nativePid); } catch {}
+    if (killedGuardianPid) try { process.kill(killedGuardianPid); } catch {}
+    if (survivorGuardianPid) try { process.kill(survivorGuardianPid); } catch {}
     control.close();
   }
 });

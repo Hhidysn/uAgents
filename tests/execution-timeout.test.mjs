@@ -12,7 +12,13 @@ import {
   getNativeProcess,
   nativeLaunchFingerprint,
 } from '../plugins/uagents/src/runtime/native-processes.mjs';
-import { enforceExecutionTimeout, executionDeadlineAt } from '../plugins/uagents/src/runtime/execution-timeout.mjs';
+import {
+  enforceExecutionTimeout,
+  executionDeadlineAt,
+  releaseExecutionTimeoutClaim,
+  renewExecutionTimeoutClaim,
+  tryAcquireExecutionTimeoutClaim,
+} from '../plugins/uagents/src/runtime/execution-timeout.mjs';
 
 const root = path.resolve('.local', 'test-runs', randomUUID(), 'execution-timeout');
 fs.mkdirSync(root, { recursive: true });
@@ -80,7 +86,7 @@ test('unconfirmed timeout never releases the durable workspace guard', async () 
   } finally { control.close(); }
 });
 
-test('already-exited owned tree releases the guard without claiming a timeout kill', async () => {
+test('tree first observed quiescent after the deadline is conservatively a confirmed timeout', async () => {
   const control = new ControlDatabase(path.join(root, `already-exited-${randomUUID()}`));
   try {
     const fixture = createFixture(control, 10_000);
@@ -93,11 +99,44 @@ test('already-exited owned tree releases the guard without claiming a timeout ki
       },
       now: () => 70_000,
     });
-    assert.equal(result.timed_out, false);
+    assert.equal(result.timed_out, true);
     assert.equal(result.already_exited, true);
+    assert.equal(result.error, 'execution_timeout');
     const processRecord = getNativeProcess(control, fixture.attemptId);
     assert.equal(processRecord.process_state, 'exited');
     assert.equal(processRecord.workspace_guard_state, 'released');
+  } finally { control.close(); }
+});
+
+test('timeout termination claim is exclusive, renewable, and takeover-safe after expiry', () => {
+  const control = new ControlDatabase(path.join(root, `claim-${randomUUID()}`));
+  try {
+    const fixture = createFixture(control, 10_000);
+    const first = tryAcquireExecutionTimeoutClaim(control, fixture.attemptId, {
+      ownerNonce: 'guardian-primary', ttlMs: 100, now: 1_000,
+    });
+    assert.ok(first);
+    assert.equal(tryAcquireExecutionTimeoutClaim(control, fixture.attemptId, {
+      ownerNonce: 'guardian-secondary', ttlMs: 100, now: 1_050,
+    }), null);
+
+    const renewed = renewExecutionTimeoutClaim(control, first, { ttlMs: 100, now: 1_080 });
+    assert.equal(renewed.expires_at_ms, 1_180);
+    assert.equal(tryAcquireExecutionTimeoutClaim(control, fixture.attemptId, {
+      ownerNonce: 'guardian-secondary', ttlMs: 100, now: 1_179,
+    }), null);
+
+    const takeover = tryAcquireExecutionTimeoutClaim(control, fixture.attemptId, {
+      ownerNonce: 'guardian-secondary', ttlMs: 100, now: 1_181,
+    });
+    assert.ok(takeover);
+    assert.equal(takeover.epoch, renewed.epoch + 1);
+
+    releaseExecutionTimeoutClaim(control, renewed);
+    const persisted = control.raw.prepare('SELECT owner_nonce FROM leases WHERE resource_key = ?')
+      .get(`execution-timeout:${fixture.attemptId}`);
+    assert.equal(persisted.owner_nonce, 'guardian-secondary');
+    releaseExecutionTimeoutClaim(control, takeover);
   } finally { control.close(); }
 });
 
