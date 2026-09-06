@@ -48,7 +48,12 @@ export async function reconcileTask({ service, taskId, adapter, leaseOptions = {
   if (!current.native) fail('reconcile_unsupported', 'Task has no persisted native identity.', { submission: current.attempt.submission });
   if (typeof adapter.reconcile !== 'function') fail('reconcile_unsupported', 'Adapter does not support native reconciliation.', { submission: current.attempt.submission });
   const stored = service.payload(taskId);
-  const leases = acquireExecutionLeases(service.control, { target: current.target, workspace: stored.request.workspace, ...leaseOptions });
+  const leases = acquireExecutionLeases(service.control, {
+    target: current.target,
+    workspace: stored.request.workspace,
+    ...leaseOptions,
+    attemptId: current.attempt.attempt_id,
+  });
   let hostLease = null;
   let managed = null;
   let renewTimer = null;

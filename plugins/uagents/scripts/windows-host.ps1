@@ -3,7 +3,7 @@
 # Fixed, read-only Windows host actions for the uAgents agent locator (Gate 2.2).
 # Contract:
 #   - The action is selected with -Action (one of: discover-installations,
-#     verify-installation, inspect-process, inspect-listener).
+#     verify-installation, inspect-process, inspect-process-tree, inspect-listener).
 #   - All other input arrives as a single JSON document on stdin.
 #   - stdout carries exactly one JSON object (ConvertTo-Json -Compress -Depth 6).
 #   - Any internal failure is reported as {ok:false,error:{code,message}} on stdout.
@@ -413,8 +413,13 @@ function Invoke-ProcessInspection {
 
     $process = $null
     try {
-        $process = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
-    } catch { $process = $null }
+        # A query failure is not evidence that the process is absent. Use a
+        # terminating CIM error so callers can keep durable workspace guards
+        # conservative instead of collapsing infrastructure failure to false.
+        $process = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $processId" -ErrorAction Stop
+    } catch {
+        return @{ ok = $false; error = @{ code = 'process_inspection_failed'; message = 'process inspection failed' } }
+    }
     if ($null -eq $process) {
         return @{ ok = $true; exists = $false; pid = $processId; started_at_ms = $null; executable_path = $null; command_line = $null }
     }
@@ -446,6 +451,65 @@ function Invoke-ProcessInspection {
         executable_path = $executablePath
         command_line    = $commandLine
     }
+}
+
+function Invoke-ProcessTreeInspection {
+    param($Payload)
+    $rootPidValue = Get-Field -Payload $Payload -Name 'root_pid' -Default $null
+    $rootPid = 0
+    try { $rootPid = [int]$rootPidValue } catch { $rootPid = 0 }
+    if ($rootPid -le 0) {
+        return @{ ok = $false; error = @{ code = 'invalid_input'; message = 'root_pid must be a positive integer' } }
+    }
+
+    # root_started_at_ms is accepted as ownership context for the caller. The
+    # v1 tree walk deliberately does not use command lines or executable text.
+    # Parent PID reuse is therefore handled conservatively by attributing any
+    # current descendant chain rooted at root_pid to the old execution.
+    $all = $null
+    try {
+        $all = @(Get-CimInstance -ClassName Win32_Process -Property ProcessId,ParentProcessId,CreationDate -ErrorAction Stop)
+    } catch {
+        return @{ ok = $false; error = @{ code = 'process_tree_inspection_failed'; message = 'process tree inspection failed' } }
+    }
+
+    # Keep this deliberately simple for Windows PowerShell 5.1. With the
+    # process list normally in the low hundreds, repeated array scans are
+    # cheap and avoid relying on generic collection adapter behavior.
+    $descendants = @()
+    $seen = @{ ([string]$rootPid) = $true }
+    $frontier = @($rootPid)
+    while ($frontier.Count -gt 0) {
+        $next = @()
+        foreach ($entry in $all) {
+            $entryPid = 0
+            $parentPid = 0
+            try { $entryPid = [int](Get-Field -Payload $entry -Name 'ProcessId' -Default 0) } catch { $entryPid = 0 }
+            try { $parentPid = [int](Get-Field -Payload $entry -Name 'ParentProcessId' -Default 0) } catch { $parentPid = 0 }
+            if ($entryPid -le 0 -or $parentPid -lt 0) { continue }
+            if (-not ($frontier -contains $parentPid)) { continue }
+            $entryKey = [string]$entryPid
+            if ($seen.ContainsKey($entryKey)) { continue }
+            $seen[$entryKey] = $true
+            $next += $entryPid
+            $creation = Get-Field -Payload $entry -Name 'CreationDate' -Default $null
+            $startedAtMs = $null
+            try {
+                if ($null -ne $creation) {
+                    if ($creation -is [System.DateTime]) { $startedAtMs = ConvertTo-EpochMs $creation }
+                    else { $startedAtMs = ConvertTo-EpochMs ([System.Management.ManagementDateTimeConverter]::ToDateTime([string]$creation)) }
+                }
+            } catch { $startedAtMs = $null }
+            $descendants += @{
+                pid = $entryPid
+                parent_pid = $parentPid
+                started_at_ms = $startedAtMs
+            }
+        }
+        $frontier = $next
+    }
+
+    return @{ ok = $true; root_pid = $rootPid; descendants = $descendants }
 }
 
 function Invoke-ListenerInspection {
@@ -504,6 +568,7 @@ function Invoke-HostAction {
         'discover-installations' { return Invoke-Discovery -Payload $Payload }
         'verify-installation'    { return Invoke-Verification -Payload $Payload }
         'inspect-process'        { return Invoke-ProcessInspection -Payload $Payload }
+        'inspect-process-tree'   { return Invoke-ProcessTreeInspection -Payload $Payload }
         'inspect-listener'       { return Invoke-ListenerInspection -Payload $Payload }
         default {
             return @{ ok = $false; error = @{ code = 'invalid_input'; message = 'unsupported action' } }

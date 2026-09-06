@@ -1,16 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { fail } from '../protocol/errors.mjs';
 import { canonicalWorkspace, canonicalWorkspacesOverlap } from './workspace-key.mjs';
+import { assertWorkspaceExecutionAdmission } from './workspace-admission.mjs';
 
 const DEFAULT_TARGET_LIMITS = Object.freeze({ agy: 2, opencode: 2, workbuddy: 1, doubao: 1, trae: 1 });
 
-export function acquireExecutionLeases(control, { target, workspace, ownerNonce = randomUUID(), ttlMs = 30_000, now = Date.now(), globalLimit = 4, targetLimits = DEFAULT_TARGET_LIMITS }) {
+export function acquireExecutionLeases(control, { target, workspace, attemptId = null, ownerNonce = randomUUID(), ttlMs = 30_000, now = Date.now(), globalLimit = 4, targetLimits = DEFAULT_TARGET_LIMITS }) {
   return control.transaction(database => {
     const leases = [];
     leases.push(acquireSlot(database, 'global', 'global', globalLimit, ownerNonce, ttlMs, now));
     leases.push(acquireSlot(database, `target:${target}`, 'target', targetLimits[target] ?? 1, ownerNonce, ttlMs, now));
     if (workspace) {
       const canonical = canonicalWorkspace(workspace);
+      assertWorkspaceExecutionAdmission(database, { workspaceCanonical: canonical, attemptId });
       const rows = database.prepare('SELECT * FROM leases WHERE resource_type = ? AND expires_at_ms > ?').all('workspace', now);
       const conflict = rows.find(row => canonicalWorkspacesOverlap(JSON.parse(row.metadata_json).workspace, canonical) && row.owner_nonce !== ownerNonce);
       if (conflict) fail('lease_conflict', 'An overlapping workspace is already leased.', { category: 'conflict', submission: 'not_sent', details: { resource_key: conflict.resource_key } });

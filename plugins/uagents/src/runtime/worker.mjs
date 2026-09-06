@@ -6,6 +6,8 @@ import { taskDirectory } from '../store/task-files.mjs';
 import { persistCheckpoint } from './checkpoints.mjs';
 import { verifyInputSnapshots } from './effective-request.mjs';
 import { acquireExecutionLeases, acquireTaskLease, releaseLeases, renewLeases } from './leases.mjs';
+import { refreshOverlappingWorkspaceGuards } from './workspace-execution-guard.mjs';
+import { getNativeProcess } from './native-processes.mjs';
 import { statusFromNativeEvent, TERMINAL_STATES } from './state-machine.mjs';
 
 export async function runTask({ service, taskId, adapter, leaseOptions = {}, supervisor = null }) {
@@ -19,6 +21,11 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
     fail('invalid_state_transition', `Task cannot be dispatched from ${status.status}.`);
   }
   const attemptId = status.attempt.attempt_id;
+  if (getNativeProcess(service.control, attemptId)) {
+    fail('invalid_state_transition', 'This Attempt already has a durable native process record and cannot enter fresh dispatch.', {
+      category: 'conflict', submission: status.attempt.submission ?? 'not_sent',
+    });
+  }
   if (status.status === 'registered') status = service.transition(taskId, 'queued', { attemptId });
   const stored = service.payload(taskId);
   const originalRequest = { ...stored.request, prompt: stored.payload.prompt };
@@ -77,20 +84,34 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
         target: request.target,
         workspace: request.workspace,
         ...leaseOptions,
+        attemptId,
         ownerNonce,
         now: service.clock(),
       });
       leases.push(...acquired);
       break;
     } catch (error) {
-      if (!isUnsentLeaseConflict(error)) {
+      if (!isUnsentResourceConflict(error)) {
         releaseAcquiredLeases();
         throw error;
       }
       lastLeaseConflict = error;
+      if (isWorkspaceExecutionConflict(error) && request.workspace) {
+        await refreshOverlappingWorkspaceGuards(service.control, {
+          workspace: request.workspace,
+          attemptId,
+          inspector: leaseOptions.processInspector ?? null,
+          now: service.clock(),
+        });
+      }
       const elapsed = Date.now() - waitStartedAt;
       if (elapsed >= maxLeaseWaitMs) {
-        const queued = service.recordLeaseWait(taskId, attemptId, { waitMs: elapsed, error, now: service.clock() });
+        const queued = service.recordLeaseWait(taskId, attemptId, {
+          waitMs: elapsed,
+          error,
+          reason: error?.code ?? 'lease_conflict',
+          now: service.clock(),
+        });
         releaseAcquiredLeases();
         return queued;
       }
@@ -100,7 +121,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
         try {
           taskLease = renewLeases(service.control, [taskLease], { ttlMs: taskLeaseTtlMs, now: service.clock() })[0];
         } catch (renewError) {
-          if (!isUnsentLeaseConflict(renewError)) {
+          if (!isUnsentResourceConflict(renewError)) {
             releaseAcquiredLeases();
             throw renewError;
           }
@@ -113,7 +134,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
         const queued = service.recordLeaseWait(taskId, attemptId, {
           waitMs: Date.now() - waitStartedAt,
           error: lastLeaseConflict,
-          reason: leaseOptions.signal?.aborted ? 'lease_wait_aborted' : 'lease_conflict',
+          reason: leaseOptions.signal?.aborted ? 'lease_wait_aborted' : (lastLeaseConflict?.code ?? 'lease_conflict'),
           now: service.clock(),
         });
         releaseAcquiredLeases();
@@ -277,8 +298,13 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
   }
 }
 
-function isUnsentLeaseConflict(error) {
-  return error?.code === 'lease_conflict' && (error?.submission ?? 'not_sent') === 'not_sent';
+function isUnsentResourceConflict(error) {
+  return ['lease_conflict', 'workspace_execution_active', 'workspace_execution_unknown'].includes(error?.code) &&
+    (error?.submission ?? 'not_sent') === 'not_sent';
+}
+
+function isWorkspaceExecutionConflict(error) {
+  return error?.code === 'workspace_execution_active' || error?.code === 'workspace_execution_unknown';
 }
 
 function boundedNumber(value, fallback) {

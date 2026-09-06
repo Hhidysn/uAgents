@@ -2,7 +2,7 @@
 
 Date: 2026-09-06
 
-Status: Approved for implementation planning on 2026-09-06. This document defines the accepted architecture; implementation follows a separate execution plan.
+Status: Approved architecture. Gate A (Store v3 + native-process ledger) is committed as `686b02d`; Gate B (Windows process inspection + durable workspace admission) is implemented and verified in the source working tree. Gate C durable CLI transport has not started. This reliability milestone is not installed or released yet.
 
 Baseline: `a6fac4e fix: harden Windows OpenCode discovery and verification`
 

@@ -14,11 +14,15 @@ const CATEGORY_BY_CODE = new Map([
   ['request_conflict', 'conflict'],
   ['input_changed', 'conflict'],
   ['lease_conflict', 'conflict'],
+  ['workspace_execution_active', 'conflict'],
+  ['workspace_execution_unknown', 'conflict'],
   ['target_not_ready', 'target'],
   ['authentication_required', 'target'],
   ['quota_exhausted', 'target'],
   ['submission_unknown', 'transport'],
   ['native_session_mismatch', 'transport'],
+  ['native_process_identity_mismatch', 'transport'],
+  ['native_process_inspection_failed', 'runtime'],
   ['output_verification_failed', 'runtime'],
   ['incompatible_store_version', 'runtime'],
   ['store_migration_blocked', 'runtime'],
@@ -54,6 +58,10 @@ const RETRYABLE_BY_CODE = new Map([
   ['resume_not_allowed', false],
   ['stop_not_owned', false],
   ['store_migration_blocked', true],
+  ['workspace_execution_active', true],
+  ['workspace_execution_unknown', true],
+  ['native_process_identity_mismatch', false],
+  ['native_process_inspection_failed', true],
 ]);
 
 const TRANSPORT_CODE_MAP = new Map([

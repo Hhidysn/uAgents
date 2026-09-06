@@ -130,8 +130,11 @@ export function markProcessUnknown(control, attemptId, { lease = null, now = Dat
 
 // Guard release is deliberately separate from process exit. Gate B will call
 // this only after root-process identity and descendant quiescence are proven.
-export function releaseWorkspaceGuard(control, attemptId, { lease = null, now = Date.now() } = {}) {
+export function releaseWorkspaceGuard(control, attemptId, { lease = null, quiescenceProven = false, now = Date.now() } = {}) {
   nonempty(attemptId, 'attemptId');
+  if (quiescenceProven !== true) {
+    fail('invalid_state_transition', 'Workspace guard release requires proven descendant quiescence.');
+  }
   const timestamp = epoch(now, 'now');
   return control.transaction(database => {
     assertOptionalFencing(database, lease, timestamp);
@@ -151,6 +154,50 @@ export function getNativeProcess(control, attemptId) {
 
 export function listGuardedProcesses(control) {
   return control.raw.prepare("SELECT * FROM native_processes WHERE workspace_guard_state != 'released' ORDER BY id").all().map(projectProcess);
+}
+
+// Gate B housekeeping deliberately does not use a dead Worker's fencing
+// token. Instead it compares every persisted fact that could make previously
+// collected process evidence stale before changing process/guard state.
+export function compareAndSetProcessRefresh(control, expected, patch, { now = Date.now() } = {}) {
+  if (!expected || !Number.isSafeInteger(Number(expected.id)) || Number(expected.id) <= 0) fail('invalid_request', 'expected native process row is required.');
+  const processState = patch?.processState ?? expected.process_state;
+  const guardState = patch?.workspaceGuardState ?? expected.workspace_guard_state;
+  if (!['starting', 'running', 'exited', 'unknown'].includes(processState)) fail('invalid_request', 'processState is invalid.');
+  if (!['held', 'released', 'unknown'].includes(guardState)) fail('invalid_request', 'workspaceGuardState is invalid.');
+  if (expected.process_state === 'exited' && processState !== 'exited') {
+    fail('invalid_state_transition', 'An exited native root process cannot return to a live state.');
+  }
+  if (expected.workspace_guard_state === 'released' && guardState !== 'released') {
+    fail('invalid_state_transition', 'A released workspace guard cannot be reactivated.');
+  }
+  if (processState === 'running' && (expected.pid === null || expected.process_started_at_ms === null)) {
+    fail('invalid_state_transition', 'A running native process requires persisted PID/start-time identity.');
+  }
+  if (guardState === 'released' && processState !== 'exited') {
+    fail('invalid_state_transition', 'Workspace guard release requires an exited root process.');
+  }
+  const timestamp = Math.max(epoch(now, 'now'), Number(expected.updated_at_ms) + 1);
+  const exitedAt = patch && Object.prototype.hasOwnProperty.call(patch, 'exitedAtMs')
+    ? (patch.exitedAtMs === null ? null : epoch(patch.exitedAtMs, 'exitedAtMs'))
+    : expected.exited_at_ms;
+
+  return control.transaction(database => {
+    const result = database.prepare(`UPDATE native_processes SET
+      process_state = ?, workspace_guard_state = ?, exited_at_ms = ?, observed_at_ms = ?, updated_at_ms = ?
+      WHERE id = ? AND attempt_id = ?
+        AND pid IS ? AND process_started_at_ms IS ? AND executable_path = ?
+        AND process_state = ? AND workspace_guard_state = ?
+        AND observed_at_ms = ? AND exited_at_ms IS ?
+        AND stdout_cursor_bytes = ? AND stderr_cursor_bytes = ? AND updated_at_ms = ?`)
+      .run(processState, guardState, exitedAt, timestamp, timestamp,
+        Number(expected.id), expected.attempt_id,
+        expected.pid, expected.process_started_at_ms, expected.executable_path,
+        expected.process_state, expected.workspace_guard_state,
+        Number(expected.observed_at_ms), expected.exited_at_ms,
+        Number(expected.stdout_cursor_bytes), Number(expected.stderr_cursor_bytes), Number(expected.updated_at_ms));
+    return Number(result.changes) === 1 ? getNativeProcessWith(database, expected.attempt_id) : null;
+  });
 }
 
 function requireProcess(database, attemptId) {

@@ -84,8 +84,9 @@ export class TaskService {
       const attempt = database.prepare('SELECT * FROM attempts WHERE attempt_id = ? AND task_id = ?').get(attemptId, taskId);
       if (!attempt) fail('task_not_found', 'Attempt does not belong to the task.');
       const native = database.prepare('SELECT 1 FROM native_sessions WHERE attempt_id = ? LIMIT 1').get(attemptId);
-      if (native || attempt.submission !== 'not_sent' || !['registered', 'queued'].includes(task.status) || Number(task.cancel_requested) === 1) {
-        return { claimed: false, reason: native ? 'native_identity' : attempt.submission !== 'not_sent' ? 'submission_started' : Number(task.cancel_requested) === 1 ? 'cancel_requested' : 'state_changed', status: this.#statusWith(database, taskId) };
+      const nativeProcess = hasNativeProcess(database, attemptId);
+      if (native || nativeProcess || attempt.submission !== 'not_sent' || !['registered', 'queued'].includes(task.status) || Number(task.cancel_requested) === 1) {
+        return { claimed: false, reason: native ? 'native_identity' : nativeProcess ? 'native_process' : attempt.submission !== 'not_sent' ? 'submission_started' : Number(task.cancel_requested) === 1 ? 'cancel_requested' : 'state_changed', status: this.#statusWith(database, taskId) };
       }
 
       const ownerActive = hasActiveLease(database, attempt.owner_nonce, attempt.fencing_token, now);
@@ -102,8 +103,9 @@ export class TaskService {
             heartbeat_at_ms = ?, started_at_ms = coalesce(started_at_ms, ?)
         WHERE attempt_id = ? AND task_id = ? AND submission = 'not_sent'
           AND NOT EXISTS (SELECT 1 FROM native_sessions WHERE attempt_id = ?)
+          AND NOT EXISTS (SELECT 1 FROM native_processes WHERE attempt_id = ?)
           AND EXISTS (SELECT 1 FROM tasks WHERE task_id = ? AND status IN ('registered', 'queued') AND cancel_requested = 0)`)
-        .run(lease.owner_nonce, lease.fencing_token, now, now, attemptId, taskId, attemptId, taskId);
+        .run(lease.owner_nonce, lease.fencing_token, now, now, attemptId, taskId, attemptId, attemptId, taskId);
       if (Number(result.changes) !== 1) return { claimed: false, reason: 'claim_lost', status: this.#statusWith(database, taskId) };
       return { claimed: true, attempt_id: attemptId, status: this.#statusWith(database, taskId) };
     });
@@ -120,8 +122,9 @@ export class TaskService {
       if (!task) fail('task_not_found', `Unknown task: ${taskId}`);
       const attempt = database.prepare('SELECT * FROM attempts WHERE task_id = ? ORDER BY ordinal DESC LIMIT 1').get(taskId);
       const native = attempt ? database.prepare('SELECT 1 FROM native_sessions WHERE attempt_id = ? LIMIT 1').get(attempt.attempt_id) : null;
-      if (!attempt || !['registered', 'queued'].includes(task.status) || attempt.submission !== 'not_sent' || native) {
-        return { recoverable: false, reason: native ? 'native_identity' : attempt?.submission !== 'not_sent' ? 'submission_started' : 'state_changed', status: this.#statusWith(database, taskId) };
+      const nativeProcess = attempt ? hasNativeProcess(database, attempt.attempt_id) : null;
+      if (!attempt || !['registered', 'queued'].includes(task.status) || attempt.submission !== 'not_sent' || native || nativeProcess) {
+        return { recoverable: false, reason: native ? 'native_identity' : nativeProcess ? 'native_process' : attempt?.submission !== 'not_sent' ? 'submission_started' : 'state_changed', status: this.#statusWith(database, taskId) };
       }
       // A task lease is held from worker start through the resource wait.  It
       // covers the period before the attempt owner fields are populated and
@@ -160,7 +163,8 @@ export class TaskService {
       const attempt = database.prepare('SELECT * FROM attempts WHERE task_id = ? AND (? IS NULL OR attempt_id = ?) ORDER BY ordinal DESC LIMIT 1')
         .get(taskId, attemptId, attemptId);
       const native = attempt ? database.prepare('SELECT 1 FROM native_sessions WHERE attempt_id = ? LIMIT 1').get(attempt.attempt_id) : null;
-      if (!attempt || !task.cancel_requested || !['registered', 'queued', 'starting'].includes(task.status) || attempt.submission !== 'not_sent' || native) {
+      const nativeProcess = attempt ? hasNativeProcess(database, attempt.attempt_id) : null;
+      if (!attempt || !task.cancel_requested || !['registered', 'queued', 'starting'].includes(task.status) || attempt.submission !== 'not_sent' || native || nativeProcess) {
         return { cancelled: false, status: this.#statusWith(database, taskId) };
       }
       const currentEvidence = Number(database.prepare("SELECT coalesce(max(json_extract(payload_json, '$.evidence_strength')), 0) AS strength FROM events WHERE task_id = ?").get(taskId).strength);
@@ -318,14 +322,15 @@ export class TaskService {
     return this.control.transaction(database => {
       const status = this.#statusWith(database, taskId);
       const attempt = status.attempt;
-      if (status.status === 'waiting_user' && attempt?.submission === 'not_sent' && !status.native && this.#waitingPhase(database, taskId) === 'preflight_login') {
+      const nativeProcess = attempt ? hasNativeProcess(database, attempt.attempt_id) : null;
+      if (status.status === 'waiting_user' && attempt?.submission === 'not_sent' && !status.native && !nativeProcess && this.#waitingPhase(database, taskId) === 'preflight_login') {
         this.#requeueWaitingAttempt(database, taskId, attempt.attempt_id, now);
         return { ...this.#statusWith(database, taskId), mode: 'preflight' };
       }
       if (status.status === 'waiting_user' && status.native) {
         return { ...status, mode: 'reconcile', native_identity: status.native.session_id ?? status.native.task_id };
       }
-      if (['registered', 'queued'].includes(status.status) && attempt?.submission === 'not_sent' && !status.native) {
+      if (['registered', 'queued'].includes(status.status) && attempt?.submission === 'not_sent' && !status.native && !nativeProcess) {
         const recovered = this.recoverUnsent(taskId, { now });
         if (recovered.recoverable) return { ...recovered.status, mode: 'dispatch', resumed: true };
       }
@@ -401,7 +406,7 @@ export class TaskService {
     const attempt = database.prepare("SELECT attempt_id, submission FROM attempts WHERE task_id = ? ORDER BY ordinal DESC LIMIT 1").get(taskId);
     if (task.status !== 'waiting_user' || attempt?.submission !== 'not_sent') return null;
     const native = database.prepare('SELECT 1 FROM native_sessions WHERE attempt_id = ? LIMIT 1').get(attempt.attempt_id);
-    if (native) return null;
+    if (native || hasNativeProcess(database, attempt.attempt_id)) return null;
     if (this.#waitingPhase(database, taskId) !== 'preflight_login') return null;
     this.#requeueWaitingAttempt(database, taskId, attempt.attempt_id, now);
     return true;
@@ -462,4 +467,9 @@ function hasActiveLease(database, ownerNonce, fencingToken, now) {
   return Boolean(database.prepare(`SELECT 1 FROM leases
     WHERE owner_nonce = ? AND fencing_token = ? AND expires_at_ms > ? LIMIT 1`)
     .get(ownerNonce, fencingToken, now));
+}
+
+function hasNativeProcess(database, attemptId) {
+  if (!attemptId) return false;
+  return Boolean(database.prepare('SELECT 1 FROM native_processes WHERE attempt_id = ? LIMIT 1').get(attemptId));
 }

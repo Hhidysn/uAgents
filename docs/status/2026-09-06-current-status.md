@@ -1,5 +1,13 @@
 # uAgents 当前状态与能力矩阵
 
+## Durable Native Execution 进展（2026-09-06 后续实现）
+
+OpenCode v1 的已安装发布级能力保持不变；其后的 durable-execution 可靠性工作正在源码分阶段实现，尚未重新安装或发布。Gate A 已以 `686b02d feat: add durable native process ledger` 提交：控制库升级为 schema v3，并持久化每个 Attempt 的 provisional/native process identity、transcript cursor 与 workspace guard 状态。Gate B 已在当前工作树实现并通过本地门禁：Windows `inspect-process` 能区分“确认不存在”和 CIM 检查失败，新增只读 `inspect-process-tree`；PID/start-time/executable identity 使用保守匹配，PID reuse 不会被 adopt；根进程退出本身不能释放 workspace guard，只有 descendant quiescence 得到确认后才能释放。
+
+workspace admission 现在在最终 lease 事务中重新检查所有重叠、未释放的 durable guard。旧 Worker lease 即使过期，只要旧 native process 仍存活、descendant 仍存在或检查结果不确定，新的重叠 workspace 请求都不会进入执行。已有 native-process row 的同一 Attempt 也不能回到 fresh dispatch/recover/cancel-as-unsent 路径；后续 Gate C/D 会为它增加只观察/只 reconcile 的恢复通道，而不是重新发送 prompt。
+
+当前 Gate B 只增加宿主进程证据与 workspace admission，没有改造 OpenCode/agy/WorkBuddy 的 native spawn/dispatch/observe 流程，也没有执行新的 provider 调用。下一阶段是 Gate C：file-backed stdout/stderr、exactly-once prompt boundary、early native-session acceptance，以及 Worker 重启后的 transcript replay。
+
 日期：2026-09-06（Asia/Shanghai）。项目目录：`F:\documents\software\uAgents`。
 
 本文是当前状态入口，专门回答两个问题：OpenCode 是否支持文件修改编码，以及已安装缓存、最新提交版和当前工作树是否一致。

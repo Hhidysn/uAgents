@@ -107,7 +107,7 @@ test('process exit does not release workspace guard until an explicit release op
     assert.equal(exited.workspace_guard_state, 'held');
     assert.equal(listGuardedProcesses(control).length, 1);
 
-    const released = releaseWorkspaceGuard(control, attemptId, { now: 310 });
+    const released = releaseWorkspaceGuard(control, attemptId, { quiescenceProven: true, now: 310 });
     assert.equal(released.workspace_guard_state, 'released');
     assert.equal(listGuardedProcesses(control).length, 0);
     assert.equal(getNativeProcess(control, attemptId).workspace_guard_state, 'released');

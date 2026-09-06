@@ -9,6 +9,8 @@ import { ControlDatabase } from '../plugins/uagents/src/store/database.mjs';
 import { acquireExecutionLeases, acquireTaskLease, releaseLeases } from '../plugins/uagents/src/runtime/leases.mjs';
 import { TaskService } from '../plugins/uagents/src/runtime/task-service.mjs';
 import { runTask } from '../plugins/uagents/src/runtime/worker.mjs';
+import { bindProcessIdentity, createProvisionalProcess, getNativeProcess } from '../plugins/uagents/src/runtime/native-processes.mjs';
+import { canonicalWorkspace } from '../plugins/uagents/src/runtime/workspace-key.mjs';
 
 const base = path.resolve('.local', 'test-runs', randomUUID(), 'queue recovery');
 fs.mkdirSync(base, { recursive: true });
@@ -185,10 +187,105 @@ test('possibly-sent attempts are never eligible for recovery', async () => {
   });
 });
 
+test('worker refreshes a dead foreign durable guard and dispatches only after quiescence', async () => {
+  await fixture('durable-guard-refresh', async ({ control, service }) => {
+    const foreign = service.submit(request());
+    const workspace = service.payload(foreign.task_id).request.workspace;
+    createRunningGuard(control, foreign.attempt.attempt_id, workspace, 'refresh');
+
+    const current = service.submit(request({ workspace }));
+    const adapter = new FakeAdapter();
+    const inspector = {
+      inspectProcess: async () => ({ kind: 'absent', pid: 77 }),
+      inspectProcessTree: async () => ({ kind: 'quiescent', descendants: [] }),
+    };
+    const completed = await runTask({
+      service,
+      taskId: current.task_id,
+      adapter,
+      leaseOptions: {
+        processInspector: inspector,
+        maxLeaseWaitMs: 500,
+        leaseRetryIntervalMs: 1,
+        maxLeaseRetryIntervalMs: 2,
+      },
+    });
+    assert.equal(completed.status, 'succeeded');
+    assert.equal(adapter.sendCount, 1);
+    assert.equal(getNativeProcess(control, foreign.attempt.attempt_id).workspace_guard_state, 'released');
+  });
+});
+
+test('worker keeps an unresolved durable guard queued and preserves the specific wait reason', async () => {
+  await fixture('durable-guard-unknown', async ({ control, service }) => {
+    const foreign = service.submit(request());
+    const workspace = service.payload(foreign.task_id).request.workspace;
+    createRunningGuard(control, foreign.attempt.attempt_id, workspace, 'unknown');
+
+    const current = service.submit(request({ workspace }));
+    const adapter = new FakeAdapter();
+    const inspector = {
+      inspectProcess: async () => ({ kind: 'inspection_failed', code: 'process_inspection_failed' }),
+      inspectProcessTree: async () => { throw new Error('must not inspect tree'); },
+    };
+    const queued = await runTask({
+      service,
+      taskId: current.task_id,
+      adapter,
+      leaseOptions: {
+        processInspector: inspector,
+        maxLeaseWaitMs: 15,
+        leaseRetryIntervalMs: 1,
+        maxLeaseRetryIntervalMs: 2,
+      },
+    });
+    assert.equal(queued.status, 'queued');
+    assert.equal(adapter.sendCount, 0);
+    const last = service.events(current.task_id).at(-1);
+    assert.equal(last.payload.queue.reason, 'workspace_execution_unknown');
+    assert.equal(last.payload.error.code, 'workspace_execution_unknown');
+  });
+});
+
+test('normal fresh dispatch rejects a same-Attempt native process row', async () => {
+  await fixture('same-attempt-no-redispatch', async ({ control, service }) => {
+    const registered = service.submit(request());
+    const workspace = service.payload(registered.task_id).request.workspace;
+    createRunningGuard(control, registered.attempt.attempt_id, workspace, 'same-attempt');
+    const adapter = new FakeAdapter();
+    await assert.rejects(() => runTask({ service, taskId: registered.task_id, adapter }), {
+      code: 'invalid_state_transition',
+    });
+    assert.equal(adapter.sendCount, 0);
+    assert.deepEqual(service.recoverUnsent(registered.task_id).reason, 'native_process');
+    assert.throws(() => service.resume(registered.task_id), { code: 'resume_not_allowed' });
+
+    service.requestCancel(registered.task_id);
+    const cancelled = service.cancelUnsent(registered.task_id, registered.attempt.attempt_id);
+    assert.equal(cancelled.cancelled, false);
+    assert.notEqual(cancelled.status.status, 'cancelled');
+  });
+});
+
 async function fixture(name, operation) {
   const control = new ControlDatabase(path.join(base, `${name}-${randomUUID()}`));
   try { await operation({ control, service: new TaskService(control) }); }
   finally { control.close(); }
+}
+
+function createRunningGuard(control, attemptId, workspace, suffix) {
+  const executablePath = path.resolve(base, `${suffix}-opencode.exe`);
+  createProvisionalProcess(control, {
+    attemptId,
+    target: 'opencode',
+    workspaceKey: canonicalWorkspace(workspace),
+    executablePath,
+    executableSha256: 'a'.repeat(64),
+    launchFingerprint: 'b'.repeat(64),
+    stdoutRelpath: `native/${attemptId}/stdout.log`,
+    stderrRelpath: `native/${attemptId}/stderr.log`,
+  }, { now: 1000 });
+  bindProcessIdentity(control, attemptId, { pid: 77, startedAtMs: 2000, executablePath }, { now: 1001 });
 }
 
 function startQueueWorker(root, taskId) {

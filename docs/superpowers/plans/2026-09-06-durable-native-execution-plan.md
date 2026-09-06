@@ -6,7 +6,7 @@ Design: `docs/superpowers/specs/2026-09-06-durable-native-execution-design.md`
 
 Baseline: `a6fac4e fix: harden Windows OpenCode discovery and verification`
 
-Status: Detailed implementation plan ready for review. No runtime implementation changes have started in this plan.
+Status: In implementation. Gate A is committed as `686b02d`; Gate B is implemented and verified in the source working tree. Gate C (file-backed durable CLI controller and transcript replay) is next. No durable-execution build has been installed or released yet.
 
 ## 1. Objective
 
