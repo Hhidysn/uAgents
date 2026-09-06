@@ -2,7 +2,7 @@
 
 Date: 2026-09-06
 
-Status: Approved architecture under implementation. Gate A (Store v3 + native-process ledger) is committed as `686b02d`; Gate B (Windows process inspection + durable workspace admission) as `6702f32`; Gate C (generic durable CLI transport) as `f71a891`. Gate D is implemented and provider-free verified in the current source: Windows OpenCode uses durable process/transcript execution and same-Attempt observation/reconcile recovery; platforms without equivalent ownership inspection retain the prior uninterrupted transport. The current source suite passes Core `238/238` plus MCP `11/9/2` (`260/260` total). This reliability milestone is not installed or released yet.
+Status: Implemented and provider-free release-candidate verified. Gate A (Store v3 + native-process ledger) is committed as `686b02d`; Gate B (Windows process inspection + durable workspace admission) as `6702f32`; Gate C (generic durable CLI transport) as `f71a891`; Gate D (Windows OpenCode durable production/recovery) as `fa01ca5`; release-candidate metadata is `2fd090b`. Version `0.2.0-alpha.1+codex.20260906212805` is installed through the personal marketplace and verified from a fresh read-only Codex process. The source suite passes Core `238/238` plus MCP `11/9/2` (`260/260` total), and the decisive recovery/dual-writer subset passes `25/25`. No real OpenCode/provider crash smoke was run for this milestone; the build remains a local release candidate, not a public release.
 
 Baseline: `a6fac4e fix: harden Windows OpenCode discovery and verification`
 

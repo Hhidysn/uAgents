@@ -2,7 +2,7 @@
 
 ## Durable Native Execution 进展（2026-09-06 后续实现）
 
-OpenCode v1 的已安装发布级能力保持不变；其后的 durable-execution 可靠性工作已在源码完成 Gate A–D，尚未重新安装或发布。Gate A 已以 `686b02d feat: add durable native process ledger` 提交，Gate B 以 `6702f32 feat: guard durable workspace executions` 提交，Gate C 以 `f71a891 feat: add durable cli execution substrate` 提交。Gate B 的 Windows `inspect-process` 能区分“确认不存在”和 CIM 检查失败，并通过只读 `inspect-process-tree`、PID/start-time/executable identity 与 descendant quiescence 保守维护 workspace guard。
+Durable Native Execution 的 Gate A–D 已完成并提交，Gate E 的本地 release-candidate 安装验收也已完成。Gate A 为 `686b02d feat: add durable native process ledger`，Gate B 为 `6702f32 feat: guard durable workspace executions`，Gate C 为 `f71a891 feat: add durable cli execution substrate`，Gate D 为 `fa01ca5 feat: make OpenCode execution durable`，发布候选版本元数据提交为 `2fd090b chore: version durable execution release candidate`。Gate B 的 Windows `inspect-process` 能区分“确认不存在”和 CIM 检查失败，并通过只读 `inspect-process-tree`、PID/start-time/executable identity 与 descendant quiescence 保守维护 workspace guard。
 
 workspace admission 现在在最终 lease 事务中重新检查所有重叠、未释放的 durable guard。旧 Worker lease 即使过期，只要旧 native process 仍存活、descendant 仍存在或检查结果不确定，新的重叠 workspace 请求都不会进入执行。已有 native-process row 的同一 Attempt 也不能回到 fresh dispatch/recover/cancel-as-unsent 路径。
 
@@ -14,7 +14,7 @@ Gate D 已把 **Windows 源码中的 OpenCode production path** 接到 durable c
 
 OpenCode durable recovery 是“恢复观察/协调”，不是多轮会话续写：uAgents 不会在自动恢复中添加 `opencode run --session` 或 `--continue`，也不会重新发送原 prompt。`cancel` 或 `observation_timeout_ms` 只结束当前 observer；它们不等于 native execution cancellation，仍存活或状态不明的 native process 继续持有/保守保持 workspace guard。`execution_timeout_ms` 仍未实现。当前可信 process ownership inspector 是 Windows 路径，因此非 Windows OpenCode 暂时保留旧 uninterrupted transport，直到有等价 PID/start-time/executable 证据。
 
-Gate D 当前 provider-free 完整门禁为 Core `238/238` + MCP `11/9/2`，共 `260/260` 通过。没有执行新的 OpenCode/provider 调用，也没有重新安装插件；当前已安装缓存仍是前一发布版本。
+Gate E 最终 provider-free 门禁为 Core `238/238` + MCP `11/9/2`，共 `260/260` 通过；决定性的 durable recovery / dual-writer / transcript 子集为 `25/25`。Skill validator、Plugin validator 与 `git diff --check` 均通过。版本 `0.2.0-alpha.1+codex.20260906212805` 已通过个人 marketplace 正常安装，并由独立 `codex exec --ephemeral --sandbox read-only` 进程确认从新缓存加载 `agent-dispatch` Skill，再只读执行 `targets`、`capabilities opencode` 和 `models opencode`。本次没有通过 uAgents 调用任何 OpenCode/其他 Agent provider，也没有执行真实 provider crash smoke。
 
 日期：2026-09-06（Asia/Shanghai）。项目目录：`F:\documents\software\uAgents`。
 
@@ -32,23 +32,23 @@ OpenCode 在当前工作树和当前安装缓存中都支持 `analysis` 和 `imp
 
 | 层次 | 当前事实 | 结论 |
 | --- | --- | --- |
-| 插件 manifest | `0.2.0-alpha.1+codex.20260906063959` | 当前工作树、marketplace 源和新安装缓存的版本字符串相同 |
-| Durable 已提交基线 | `686b02d`（Gate A）、`6702f32`（Gate B）、`f71a891`（Gate C） | Gate D 在其上完成 Windows OpenCode durable production/recovery；本状态文档描述当前源码，而非已安装缓存 |
-| 当前源码 | Gate D OpenCode durable path + provider-free crash/reconcile tests | 尚未重新安装或发布；不能把当前源码能力等同于现有缓存能力 |
-| marketplace 源 | `C:\Users\24590\plugins\uagents` | 从当前工作树同步 112 个非依赖文件，旧源保留为备份 |
-| 实际安装缓存 | `C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260906063959` | `codex plugin add uagents@personal` 安装的当前版本 |
-| 旧缓存 | `...0.2.0-alpha.1+codex.20260905113451` | 未删除；作为旧版本残留，不是当前 marketplace 安装版本 |
+| 插件 manifest | `0.2.0-alpha.1+codex.20260906212805` | 当前工作树、marketplace 源和新安装缓存的版本字符串相同 |
+| Durable 已提交基线 | `686b02d`（Gate A）、`6702f32`（Gate B）、`f71a891`（Gate C）、`fa01ca5`（Gate D）、`2fd090b`（RC metadata） | 当前源码、个人 marketplace 源和新缓存均包含 durable OpenCode production/recovery |
+| 当前源码 | Gate A–D + Gate E release-candidate metadata | 已安装并完成 provider-free fresh-process 验收；仍不是公开发行版 |
+| marketplace 源 | `C:\Users\24590\plugins\uagents` | 从当前提交同步 117 个已跟踪插件文件；旧源完整备份 |
+| 实际安装缓存 | `C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260906212805` | `codex plugin add uagents@personal --json` 返回并启用的当前版本 |
+| 旧缓存 | `...0.2.0-alpha.1+codex.20260906063959`、`...0.2.0-alpha.1+codex.20260905113451` | 均保留用于回滚，不是当前 marketplace 安装版本 |
 
-核对依据：当前工作树插件目录、marketplace 源和新安装缓存均为 112 个文件、4,018,109 字节，逐文件
-SHA-256 `112/112` 一致；新增 `src/transports/opencode-driver.mjs` 已进入新缓存。旧 C 盘源保留为
-`C:\Users\24590\plugins\uagents-backup-before-20260906063959`，未删除旧缓存。
+核对依据：当前工作树插件目录、marketplace 源和新安装缓存均为 117 个文件、4,106,601 字节，逐文件
+SHA-256 `117/117` 一致，且 marketplace/cache 均无额外文件。旧 C 盘源完整保留为
+`C:\Users\24590\plugins\uagents-backup-before-20260906212805`，旧缓存均未删除。
 
 本次核对使用了以下只读命令：
 
 ```powershell
-node "C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260906063959\bin\uagents.mjs" targets
-node "C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260906063959\bin\uagents.mjs" capabilities opencode
-node "C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260906063959\bin\uagents.mjs" models opencode
+node "C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260906212805\bin\uagents.mjs" targets
+node "C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260906212805\bin\uagents.mjs" capabilities opencode
+node "C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260906212805\bin\uagents.mjs" models opencode
 node plugins/uagents/bin/uagents.mjs capabilities opencode
 ```
 

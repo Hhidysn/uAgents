@@ -6,7 +6,7 @@ Design: `docs/superpowers/specs/2026-09-06-durable-native-execution-design.md`
 
 Baseline: `a6fac4e fix: harden Windows OpenCode discovery and verification`
 
-Status: In implementation. Gate A is committed as `686b02d`, Gate B as `6702f32`, and Gate C as `f71a891`. Gate D is implemented in the current source: Windows OpenCode now uses the durable CLI controller for fresh execution and same-Attempt observation/reconcile recovery, while platforms without equivalent PID/start-time/executable ownership evidence retain the legacy uninterrupted transport. The provider-free source suite passes Core `238/238` plus MCP `11/9/2` (`260/260` total). No durable-execution build has been installed or released yet; Gate E packaging/install/fresh-process acceptance remains.
+Status: Gate E provider-free release-candidate acceptance is complete. Gate A is committed as `686b02d`, Gate B as `6702f32`, Gate C as `f71a891`, and Gate D as `fa01ca5`; release-candidate metadata is `2fd090b`. Windows OpenCode uses the durable CLI controller for fresh execution and same-Attempt observation/reconcile recovery, while platforms without equivalent PID/start-time/executable ownership evidence retain the legacy uninterrupted transport. The provider-free suite passes Core `238/238` plus MCP `11/9/2` (`260/260` total), the decisive recovery/dual-writer subset passes `25/25`, and version `0.2.0-alpha.1+codex.20260906212805` is installed and verified from a fresh read-only Codex process. No real OpenCode/provider crash smoke was run for this milestone, and this remains a local release candidate rather than a public release.
 
 ## 1. Objective
 
