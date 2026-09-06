@@ -14,14 +14,14 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 核心特性：
 
 - 一个 `agent-dispatch` Skill、一个本地优先 CLI、一个可选 stdio MCP Server，共用同一 Node.js Core。
-- SQLite WAL 控制面；Task、Attempt、Native Session 分离；同 UUID 与同一有效请求不会重复发送。
+- SQLite WAL 控制面；Task、Attempt、Native Process、Native Session 分离；同 UUID 与同一有效请求不会重复发送。
 - 每次调用记录 `model_requested`、`model_resolved`、`model_reported`、`model_verified`，不把配置选择冒充运行期验证。
 - `model_resolved` 保存规范模型名，完整 Provider/Model 运输路线单独保存在 `route_id`。
 - 原生失败以脱敏结构化错误返回；Provider 响应头、响应体和凭据内容不会写入任务记录。
 - 本地 uAgents CLI、后台 Worker 和受信任的 Agent CLI 逐层继承调用终端环境，使任意 Provider 的环境变量凭据无需硬编码即可使用；环境内容不会进入请求、SQLite 或结果。
 - 外部发送前持久化 `possibly_sent`；发送后不确定状态不自动换 UUID、模型或 Provider 重放。
 - workspace 重叠租约、fencing token、输入快照、不可变产物捕获与 SHA-256 验证。
-- `status`/`list` 只读本地状态；只有显式 `reconcile` 才访问已有原生任务身份。
+- `status`/`list` 只读本地状态；只有显式 `reconcile`（或针对已有 durable process 的 `resume`）才恢复已有原生执行观察，绝不重发原 prompt。
 - 受管生命周期：`submit` 自动发现、验证并缓存本机入口；豆包/TRAE 在专用隔离 Profile 中自动启动并跨 Task DB 用 Host lease 防双开；首次登录后同 UUID `submit` 或 `resume` 在原 Attempt 上恢复；`stop` 只停止所有权证据完整的实例。
 - 资源冲突时有界排队；未发送任务可用同 UUID 恢复，任务租约和原子 Attempt claim 防止重复发送。受管桌面恢复绑定原实例，`advisory-read-only` 会传递只读提示并关闭 WorkBuddy 隐式编辑自动接受。
 
@@ -31,7 +31,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 | --- | --- | --- | --- |
 | agy | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | 无图片；模型必须显式指定；分析模式不是硬只读 |
 | WorkBuddy | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | 无图片；模型由后端决定；分析模式不是硬只读 |
-| OpenCode | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | 仅两条显式 Command Code Flash 路线；`--pure`、`--auto` 等原生行为由 `execution.native_args` 控制 |
+| OpenCode | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | Windows 当前源码使用 durable process/transcript；仅两条显式 Command Code Flash 路线；`--pure`、`--auto` 等原生行为由 `execution.native_args` 控制 |
 | 豆包工作 | `analysis` | 文本 / 文本 | 无文件/图片；无已确认原生取消；不回显可验证模型；受管桌面实例 |
 | TRAE CN | `analysis`、`implementation` | 文本 / 文本 + 文件 | 不接受显式文件输入；无图片、无已确认原生取消；模型不可靠回显；受管桌面实例 |
 
@@ -66,7 +66,7 @@ node "<plugin-root>\bin\uagents.mjs" resume <task-id>
 node "<plugin-root>\bin\uagents.mjs" stop <target>
 ```
 
-`ensure` 发现、验证并缓存安装；对桌面目标启动或复用专用实例，但不发送 Prompt。`probe` 保持只读、不启动。`resume` 可恢复无活跃 Worker 的 `registered/queued` 未发送任务，或发送前登录等待，均沿用原 Attempt；对带原生身份的 `waiting_user` 只 reconcile。`indeterminate` 应显式使用 `reconcile`，不会重新发送。`stop` 拒绝接管用户日常窗口或未知进程。
+`ensure` 发现、验证并缓存安装；对桌面目标启动或复用专用实例，但不发送 Prompt。`probe` 保持只读、不启动。`resume` 可恢复无活跃 Worker 的 `registered/queued` 未发送任务，或发送前登录等待，均沿用原 Attempt；对于已经存在 durable native process 的非终态 OpenCode Task，`resume` 会转入同 Attempt reconcile，只读取 process/transcript 并继续观察，绝不重新发送 prompt。`reconcile` 同样不会自动使用 OpenCode `--session`/`--continue` 续写会话。durable OpenCode 的取消或 observation timeout 只结束当前观察，不代表 native process 已取消；workspace guard 会保留到死亡/静默得到证明。当前可信 ownership inspector 为 Windows 实现，因此非 Windows OpenCode 暂时继续使用旧 uninterrupted transport。`stop` 拒绝接管用户日常窗口或未知进程。
 
 `.mcp.json` 注册的 `uagents-unified` 是兼容入口，供没有本地 Shell 或明确要求 MCP 的宿主使用：
 

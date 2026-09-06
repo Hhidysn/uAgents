@@ -6,7 +6,7 @@ Design: `docs/superpowers/specs/2026-09-06-durable-native-execution-design.md`
 
 Baseline: `a6fac4e fix: harden Windows OpenCode discovery and verification`
 
-Status: In implementation. Gate A is committed as `686b02d` and Gate B as `6702f32`. Gate C (generic file-backed durable CLI controller, replay-safe accepted checkpointing, transcript replay and provider-free crash fixtures) is implemented and has passed its final provider-free source gate: Core `235/235` plus MCP `11/9/2` (`257/257` total), skill/plugin validators, and `git diff --check`. Production OpenCode has intentionally not been migrated yet; Gate D is next. No durable-execution build has been installed or released yet.
+Status: In implementation. Gate A is committed as `686b02d`, Gate B as `6702f32`, and Gate C as `f71a891`. Gate D is implemented in the current source: Windows OpenCode now uses the durable CLI controller for fresh execution and same-Attempt observation/reconcile recovery, while platforms without equivalent PID/start-time/executable ownership evidence retain the legacy uninterrupted transport. The provider-free source suite passes Core `238/238` plus MCP `11/9/2` (`260/260` total). No durable-execution build has been installed or released yet; Gate E packaging/install/fresh-process acceptance remains.
 
 ## 1. Objective
 
@@ -1441,6 +1441,8 @@ Must pass before timeout/resume public behavior changes:
 - no native arg regression;
 - no duplicate native session;
 - crash recovery never sends prompt twice.
+
+Current source status: passed provider-free destructive fixtures for both pre-session Worker death and post-accept Worker death. Recovery reads the persisted process/transcript for the same Attempt and never invokes `opencode run --session` or `--continue`. Durable OpenCode cancellation/observation timeout stops the observer only; it does not claim native execution was cancelled or weaken the workspace guard.
 
 ### Gate E — Release candidate
 

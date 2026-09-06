@@ -323,6 +323,14 @@ export class TaskService {
       const status = this.#statusWith(database, taskId);
       const attempt = status.attempt;
       const nativeProcess = attempt ? hasNativeProcess(database, attempt.attempt_id) : null;
+      if (nativeProcess && ['starting', 'running', 'waiting_user', 'indeterminate'].includes(status.status)) {
+        return {
+          ...status,
+          mode: 'reconcile',
+          durable_process: true,
+          native_identity: status.native?.session_id ?? status.native?.task_id ?? null,
+        };
+      }
       if (status.status === 'waiting_user' && attempt?.submission === 'not_sent' && !status.native && !nativeProcess && this.#waitingPhase(database, taskId) === 'preflight_login') {
         this.#requeueWaitingAttempt(database, taskId, attempt.attempt_id, now);
         return { ...this.#statusWith(database, taskId), mode: 'preflight' };

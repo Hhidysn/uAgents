@@ -1,7 +1,9 @@
 import { fail } from '../protocol/errors.mjs';
 import { captureArtifacts } from '../artifacts/capture.mjs';
 import { taskDirectory } from '../store/task-files.mjs';
+import { persistCheckpoint } from './checkpoints.mjs';
 import { acquireExecutionLeases, releaseLeases, renewLeases } from './leases.mjs';
+import { getNativeProcess } from './native-processes.mjs';
 import { statusFromNativeEvent, transitionState } from './state-machine.mjs';
 
 // The TaskService status projection intentionally bounds its lifecycle scan.
@@ -45,7 +47,8 @@ function currentEvidence(service, taskId) {
 
 export async function reconcileTask({ service, taskId, adapter, leaseOptions = {}, supervisor = null }) {
   const current = service.status(taskId);
-  if (!current.native) fail('reconcile_unsupported', 'Task has no persisted native identity.', { submission: current.attempt.submission });
+  const durableProcess = current.attempt ? getNativeProcess(service.control, current.attempt.attempt_id) : null;
+  if (!current.native && !durableProcess) fail('reconcile_unsupported', 'Task has no persisted native identity or durable process.', { submission: current.attempt.submission });
   if (typeof adapter.reconcile !== 'function') fail('reconcile_unsupported', 'Adapter does not support native reconciliation.', { submission: current.attempt.submission });
   const stored = service.payload(taskId);
   const leases = acquireExecutionLeases(service.control, {
@@ -110,12 +113,35 @@ export async function reconcileTask({ service, taskId, adapter, leaseOptions = {
     const native = Number.isInteger(acceptedHandle?.user_message_index)
       ? { ...current.native, user_message_index: acceptedHandle.user_message_index }
       : current.native;
+    const dispatchCheckpoint = (kind, payload = {}) => persistCheckpoint(service.control, {
+      taskId,
+      attemptId: current.attempt.attempt_id,
+      lease: leases[0],
+      kind,
+      payload: { target: current.target, ...payload },
+    });
+    const request = { ...stored.request, prompt: stored.payload.prompt };
     const snapshot = await adapter.reconcile(native, {
       taskId,
       attemptId: current.attempt.attempt_id,
+      control: service.control,
+      lease: leases[0],
+      taskDirectory: taskDirectory(service.control.root, taskId),
+      request,
+      checkpoint: dispatchCheckpoint,
+      nativeProcess: durableProcess,
+      processInspector: leaseOptions.processInspector ?? null,
+      signal: leaseOptions.signal ?? null,
+      isCancelRequested: () => service.status(taskId).cancel_requested,
+      submission: current.attempt.submission,
       ...(managed ? { managed } : {}),
     });
     if (renewalError) throw renewalError;
+    // Durable transcript replay can discover the first native identity and
+    // persist accepted while reconcile is in flight. Re-read the Task before
+    // validating the resulting transition so starting -> accepted(running) ->
+    // terminal is checked against the actual persisted state.
+    const observedCurrent = service.status(taskId);
     let next = statusFromNativeEvent(snapshot);
     let event = snapshot;
     const previousEvidence = currentEvidence(service, taskId);
@@ -123,14 +149,14 @@ export async function reconcileTask({ service, taskId, adapter, leaseOptions = {
     // A confirmed terminal observation is stronger than an earlier unknown
     // result or approval wait. Unverified/foreign observations cannot acquire
     // that strength merely by being returned from reconcile.
-    const transitionEvidence = current.status === 'indeterminate' &&
+    const transitionEvidence = observedCurrent.status === 'indeterminate' &&
       snapshot.same_native_identity === true && observedEvidence >= 2 &&
       ['succeeded', 'failed', 'cancelled'].includes(next)
       ? Math.max(observedEvidence, previousEvidence + 1)
       : observedEvidence;
     // Validate before writing response/model files: a rejected observation
     // must not overwrite the last trusted result.
-    transitionState({ status: current.status, evidence_strength: previousEvidence }, next, {
+    transitionState({ status: observedCurrent.status, evidence_strength: previousEvidence }, next, {
       same_native_identity: snapshot.same_native_identity === true,
       evidence_strength: transitionEvidence,
     });

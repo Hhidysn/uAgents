@@ -35,11 +35,16 @@ export function buildOpenCodeArgs(request, workspace) {
   ];
 }
 
+export function buildOpenCodePrompt(request, workspace) {
+  return `uAgents task workspace: ${workspace}\nMode: ${request.mode}. Expected files: ${JSON.stringify(request.expected_outputs ?? [])}\nWork only on this task. Do not delegate or start background work. You are not alone; do not revert others' edits.\n\n${request.prompt}`;
+}
+
 export function createOpenCodeDriver(request, workspace, entry) {
   return {
     command: entry,
     args: buildOpenCodeArgs(request, workspace),
     createParser: publish => createOpenCodeParser(request, workspace, publish),
+    buildPrompt: () => buildOpenCodePrompt(request, workspace),
     initialObservation: { native_edit_mode: 'inherited' },
   };
 }

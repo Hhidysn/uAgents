@@ -2,6 +2,13 @@ import { BUILTIN_REGISTRY } from '../registry/builtins.mjs';
 import { fail } from '../protocol/errors.mjs';
 import { invokeCli, nativeDriver } from '../transports/cli-process.mjs';
 import { invokeAgy } from '../transports/agy-process.mjs';
+import { createOpenCodeDriver, createOpenCodeParser, buildOpenCodePrompt } from '../transports/opencode-driver.mjs';
+import {
+  launchAndAccept,
+  observeDurableExecution,
+  prepareDurableExecution,
+} from '../transports/durable-cli-execution.mjs';
+import { createProcessInspector } from '../host/process-inspector.mjs';
 
 export class CliAdapter {
   #outcomes = new Map();
@@ -16,21 +23,24 @@ export class CliAdapter {
     this.#entryResolver = typeof entryResolver === 'function' ? entryResolver : null;
   }
 
-  async #verifiedEntry(context = null) {
+  async #verifiedInstallation(context = null) {
     const inline = context?.verifiedEntry;
-    if (inline && typeof inline.canonical_path === 'string' && inline.canonical_path.length > 0) {
-      return inline.canonical_path;
+    if (inline && typeof inline === 'object' && typeof inline.canonical_path === 'string' && inline.canonical_path.length > 0) {
+      return inline;
     }
+    if (typeof inline === 'string' && inline.length > 0) return { canonical_path: inline };
     if (!this.#entryResolver) return null;
     try {
       const installation = await this.#entryResolver(this.target);
-      if (installation && typeof installation.canonical_path === 'string') return installation.canonical_path;
+      if (installation && typeof installation.canonical_path === 'string' && installation.canonical_path.length > 0) return installation;
     } catch {
-      // Resolution failure degrades to legacy discovery; supervisor ensure
-      // failures surface through the worker's desktop-target path instead.
       return null;
     }
     return null;
+  }
+
+  async #verifiedEntry(context = null) {
+    return (await this.#verifiedInstallation(context))?.canonical_path ?? null;
   }
 
   descriptor() {
@@ -64,14 +74,56 @@ export class CliAdapter {
 
   async prepare(request, context = {}) {
     const legacy = this.#legacyRequest(request, 'run');
-    const entry = await this.#verifiedEntry(context);
-    const driver = this.target === 'agy'
+    const installation = await this.#verifiedInstallation(context);
+    const entry = installation?.canonical_path ?? null;
+    let driver = this.target === 'agy'
       ? this.testDriver
       : this.testDriver ?? nativeDriver(legacy, request.workspace, entry);
-    return { request, legacy, driver, entry, taskDirectory: context.taskDirectory ?? request.workspace };
+    if (this.target === 'opencode' && this.testDriver) {
+      driver = decorateOpenCodeDriver(driver, legacy, request.workspace);
+    }
+    const prepared = { request, legacy, driver, entry, installation, taskDirectory: context.taskDirectory ?? request.workspace };
+    if (this.target === 'opencode' && (process.platform === 'win32' || context.processInspector)) {
+      prepared.durable = prepareDurableExecution({
+        driver,
+        request: legacy,
+        workspace: request.workspace,
+        taskDirectory: prepared.taskDirectory,
+        attemptId: context.attemptId,
+        // Injected test drivers are themselves the executable under test.
+        // Never weaken production installation verification to accommodate a
+        // synthetic resolver path that the fixture will not execute.
+        installation: this.testDriver ? null : installation,
+        coreVersion: context.coreVersion ?? null,
+        adapterVersion: context.adapterVersion ?? null,
+      });
+    }
+    return prepared;
   }
 
   async dispatch(prepared, context) {
+    if (this.target === 'opencode' && prepared.durable) {
+      const inspector = context.processInspector ?? (process.platform === 'win32' ? createProcessInspector() : null);
+      if (!inspector) fail('unsupported_capability', 'Durable OpenCode execution requires process identity inspection.', {
+        category: 'policy', submission: 'not_sent',
+      });
+      const cancellation = cancellableSignal(context);
+      try {
+        const launched = await launchAndAccept({
+          prepared: prepared.durable,
+          control: context.control,
+          checkpoint: context.checkpoint,
+          inspector,
+          lease: context.lease,
+          signal: cancellation.signal,
+          spawnImpl: prepared.driver?.spawn,
+          acceptTimeoutMs: prepared.legacy.timeout_ms,
+        });
+        return { handle: launched.handle };
+      } finally {
+        cancellation.cleanup();
+      }
+    }
     let possiblySent = false;
     let nativeSessionId = null;
     let modelReported = null;
@@ -104,40 +156,107 @@ export class CliAdapter {
     return { handle };
   }
 
-  async *observe(handle) {
+  async *observe(handle, context = {}) {
+    if (this.target === 'opencode' && context.prepared?.durable) {
+      const prepared = context.prepared;
+      if (!prepared?.durable) fail('native_observation_unavailable', 'Durable OpenCode observation requires the prepared execution descriptor.', {
+        category: 'runtime', submission: 'sent',
+      });
+      const inspector = context.processInspector ?? (process.platform === 'win32' ? createProcessInspector() : null);
+      const cancellation = cancellableSignal(context);
+      let observed;
+      try {
+        observed = await observeDurableExecution({
+          control: context.control,
+          taskDirectory: prepared.taskDirectory,
+          attemptId: context.attemptId,
+          driver: prepared.driver,
+          checkpoint: context.checkpoint,
+          inspector,
+          lease: context.lease,
+          signal: cancellation.signal,
+          observationTimeoutMs: prepared.legacy.timeout_ms,
+        });
+      } finally {
+        cancellation.cleanup();
+      }
+      if (!observed.outcome) {
+        yield {
+          type: 'indeterminate', same_native_identity: true, evidence_strength: 1,
+          native_status: handle?.status ?? null,
+          error: observed.timed_out ? 'native_observation_timeout' : observed.aborted ? 'native_observation_aborted' : 'native_terminal_missing',
+        };
+        return;
+      }
+      yield outcomeEvent(this.target, prepared.request, observed.outcome, null);
+      return;
+    }
     const outcome = this.#outcomes.get(handle.session_id);
     if (!outcome) {
       yield { type: 'indeterminate', same_native_identity: true, evidence_strength: 1, error: 'native_outcome_missing' };
       return;
     }
-    const type = outcome.status === 'succeeded' ? 'succeeded'
-      : outcome.status === 'needs_user' ? 'waiting_user'
-        : outcome.status === 'cancelled' ? 'cancelled'
-          : outcome.status === 'failed' || outcome.status === 'blocked' ? 'failed' : 'indeterminate';
-    const requested = outcome.request.model_resolved;
-    const reported = outcome.model_reported;
-    const verified = this.target === 'agy' && typeof reported === 'string' && reported === requested;
-    yield {
-      type,
-      same_native_identity: true,
-      evidence_strength: type === 'indeterminate' ? 1 : 2,
-      native_status: outcome.native_status ?? null,
-      error: outcome.error ?? null,
-      response: outcome.result?.response ?? '',
-      usage: outcome.result?.usage ?? null,
-      model_reported: reported,
-      model_verified: verified,
-      model_verification: {
-        status: verified ? 'verified' : reported && requested && reported !== requested ? 'mismatch' : 'unverified',
-        assurance: reported ? 'runtime_self_report' : 'none',
-        match: reported && requested ? reported === requested : null,
-        method: reported ? 'native_event' : null,
-        evidence_ref: reported ? `${this.target}:native-model` : null,
-      },
-    };
+    yield outcomeEvent(this.target, outcome.request, outcome, outcome.model_reported);
   }
 
   async cancel() { return { confirmed: false }; }
+
+  async reconcile(native, context = {}) {
+    if (this.target !== 'opencode') fail('reconcile_unsupported', `${this.target} does not support durable CLI reconciliation.`, {
+      category: 'policy', submission: context.submission ?? 'may_have_been_sent',
+    });
+    if (!context.request || !context.control || typeof context.checkpoint !== 'function') {
+      fail('native_observation_unavailable', 'Durable OpenCode reconciliation requires persisted request and control context.', {
+        category: 'runtime', submission: context.submission ?? 'may_have_been_sent',
+      });
+    }
+    const legacy = this.#legacyRequest(context.request, 'run');
+    if (context.nativeProcess?.target !== 'opencode') {
+      fail('native_process_identity_mismatch', 'Persisted durable process target does not match OpenCode.', {
+        category: 'transport', submission: context.submission ?? 'may_have_been_sent',
+      });
+    }
+    const persistedExecutable = context.nativeProcess?.executable_path;
+    if (!this.testDriver && (typeof persistedExecutable !== 'string' || !persistedExecutable)) {
+      fail('native_observation_unavailable', 'Durable OpenCode reconciliation requires persisted executable identity.', {
+        category: 'runtime', submission: context.submission ?? 'may_have_been_sent',
+      });
+    }
+    // Reconcile is parser-only. Build the OpenCode parser/argv contract from
+    // persisted evidence without resolving the current installation and
+    // without invoking any spawn path.
+    let driver = this.testDriver ?? createOpenCodeDriver(legacy, context.request.workspace, persistedExecutable);
+    if (this.testDriver) driver = decorateOpenCodeDriver(driver, legacy, context.request.workspace);
+    const inspector = context.processInspector ?? (process.platform === 'win32' ? createProcessInspector() : null);
+    const cancellation = cancellableSignal(context);
+    let observed;
+    try {
+      observed = await observeDurableExecution({
+        control: context.control,
+        taskDirectory: context.taskDirectory,
+        attemptId: context.attemptId,
+        driver,
+        checkpoint: context.checkpoint,
+        inspector,
+        lease: context.lease,
+        signal: cancellation.signal,
+        observationTimeoutMs: legacy.timeout_ms,
+      });
+    } finally {
+      cancellation.cleanup();
+    }
+    if (!observed.outcome) {
+      return {
+        type: 'indeterminate', same_native_identity: native !== null || observed.handle !== null,
+        evidence_strength: 1,
+        native_status: native?.status ?? observed.handle?.status ?? null,
+        error: observed.timed_out ? 'native_observation_timeout' : observed.aborted ? 'native_observation_aborted' : 'native_terminal_missing',
+      };
+    }
+    const event = outcomeEvent(this.target, context.request, observed.outcome, null);
+    event.same_native_identity = Boolean(native || observed.handle || observed.outcome?.result?.native_session_id);
+    return event;
+  }
 
   #legacyRequest(request, kind) {
     return {
@@ -154,4 +273,69 @@ export class CliAdapter {
       timeout_ms: request.execution.observation_timeout_ms,
     };
   }
+}
+
+function decorateOpenCodeDriver(driver, legacy, workspace) {
+  return {
+    ...driver,
+    createParser: driver.createParser ?? (publish => createOpenCodeParser(legacy, workspace, publish)),
+    buildPrompt: driver.buildPrompt ?? (() => buildOpenCodePrompt(legacy, workspace)),
+  };
+}
+
+function cancellableSignal(context) {
+  const controller = new AbortController();
+  let timer = null;
+  let parentAbort = null;
+  const abort = () => { if (!controller.signal.aborted) controller.abort(); };
+  if (context?.signal?.aborted) abort();
+  else if (context?.signal?.addEventListener) {
+    parentAbort = abort;
+    context.signal.addEventListener('abort', parentAbort, { once: true });
+  }
+  if (typeof context?.isCancelRequested === 'function') {
+    const poll = () => {
+      try { if (context.isCancelRequested()) abort(); } catch {}
+    };
+    poll();
+    if (!controller.signal.aborted) {
+      timer = setInterval(poll, 50);
+      timer.unref?.();
+    }
+  }
+  return {
+    signal: controller.signal,
+    cleanup() {
+      if (timer) clearInterval(timer);
+      if (parentAbort) context.signal.removeEventListener?.('abort', parentAbort);
+    },
+  };
+}
+
+function outcomeEvent(target, request, outcome, modelReported) {
+  const type = outcome.status === 'succeeded' ? 'succeeded'
+    : outcome.status === 'needs_user' ? 'waiting_user'
+      : outcome.status === 'cancelled' ? 'cancelled'
+        : outcome.status === 'failed' || outcome.status === 'blocked' ? 'failed' : 'indeterminate';
+  const requested = request.model_resolved;
+  const reported = modelReported;
+  const verified = target === 'agy' && typeof reported === 'string' && reported === requested;
+  return {
+    type,
+    same_native_identity: true,
+    evidence_strength: type === 'indeterminate' ? 1 : 2,
+    native_status: outcome.native_status ?? null,
+    error: outcome.error ?? null,
+    response: outcome.result?.response ?? '',
+    usage: outcome.result?.usage ?? null,
+    model_reported: reported,
+    model_verified: verified,
+    model_verification: {
+      status: verified ? 'verified' : reported && requested && reported !== requested ? 'mismatch' : 'unverified',
+      assurance: reported ? 'runtime_self_report' : 'none',
+      match: reported && requested ? reported === requested : null,
+      method: reported ? 'native_event' : null,
+      evidence_ref: reported ? `${target}:native-model` : null,
+    },
+  };
 }

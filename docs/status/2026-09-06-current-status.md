@@ -2,15 +2,19 @@
 
 ## Durable Native Execution 进展（2026-09-06 后续实现）
 
-OpenCode v1 的已安装发布级能力保持不变；其后的 durable-execution 可靠性工作正在源码分阶段实现，尚未重新安装或发布。Gate A 已以 `686b02d feat: add durable native process ledger` 提交，Gate B 已以 `6702f32 feat: guard durable workspace executions` 提交。Gate B 的 Windows `inspect-process` 能区分“确认不存在”和 CIM 检查失败，并通过只读 `inspect-process-tree`、PID/start-time/executable identity 与 descendant quiescence 保守维护 workspace guard。
+OpenCode v1 的已安装发布级能力保持不变；其后的 durable-execution 可靠性工作已在源码完成 Gate A–D，尚未重新安装或发布。Gate A 已以 `686b02d feat: add durable native process ledger` 提交，Gate B 以 `6702f32 feat: guard durable workspace executions` 提交，Gate C 以 `f71a891 feat: add durable cli execution substrate` 提交。Gate B 的 Windows `inspect-process` 能区分“确认不存在”和 CIM 检查失败，并通过只读 `inspect-process-tree`、PID/start-time/executable identity 与 descendant quiescence 保守维护 workspace guard。
 
 workspace admission 现在在最终 lease 事务中重新检查所有重叠、未释放的 durable guard。旧 Worker lease 即使过期，只要旧 native process 仍存活、descendant 仍存在或检查结果不确定，新的重叠 workspace 请求都不会进入执行。已有 native-process row 的同一 Attempt 也不能回到 fresh dispatch/recover/cancel-as-unsent 路径。
 
-Gate C 已在当前源码工作树实现通用 durable CLI substrate，但尚未接入生产 OpenCode/agy/WorkBuddy。它使用 `native/<attempt-id>/stdout.log`、`stderr.log`、`exit.json` 的 file-backed 输出；先创建 transcript，再写 provisional process guard，再 spawn；在首个 prompt byte 之前验证 child PID/start/executable 并持久化 `possibly_sent`。native child 使用 detached + file-backed stdout/stderr，因此真实 provider-free fixture 已证明观察 Worker 被强制终止后，native process 仍可继续写 terminal transcript，且 prompt count 始终为 1。
+Gate C 提供通用 durable CLI substrate：使用 `native/<attempt-id>/stdout.log`、`stderr.log`、`exit.json` 的 file-backed 输出；先创建 transcript，再写 provisional process guard，再 spawn；在首个 prompt byte 之前验证 child PID/start/executable 并持久化 `possibly_sent`。native child 使用 detached + file-backed stdout/stderr，因此真实 provider-free fixture 已证明观察 Worker 被强制终止后，native process 仍可继续写 terminal transcript，且 prompt count 始终为 1。
 
-`accepted` checkpoint 现在可安全重放：完全相同的 target/session/task identity 是幂等 no-op，不重复写 `native_sessions` 或 `dispatch.accepted`；冲突 identity/target fail-closed；恢复中首次发现 identity 也不会把已 `indeterminate` 的 Task 强行改回 `running`。stdout 仍保持 1 MiB 解析安全上限，stderr durable limit 为 64 KiB；partial UTF-8、partial line、parser failure 后未提交行重试、PID mismatch、pre-bind child exit、checkpoint/spawn failure 和 observation timeout 不杀 durable process 等路径都有 provider-free 回归。最终完整门禁为 Core `235/235` + MCP `11/9/2`，共 `257/257` 通过；`agent-dispatch` skill validator、插件 validator 和 `git diff --check` 也全部通过。
+`accepted` checkpoint 现在可安全重放：完全相同的 target/session/task identity 是幂等 no-op，不重复写 `native_sessions` 或 `dispatch.accepted`；冲突 identity/target fail-closed；恢复中首次发现 identity 也不会把已 `indeterminate` 的 Task 强行改回 `running`。stdout 仍保持 1 MiB 解析安全上限，stderr durable limit 为 64 KiB；partial UTF-8、partial line、parser failure 后未提交行重试、PID mismatch、pre-bind child exit、checkpoint/spawn failure 和 observation timeout 不杀 durable process 等路径都有 provider-free 回归。
 
-Gate C 没有修改 `CliAdapter`、`cli-process.mjs` 或 `opencode-driver.mjs` 的生产路径，也没有执行新的 provider 调用。下一阶段 Gate D 才会把 OpenCode 接到 durable controller，并增加 same-Attempt durable resume/reconcile 与公开 observation-timeout 语义；在 Gate D 完成前，当前已安装 OpenCode 仍使用既有 uninterrupted-run transport。
+Gate D 已把 **Windows 源码中的 OpenCode production path** 接到 durable controller。fresh dispatch 仍保持原有 `opencode run --model ... --format json --dir ... --title ...` 与 caller-controlled `native_args`，没有默认 `--auto`/`--pure`。Worker 在 session 出现前死亡时，`resume`/`reconcile` 会在原 Attempt 上读取 persisted process + transcript，首次发现同一 session 后幂等写入 `accepted`；Worker 在 accepted 后死亡并等 lease 过期时，旧 native process 仍会阻止第二个重叠 workspace writer。两类 provider-free 破坏性 fixture 都证明 recovery spawn count 为 0、prompt count 始终为 1。
+
+OpenCode durable recovery 是“恢复观察/协调”，不是多轮会话续写：uAgents 不会在自动恢复中添加 `opencode run --session` 或 `--continue`，也不会重新发送原 prompt。`cancel` 或 `observation_timeout_ms` 只结束当前 observer；它们不等于 native execution cancellation，仍存活或状态不明的 native process 继续持有/保守保持 workspace guard。`execution_timeout_ms` 仍未实现。当前可信 process ownership inspector 是 Windows 路径，因此非 Windows OpenCode 暂时保留旧 uninterrupted transport，直到有等价 PID/start-time/executable 证据。
+
+Gate D 当前 provider-free 完整门禁为 Core `238/238` + MCP `11/9/2`，共 `260/260` 通过。没有执行新的 OpenCode/provider 调用，也没有重新安装插件；当前已安装缓存仍是前一发布版本。
 
 日期：2026-09-06（Asia/Shanghai）。项目目录：`F:\documents\software\uAgents`。
 
@@ -29,8 +33,8 @@ OpenCode 在当前工作树和当前安装缓存中都支持 `analysis` 和 `imp
 | 层次 | 当前事实 | 结论 |
 | --- | --- | --- |
 | 插件 manifest | `0.2.0-alpha.1+codex.20260906063959` | 当前工作树、marketplace 源和新安装缓存的版本字符串相同 |
-| 最新提交版 | `HEAD=4c6b538`，提交信息为 `feat: harden agent runtime and document capabilities` | 这是当前仓库的最新已提交基线；其中包含前序 Runtime/生命周期修复 |
-| 当前工作树 | 在 `HEAD` 之上有本次 OpenCode native-execution 实现、测试和文档修改 | 是本次安装唯一源码基线；仍不是公开发行包 |
+| Durable 已提交基线 | `686b02d`（Gate A）、`6702f32`（Gate B）、`f71a891`（Gate C） | Gate D 在其上完成 Windows OpenCode durable production/recovery；本状态文档描述当前源码，而非已安装缓存 |
+| 当前源码 | Gate D OpenCode durable path + provider-free crash/reconcile tests | 尚未重新安装或发布；不能把当前源码能力等同于现有缓存能力 |
 | marketplace 源 | `C:\Users\24590\plugins\uagents` | 从当前工作树同步 112 个非依赖文件，旧源保留为备份 |
 | 实际安装缓存 | `C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260906063959` | `codex plugin add uagents@personal` 安装的当前版本 |
 | 旧缓存 | `...0.2.0-alpha.1+codex.20260905113451` | 未删除；作为旧版本残留，不是当前 marketplace 安装版本 |

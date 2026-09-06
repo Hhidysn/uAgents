@@ -219,6 +219,11 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
       attemptId,
       signal: leaseOptions.signal,
       taskDirectory: taskDirectory(service.control.root, taskId),
+      control: service.control,
+      lease: fencingLease,
+      processInspector: leaseOptions.processInspector ?? null,
+      coreVersion: service.coreVersion,
+      adapterVersion: status.attempt?.adapter_version ?? null,
       isCancelRequested: () => service.status(taskId).cancel_requested,
       verifiedEntry,
       managed,
@@ -248,7 +253,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
     }
 
     let sawEvent = false;
-    for await (const event of adapter.observe(submission.handle ?? submission, adapterContext)) {
+    for await (const event of adapter.observe(submission.handle ?? submission, { ...adapterContext, checkpoint, prepared })) {
       if (heartbeatError) throw heartbeatError;
       sawEvent = true;
       const current = service.status(taskId);

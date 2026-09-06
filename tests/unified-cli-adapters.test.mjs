@@ -137,6 +137,34 @@ test('persisted cancel intent interrupts a live CLI process without claiming rem
   } finally { control.close(); }
 });
 
+test('durable OpenCode cancel stops observation without killing the native process', async () => {
+  const control = new ControlDatabase(path.join(root, `cancel-live-opencode-${randomUUID()}`));
+  let nativePid = null;
+  try {
+    const service = new TaskService(control);
+    const input = baseRequest({ target: 'opencode', mode: 'analysis', execution: { observation_timeout_ms: 10_000, effort: 'medium', permission: 'native' } });
+    const driver = { command: process.execPath, args: [fakeCli, 'opencode', input.request_id, 'hang'] };
+    const adapter = new OpenCodeAdapter({ testDriver: driver });
+    const registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
+    const running = runTask({ service, taskId: registered.task_id, adapter });
+    const marker = path.join(service.payload(registered.task_id).request.workspace, 'received.txt');
+    for (let attempt = 0; attempt < 100 && !fs.existsSync(marker); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(fs.existsSync(marker), true);
+    nativePid = control.raw.prepare('SELECT pid FROM native_processes WHERE attempt_id = ?').get(registered.attempt.attempt_id)?.pid ?? null;
+    service.requestCancel(registered.task_id);
+    const result = await running;
+    assert.equal(result.status, 'indeterminate');
+    assert.equal(result.cancel_requested, true);
+    assert.equal(result.attempt.submission, 'sent');
+    const processRecord = control.raw.prepare('SELECT process_state, workspace_guard_state FROM native_processes WHERE attempt_id = ?').get(registered.attempt.attempt_id);
+    assert.equal(processRecord.process_state, 'running');
+    assert.equal(['held', 'unknown'].includes(processRecord.workspace_guard_state), true);
+  } finally {
+    if (nativePid) try { process.kill(nativePid); } catch {}
+    control.close();
+  }
+});
+
 test('verifiedEntry from the supervisor context is passed to the CLI driver', async () => {
   const control = new ControlDatabase(path.join(root, `entry-${randomUUID()}`));
   try {
