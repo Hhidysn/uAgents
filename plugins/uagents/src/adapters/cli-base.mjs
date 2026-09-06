@@ -118,6 +118,7 @@ export class CliAdapter {
           signal: cancellation.signal,
           spawnImpl: prepared.driver?.spawn,
           acceptTimeoutMs: prepared.legacy.timeout_ms,
+          timeoutGuardianLauncher: context.timeoutGuardianLauncher ?? undefined,
         });
         return { handle: launched.handle };
       } finally {
@@ -184,7 +185,9 @@ export class CliAdapter {
         yield {
           type: 'indeterminate', same_native_identity: true, evidence_strength: 1,
           native_status: handle?.status ?? null,
-          error: observed.timed_out ? 'native_observation_timeout' : observed.aborted ? 'native_observation_aborted' : 'native_terminal_missing',
+          error: observed.execution_timed_out
+            ? observed.termination_confirmed ? 'execution_timeout' : 'execution_timeout_termination_unconfirmed'
+            : observed.timed_out ? 'native_observation_timeout' : observed.aborted ? 'native_observation_aborted' : 'native_terminal_missing',
         };
         return;
       }
@@ -250,7 +253,9 @@ export class CliAdapter {
         type: 'indeterminate', same_native_identity: native !== null || observed.handle !== null,
         evidence_strength: 1,
         native_status: native?.status ?? observed.handle?.status ?? null,
-        error: observed.timed_out ? 'native_observation_timeout' : observed.aborted ? 'native_observation_aborted' : 'native_terminal_missing',
+        error: observed.execution_timed_out
+          ? observed.termination_confirmed ? 'execution_timeout' : 'execution_timeout_termination_unconfirmed'
+          : observed.timed_out ? 'native_observation_timeout' : observed.aborted ? 'native_observation_aborted' : 'native_terminal_missing',
       };
     }
     const event = outcomeEvent(this.target, context.request, observed.outcome, null);
@@ -271,6 +276,7 @@ export class CliAdapter {
       kind,
       ...(kind === 'run' ? { prompt: request.prompt } : {}),
       timeout_ms: request.execution.observation_timeout_ms,
+      execution_timeout_ms: request.execution.execution_timeout_ms,
     };
   }
 }

@@ -216,6 +216,20 @@ test('indeterminate task reconciles only through persisted native identity', asy
   });
 });
 
+test('explicit indeterminate observation is the observation terminal reason and is not overwritten by stream-empty fallback', async () => {
+  await fixture('explicit-indeterminate-terminal', async ({ service }) => {
+    const registered = service.submit(request(), { adapterVersion: 'fake-1' });
+    const taskId = registered.task_id;
+    const adapter = new FakeAdapter({ events: [{ type: 'indeterminate', evidence_strength: 1, error: 'fixture_indeterminate' }] });
+    const result = await runTask({ service, taskId, adapter });
+    assert.equal(result.status, 'indeterminate');
+    assert.equal(result.error?.code, 'fixture_indeterminate');
+    const indeterminateEvents = service.events(taskId).filter(event => event.type === 'task.indeterminate');
+    assert.equal(indeterminateEvents.length, 1);
+    assert.equal(indeterminateEvents[0].payload.error, 'fixture_indeterminate');
+  });
+});
+
 test('worker heartbeat renews short leases until a long observation completes', async () => {
   await fixture('heartbeat', async ({ control, service }) => {
     const registered = service.submit(request(), { adapterVersion: 'fake-1' });

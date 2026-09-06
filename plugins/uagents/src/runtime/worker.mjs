@@ -222,6 +222,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
       control: service.control,
       lease: fencingLease,
       processInspector: leaseOptions.processInspector ?? null,
+      timeoutGuardianLauncher: leaseOptions.timeoutGuardianLauncher ?? null,
       coreVersion: service.coreVersion,
       adapterVersion: status.attempt?.adapter_version ?? null,
       isCancelRequested: () => service.status(taskId).cancel_requested,
@@ -280,7 +281,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
         } else service.recordOutcome(taskId, { nativeOutcome: 'succeeded', objectiveVerdict: 'succeeded', lease: fencingLease });
       } else if (next === 'failed' || next === 'cancelled') service.recordOutcome(taskId, { nativeOutcome: next, objectiveVerdict: next, lease: fencingLease });
       service.transition(taskId, next, { attemptId, lease: fencingLease, evidenceStrength: event.evidence_strength ?? 1, sameNativeIdentity: event.same_native_identity === true, event: recordedEvent });
-      if (TERMINAL_STATES.has(next) || next === 'waiting_user') return service.status(taskId);
+      if (TERMINAL_STATES.has(next) || next === 'waiting_user' || next === 'indeterminate') return service.status(taskId);
     }
     const latest = service.status(taskId);
     if (!TERMINAL_STATES.has(latest.status) && latest.status !== 'waiting_user') {

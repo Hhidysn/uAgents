@@ -12,7 +12,11 @@ Gate C 提供通用 durable CLI substrate：使用 `native/<attempt-id>/stdout.l
 
 Gate D 已把 **Windows 源码中的 OpenCode production path** 接到 durable controller。fresh dispatch 仍保持原有 `opencode run --model ... --format json --dir ... --title ...` 与 caller-controlled `native_args`，没有默认 `--auto`/`--pure`。Worker 在 session 出现前死亡时，`resume`/`reconcile` 会在原 Attempt 上读取 persisted process + transcript，首次发现同一 session 后幂等写入 `accepted`；Worker 在 accepted 后死亡并等 lease 过期时，旧 native process 仍会阻止第二个重叠 workspace writer。两类 provider-free 破坏性 fixture 都证明 recovery spawn count 为 0、prompt count 始终为 1。
 
-OpenCode durable recovery 是“恢复观察/协调”，不是多轮会话续写：uAgents 不会在自动恢复中添加 `opencode run --session` 或 `--continue`，也不会重新发送原 prompt。`cancel` 或 `observation_timeout_ms` 只结束当前 observer；它们不等于 native execution cancellation，仍存活或状态不明的 native process 继续持有/保守保持 workspace guard。`execution_timeout_ms` 仍未实现。当前可信 process ownership inspector 是 Windows 路径，因此非 Windows OpenCode 暂时保留旧 uninterrupted transport，直到有等价 PID/start-time/executable 证据。
+OpenCode durable recovery 是“恢复观察/协调”，不是多轮会话续写：uAgents 不会在自动恢复中添加 `opencode run --session` 或 `--continue`，也不会重新发送原 prompt。`cancel` 或 `observation_timeout_ms` 只结束当前 observer；它们不等于 native execution cancellation，仍存活或状态不明的 native process 继续持有/保守保持 workspace guard。Windows **当前源码**已新增 verified `execution_timeout_ms`：独立 per-Attempt guardian 在发送前完成 durable ready handshake，deadline 从 `dispatch.possibly_sent` 持久化时间开始，超时后只终止 PID/start-time/executable 仍匹配的 owned process tree，并在 root death + descendant quiescence 得到证明后释放 guard。本地 tree 终止不会冒充 provider/native cancelled；确认本地终止仍以 `indeterminate + execution_timeout` 收敛，无法确认终止则保持 `execution_timeout_termination_unconfirmed` 与保守 guard。非 Windows OpenCode 仍拒绝该能力。
+
+> 安装差异：`0.2.0-alpha.1+codex.20260906212805` 是上一轮 Durable Native Execution RC，**不包含本轮 execution-timeout 源码变更**。当前工作树已经领先 marketplace/source cache；必须在本轮源码提交、最终门禁和新 build metadata 后重新安装，才能把 timeout 能力视为“已安装”。
+
+Verified execution-timeout 当前源码门禁已通过：Core `254/254` + MCP `11/9/2`，共 `276/276`。其中包含真实 Windows harmless Node process-tree termination、guardian durable-ready fail-closed、live Worker timeout、Worker 先死亡后 guardian 独立执行 deadline、prompt count 始终为 1、guard quiescence 后第二 writer 才能进入，以及原 Attempt reconcile 零 spawn/零 resend。没有执行真实 OpenCode/provider timeout 请求。
 
 Gate E 最终 provider-free 门禁为 Core `238/238` + MCP `11/9/2`，共 `260/260` 通过；决定性的 durable recovery / dual-writer / transcript 子集为 `25/25`。Skill validator、Plugin validator 与 `git diff --check` 均通过。版本 `0.2.0-alpha.1+codex.20260906212805` 已通过个人 marketplace 正常安装，并由独立 `codex exec --ephemeral --sandbox read-only` 进程确认从新缓存加载 `agent-dispatch` Skill，再只读执行 `targets`、`capabilities opencode` 和 `models opencode`。本次没有通过 uAgents 调用任何 OpenCode/其他 Agent provider，也没有执行真实 provider crash smoke。
 
@@ -34,7 +38,7 @@ OpenCode 在当前工作树和当前安装缓存中都支持 `analysis` 和 `imp
 | --- | --- | --- |
 | 插件 manifest | `0.2.0-alpha.1+codex.20260906212805` | 当前工作树、marketplace 源和新安装缓存的版本字符串相同 |
 | Durable 已提交基线 | `686b02d`（Gate A）、`6702f32`（Gate B）、`f71a891`（Gate C）、`fa01ca5`（Gate D）、`2fd090b`（RC metadata） | 当前源码、个人 marketplace 源和新缓存均包含 durable OpenCode production/recovery |
-| 当前源码 | Gate A–D + Gate E release-candidate metadata | 已安装并完成 provider-free fresh-process 验收；仍不是公开发行版 |
+| 当前源码 | Gate A–E durable baseline + verified execution-timeout follow-up | timeout follow-up 仍在当前工作树，尚未重新打包安装；已安装 cache 只代表上一 durable RC |
 | marketplace 源 | `C:\Users\24590\plugins\uagents` | 从当前提交同步 117 个已跟踪插件文件；旧源完整备份 |
 | 实际安装缓存 | `C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260906212805` | `codex plugin add uagents@personal --json` 返回并启用的当前版本 |
 | 旧缓存 | `...0.2.0-alpha.1+codex.20260906063959`、`...0.2.0-alpha.1+codex.20260905113451` | 均保留用于回滚，不是当前 marketplace 安装版本 |

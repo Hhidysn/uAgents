@@ -68,7 +68,13 @@ test('policy fails closed before worker launch', () => {
   for (const permission of ['native', 'advisory-read-only', 'enforced-read-only', 'workspace-write', 'full-access']) {
     assert.equal(evaluateRequest(request({ execution: { observation_timeout_ms: 10_000, effort: 'medium', permission } })).allowed, true);
   }
-  assert.throws(() => evaluateRequest(request({ execution: { observation_timeout_ms: 10_000, execution_timeout_ms: 20_000, effort: 'medium', permission: 'native' } })), { code: 'unsupported_capability' });
+  const timeoutRequest = request({ execution: { observation_timeout_ms: 10_000, execution_timeout_ms: 20_000, effort: 'medium', permission: 'native' } });
+  if (process.platform === 'win32') assert.equal(evaluateRequest(timeoutRequest).allowed, true);
+  else assert.throws(() => evaluateRequest(timeoutRequest), { code: 'unsupported_capability' });
+  assert.throws(() => evaluateRequest(request({
+    target: 'workbuddy', model: 'default',
+    execution: { observation_timeout_ms: 10_000, execution_timeout_ms: 20_000, effort: 'medium', permission: 'native' },
+  })), { code: 'unsupported_capability' });
 });
 
 test('OpenCode native args cannot replace dispatcher-owned protocol arguments', () => {

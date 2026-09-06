@@ -31,7 +31,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 | --- | --- | --- | --- |
 | agy | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | 无图片；模型必须显式指定；分析模式不是硬只读 |
 | WorkBuddy | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | 无图片；模型由后端决定；分析模式不是硬只读 |
-| OpenCode | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | Windows 当前源码使用 durable process/transcript；仅两条显式 Command Code Flash 路线；`--pure`、`--auto` 等原生行为由 `execution.native_args` 控制 |
+| OpenCode | `analysis`、`implementation` | 文本 + 文件 / 文本 + 文件 | Windows 当前源码使用 durable process/transcript，并支持 verified `execution_timeout_ms`；仅两条显式 Command Code Flash 路线；`--pure`、`--auto` 等原生行为由 `execution.native_args` 控制 |
 | 豆包工作 | `analysis` | 文本 / 文本 | 无文件/图片；无已确认原生取消；不回显可验证模型；受管桌面实例 |
 | TRAE CN | `analysis`、`implementation` | 文本 / 文本 + 文件 | 不接受显式文件输入；无图片、无已确认原生取消；模型不可靠回显；受管桌面实例 |
 
@@ -66,7 +66,7 @@ node "<plugin-root>\bin\uagents.mjs" resume <task-id>
 node "<plugin-root>\bin\uagents.mjs" stop <target>
 ```
 
-`ensure` 发现、验证并缓存安装；对桌面目标启动或复用专用实例，但不发送 Prompt。`probe` 保持只读、不启动。`resume` 可恢复无活跃 Worker 的 `registered/queued` 未发送任务，或发送前登录等待，均沿用原 Attempt；对于已经存在 durable native process 的非终态 OpenCode Task，`resume` 会转入同 Attempt reconcile，只读取 process/transcript 并继续观察，绝不重新发送 prompt。`reconcile` 同样不会自动使用 OpenCode `--session`/`--continue` 续写会话。durable OpenCode 的取消或 observation timeout 只结束当前观察，不代表 native process 已取消；workspace guard 会保留到死亡/静默得到证明。当前可信 ownership inspector 为 Windows 实现，因此非 Windows OpenCode 暂时继续使用旧 uninterrupted transport。`stop` 拒绝接管用户日常窗口或未知进程。
+`ensure` 发现、验证并缓存安装；对桌面目标启动或复用专用实例，但不发送 Prompt。`probe` 保持只读、不启动。`resume` 可恢复无活跃 Worker 的 `registered/queued` 未发送任务，或发送前登录等待，均沿用原 Attempt；对于已经存在 durable native process 的非终态 OpenCode Task，`resume` 会转入同 Attempt reconcile，只读取 process/transcript 并继续观察，绝不重新发送 prompt。`reconcile` 同样不会自动使用 OpenCode `--session`/`--continue` 续写会话。durable OpenCode 的取消或 observation timeout 只结束当前观察，不代表 native process 已取消；workspace guard 会保留到死亡/静默得到证明。Windows 当前源码的 `execution_timeout_ms` 则使用独立 guardian + PID/start-time/executable ownership + process-tree quiescence 执行真正的本地执行 deadline；即使本地 tree 已确认终止，也不会冒充 provider/native 已确认 cancelled。当前可信 ownership inspector 为 Windows 实现，因此非 Windows OpenCode 暂时继续使用旧 uninterrupted transport。`stop` 拒绝接管用户日常窗口或未知进程。
 
 `.mcp.json` 注册的 `uagents-unified` 是兼容入口，供没有本地 Shell 或明确要求 MCP 的宿主使用：
 
@@ -99,10 +99,12 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 
 - [统一 Runtime 设计](docs/superpowers/specs/2026-09-04-uagents-unified-agent-runtime-design.md)
 - [Runtime 可靠性修复设计](docs/superpowers/specs/2026-09-05-runtime-reliability-fixes-design.md)
+- [Verified Execution Timeout 设计](docs/superpowers/specs/2026-09-06-verified-execution-timeout-design.md)
 - [Runtime 可靠性修复验证](docs/verification/2026-09-06-runtime-reliability-fixes.md)
 - [统一 Runtime 实施计划](docs/superpowers/plans/2026-09-04-uagents-unified-agent-runtime-implementation.md)
 - [受管 Agent 生命周期设计](docs/superpowers/specs/2026-09-04-uagents-managed-agent-lifecycle-design.md)
 - [受管生命周期实施计划](docs/superpowers/plans/2026-09-05-uagents-managed-agent-lifecycle-implementation.md)
+- [Verified Execution Timeout 实施计划](docs/superpowers/plans/2026-09-06-verified-execution-timeout-plan.md)
 - [当前状态与能力矩阵](docs/status/2026-09-06-current-status.md)
 - [历史进度快照](docs/status/2026-09-02-current-progress.md)
 - [受管桌面启动契约验证（Gate 0 spike）](docs/verification/2026-09-05-managed-launch-spike.md)

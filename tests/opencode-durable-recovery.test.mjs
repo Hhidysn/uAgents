@@ -10,6 +10,7 @@ import { TaskService } from '../plugins/uagents/src/runtime/task-service.mjs';
 import { runTask } from '../plugins/uagents/src/runtime/worker.mjs';
 import { reconcileTask } from '../plugins/uagents/src/runtime/reconcile.mjs';
 import { getNativeProcess } from '../plugins/uagents/src/runtime/native-processes.mjs';
+import { executionTimeoutEvidence } from '../plugins/uagents/src/runtime/execution-timeout.mjs';
 import { createProcessInspector } from '../plugins/uagents/src/host/process-inspector.mjs';
 import { OpenCodeAdapter } from '../plugins/uagents/src/adapters/opencode/adapter.mjs';
 
@@ -142,6 +143,118 @@ test('accepted OpenCode survives Worker death and keeps a second workspace write
     assert.equal(reconciled.native?.session_id, 'ses_fixture');
     assert.equal(lines(path.join(workspace, 'received.txt')), 1);
     await waitFor(() => getNativeProcess(control, registered.attempt.attempt_id)?.workspace_guard_state === 'released');
+  } finally {
+    if (runner && runner.exitCode === null) try { runner.kill(); } catch {}
+    if (nativePid) try { process.kill(nativePid); } catch {}
+    control.close();
+  }
+});
+
+test('OpenCode execution timeout terminates the verified native tree and reports indeterminate timeout', { skip: process.platform !== 'win32' }, async () => {
+  const root = path.join(base, `execution-timeout-${randomUUID()}`);
+  const workspace = path.join(root, 'workspace');
+  fs.mkdirSync(workspace, { recursive: true });
+  const control = new ControlDatabase(root);
+  let nativePid = null;
+  try {
+    const service = new TaskService(control);
+    const input = request({
+      workspace,
+      execution: { observation_timeout_ms: 5_000, execution_timeout_ms: 1_000, effort: 'medium', permission: 'native' },
+    });
+    const registered = service.submit(input, { adapterVersion: 'opencode-timeout-fixture-1' });
+    const adapter = new OpenCodeAdapter({ testDriver: {
+      command: process.execPath,
+      args: [fakeCli, 'opencode', registered.task_id, 'hang'],
+    } });
+    const result = await runTask({
+      service,
+      taskId: registered.task_id,
+      adapter,
+      leaseOptions: { ttlMs: 500, taskLeaseTtlMs: 500, heartbeatIntervalMs: 100 },
+    });
+    const processRecord = getNativeProcess(control, registered.attempt.attempt_id);
+    nativePid = processRecord?.pid ?? null;
+    assert.equal(result.status, 'indeterminate');
+    assert.equal(result.error?.code, 'execution_timeout');
+    assert.equal(result.attempt.submission, 'sent');
+    assert.equal(executionTimeoutEvidence(control, registered.attempt.attempt_id)?.termination_confirmed, true);
+    assert.equal(processRecord.process_state, 'exited');
+    assert.equal(processRecord.workspace_guard_state, 'released');
+    assert.equal(lines(path.join(workspace, 'received.txt')), 1);
+    const inspected = await createProcessInspector().inspectProcess({ pid: nativePid });
+    assert.equal(inspected.kind, 'absent');
+  } finally {
+    if (nativePid) try { process.kill(nativePid); } catch {}
+    control.close();
+  }
+});
+
+test('execution-timeout guardian survives Worker death, kills once, and frees the workspace without prompt replay', { skip: process.platform !== 'win32' }, async () => {
+  const root = path.join(base, `guardian-worker-death-${randomUUID()}`);
+  const workspace = path.join(root, 'workspace');
+  fs.mkdirSync(workspace, { recursive: true });
+  const control = new ControlDatabase(root);
+  let runner = null;
+  let nativePid = null;
+  try {
+    const service = new TaskService(control);
+    const first = request({
+      workspace,
+      execution: { observation_timeout_ms: 5_000, execution_timeout_ms: 1_500, effort: 'medium', permission: 'native' },
+    });
+    const registered = service.submit(first, { adapterVersion: 'opencode-timeout-fixture-1' });
+    runner = spawn(process.execPath, [workerRunner, root, registered.task_id, fakeCli, 'hang'], {
+      cwd: path.resolve('.'), windowsHide: true, stdio: 'ignore',
+    });
+    await waitFor(() => {
+      const status = service.status(registered.task_id);
+      const processRecord = getNativeProcess(control, status.attempt.attempt_id);
+      if (processRecord?.pid) nativePid = processRecord.pid;
+      return status.status === 'running' && status.attempt.submission === 'sent' && status.native?.session_id === 'ses_fixture';
+    });
+    assert.equal(lines(path.join(workspace, 'received.txt')), 1);
+    runner.kill();
+    await waitForExit(runner);
+
+    await waitFor(() => executionTimeoutEvidence(control, registered.attempt.attempt_id)?.termination_confirmed === true, 7_000);
+    await waitFor(() => getNativeProcess(control, registered.attempt.attempt_id)?.workspace_guard_state === 'released', 7_000);
+    const dead = await createProcessInspector().inspectProcess({ pid: nativePid });
+    assert.equal(dead.kind, 'absent');
+    assert.equal(lines(path.join(workspace, 'received.txt')), 1);
+
+    const resumed = service.resume(registered.task_id);
+    assert.equal(resumed.mode, 'reconcile');
+    const recoveryAdapter = new OpenCodeAdapter({ testDriver: {
+      command: process.execPath,
+      args: [fakeCli, 'opencode', registered.task_id, 'hang'],
+      spawn() { throw new Error('timeout reconcile must never spawn'); },
+    } });
+    const reconciled = await reconcileTask({
+      service,
+      taskId: registered.task_id,
+      adapter: recoveryAdapter,
+      leaseOptions: { processInspector: createProcessInspector(), ttlMs: 1_000, heartbeatIntervalMs: 100 },
+    });
+    assert.equal(reconciled.status, 'indeterminate');
+    assert.equal(reconciled.error?.code, 'execution_timeout');
+    assert.equal(lines(path.join(workspace, 'received.txt')), 1);
+
+    const second = request({ workspace, request_id: randomUUID() });
+    const secondRegistered = service.submit(second, { adapterVersion: 'opencode-durable-fixture-1' });
+    const secondAdapter = new OpenCodeAdapter({ testDriver: {
+      command: process.execPath,
+      args: [fakeCli, 'opencode', second.request_id, 'success'],
+    } });
+    const secondResult = await runTask({
+      service,
+      taskId: secondRegistered.task_id,
+      adapter: secondAdapter,
+      leaseOptions: { maxLeaseWaitMs: 500, leaseRetryIntervalMs: 20, ttlMs: 500, taskLeaseTtlMs: 500 },
+    });
+    assert.equal(secondResult.status, 'succeeded');
+    assert.equal(lines(path.join(workspace, 'received.txt')), 2);
+    assert.equal(lines(path.join(workspace, 'received.txt')), 2);
   } finally {
     if (runner && runner.exitCode === null) try { runner.kill(); } catch {}
     if (nativePid) try { process.kill(nativePid); } catch {}

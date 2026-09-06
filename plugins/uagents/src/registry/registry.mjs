@@ -37,13 +37,17 @@ export function targetDescriptor(registry, target) {
 
 function applyRestrictions(target, restriction, label) {
   if (!restriction || Array.isArray(restriction) || typeof restriction !== 'object') fail('invalid_request', `${label} must be an object.`);
-  const allowed = new Set(['enabled', 'modes', 'inputs', 'outputs', 'permissions']);
+  const allowed = new Set(['enabled', 'modes', 'inputs', 'outputs', 'permissions', 'execution_timeout']);
   for (const key of Object.keys(restriction)) if (!allowed.has(key)) fail('unsupported_field', `Unsupported registry restriction: ${label}.${key}`);
   if (restriction.enabled !== undefined) {
     if (restriction.enabled !== false && restriction.enabled !== true) fail('invalid_request', `${label}.enabled must be boolean.`);
     target.enabled = target.enabled && restriction.enabled;
   }
   if (restriction.modes !== undefined) target.modes = intersection(target.modes, restriction.modes, `${label}.modes`);
+  if (restriction.execution_timeout !== undefined) {
+    if (typeof restriction.execution_timeout !== 'boolean') fail('invalid_request', `${label}.execution_timeout must be boolean.`);
+    target.execution_timeout = target.execution_timeout === true && restriction.execution_timeout;
+  }
   for (const group of ['inputs', 'outputs', 'permissions']) {
     if (restriction[group] === undefined) continue;
     const values = restriction[group];

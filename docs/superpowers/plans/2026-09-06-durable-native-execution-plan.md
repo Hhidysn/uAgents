@@ -1040,14 +1040,9 @@ Do not change WorkBuddy/agy timeout behavior in the same commit unless required 
 
 ### 18.2 `execution_timeout_ms`
 
-Keep Registry capability false and Policy rejection unchanged during Phases A-D.
-
-Do not add execution-timeout support until a later independently reviewed change proves:
-
-- exact owned process-tree identity;
-- process-tree termination;
-- post-kill identity reinspection;
-- stable result semantics distinct from provider/native cancellation.
+Gate A-D correctly kept this capability disabled. The follow-up is now implemented for Windows OpenCode under
+`docs/superpowers/plans/2026-09-06-verified-execution-timeout-plan.md`, with exact owned process-tree identity, post-kill
+reinspection, detached Worker-independent deadline enforcement, and result semantics distinct from provider/native cancellation.
 
 ## 19. Cancellation during durable execution
 
@@ -1131,7 +1126,8 @@ store_migration_blocked
   submission: not_sent
 ```
 
-Reserve `execution_timeout` but do not make it reachable in this implementation milestone.
+This milestone intentionally reserved `execution_timeout`. The later verified implementation is documented in
+`docs/superpowers/plans/2026-09-06-verified-execution-timeout-plan.md`.
 
 ## 22. Detailed test-first sequence
 

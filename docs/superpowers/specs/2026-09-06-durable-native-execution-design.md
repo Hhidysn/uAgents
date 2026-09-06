@@ -572,13 +572,12 @@ remains held. A later explicit reconcile can continue observation.
 
 ### 16.2 Execution timeout
 
-`execution_timeout_ms` remains rejected until a target exposes a verified termination primitive.
+This follow-up has now been implemented for Windows OpenCode only. See
+`docs/superpowers/specs/2026-09-06-verified-execution-timeout-design.md`.
 
-For Windows CLI targets, a later phase may use the existing owned-process verification plus `taskkill /T /F`, followed by process
-reinspection. Even then, local process-tree termination is not provider cancellation acknowledgement. The task should fail with a stable
-`execution_timeout` error unless the target independently reports a native cancelled terminal state.
-
-Do not enable `execution_timeout` capability merely because `child.kill()` exists.
+The implementation uses durable guardian readiness, persisted send-time deadline evidence, PID/start-time/executable ownership,
+absolute `taskkill /T /F`, and post-action root/descendant reinspection. Local tree termination is still not provider cancellation
+acknowledgement, and unsupported targets/platforms continue to reject `execution_timeout_ms`.
 
 ## 17. Cancellation
 
@@ -631,7 +630,7 @@ Add stable codes only where callers need to distinguish recovery actions:
 - `native_process_inspection_failed` — ownership evidence could not be obtained;
 - `native_observation_unavailable` — durable transcript/session exists but cannot currently be reconciled;
 - `store_migration_blocked` — schema v2 contains an in-flight/ambiguous Attempt that cannot be given trustworthy v3 process identity;
-- `execution_timeout` — reserved for the later independently verified execution-deadline phase.
+- `execution_timeout` — originally reserved here and now implemented for Windows OpenCode by the verified execution-timeout follow-up.
 
 All of these preserve the existing `submission` field. Workspace admission errors before a new task sends anything use `not_sent`.
 

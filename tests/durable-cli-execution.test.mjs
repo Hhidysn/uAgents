@@ -192,6 +192,38 @@ test('checkpoint failure before prompt write terminates the owned child without 
   });
 });
 
+test('required execution-timeout guardian failure aborts before possibly-sent and before the first prompt byte', async () => {
+  await fixture('guardian-launch-failure', async context => {
+    const driver = createDurableFixtureDriver(context.markerDirectory);
+    const prepared = preparedFor(context, driver);
+    prepared.request.execution_timeout_ms = 1_000;
+    const inspector = {
+      inspectProcess: async ({ pid }) => ({ kind: 'alive', pid, started_at_ms: Date.now(), executable_path: process.execPath }),
+      inspectProcessTree: async () => ({ kind: 'quiescent', descendants: [] }),
+    };
+    await assert.rejects(() => launchAndAccept({
+      prepared,
+      control: context.control,
+      checkpoint: checkpointFor(context.control, context.taskId, context.attemptId),
+      inspector,
+      timeoutGuardianLauncher: async () => {
+        throw Object.assign(new Error('fixture guardian failure'), {
+          code: 'execution_timeout_guardian_unavailable', submission: 'not_sent',
+        });
+      },
+    }), error => {
+      assert.equal(error.code, 'execution_timeout_guardian_unavailable');
+      assert.equal(error.submission, 'not_sent');
+      return true;
+    });
+    assert.equal(context.service.status(context.taskId).attempt.submission, 'not_sent');
+    assert.equal(fs.existsSync(path.join(context.markerDirectory, 'prompt-count.txt')), false);
+    const record = getNativeProcess(context.control, context.attemptId);
+    assert.equal(record.process_state, 'exited');
+    assert.equal(record.workspace_guard_state, 'released');
+  });
+});
+
 test('synchronous spawn failure consumes the launch slot but releases a proven-empty workspace guard', async () => {
   await fixture('spawn-failure', async context => {
     const driver = createDurableFixtureDriver(context.markerDirectory);

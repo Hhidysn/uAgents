@@ -1,0 +1,194 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
+import { ControlDatabase } from '../store/database.mjs';
+import { readTaskJson, taskDirectory } from '../store/task-files.mjs';
+import { createProcessInspector } from '../host/process-inspector.mjs';
+import { createProcessTerminator } from '../host/process-terminator.mjs';
+import { getNativeProcess } from './native-processes.mjs';
+import { refreshWorkspaceExecutionGuard } from './workspace-execution-guard.mjs';
+import {
+  enforceExecutionTimeout,
+  executionDeadlineAt,
+  executionTimeoutGuardianReadyEvidence,
+  executionTimeoutEvidence,
+  recordExecutionTimeoutCleared,
+  recordExecutionTimeoutGuardianReady,
+  recordExecutionTimeoutStarted,
+} from './execution-timeout.mjs';
+
+const SOURCE_FILE = fileURLToPath(import.meta.url);
+export const DEFAULT_GUARDIAN_POLL_MS = 250;
+export const DEFAULT_GUARDIAN_SEND_GRACE_MS = 30_000;
+export const DEFAULT_GUARDIAN_READY_TIMEOUT_MS = 5_000;
+
+export function launchExecutionTimeoutGuardian({
+  control,
+  attemptId,
+  spawnImpl = spawn,
+  sourceFile = SOURCE_FILE,
+  readyTimeoutMs = DEFAULT_GUARDIAN_READY_TIMEOUT_MS,
+  readyPollMs = 20,
+} = {}) {
+  return new Promise((resolve, reject) => {
+    let child;
+    let settled = false;
+    let readyTimer = null;
+    let readyPoll = null;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      if (readyTimer) clearTimeout(readyTimer);
+      if (readyPoll) clearInterval(readyPoll);
+      child?.removeListener?.('error', onError);
+      child?.removeListener?.('exit', onExit);
+      child?.removeListener?.('close', onExit);
+      fn(value);
+    };
+    const onError = error => finish(reject, guardianLaunchError(error));
+    const onExit = () => finish(reject, guardianLaunchError(new Error('guardian exited before ready')));
+    const checkReady = () => {
+      try {
+        if (!executionTimeoutGuardianReadyEvidence(control, attemptId)) return;
+        child.unref?.();
+        finish(resolve, { pid: Number.isSafeInteger(child.pid) ? child.pid : null, ready: true });
+      } catch {}
+    };
+    try {
+      child = spawnImpl(process.execPath, [sourceFile, control.root, attemptId], {
+        detached: true,
+        windowsHide: true,
+        shell: false,
+        stdio: 'ignore',
+        env: guardianEnvironment(process.env),
+      });
+    } catch (error) {
+      reject(guardianLaunchError(error));
+      return;
+    }
+    child.once?.('error', onError);
+    child.once?.('exit', onExit);
+    child.once?.('close', onExit);
+    child.once?.('spawn', () => {
+      if (settled) return;
+      readyPoll = setInterval(checkReady, Math.max(1, Number(readyPollMs) || 20));
+      readyPoll.unref?.();
+      readyTimer = setTimeout(() => {
+        try { child.kill?.(); } catch {}
+        finish(reject, guardianLaunchError(new Error('guardian ready handshake timed out')));
+      }, Math.max(1, Number(readyTimeoutMs) || DEFAULT_GUARDIAN_READY_TIMEOUT_MS));
+      readyTimer.unref?.();
+      checkReady();
+    });
+  });
+}
+
+export async function runExecutionTimeoutGuardian(root, attemptId, {
+  inspector = null,
+  terminator = null,
+  pollMs = DEFAULT_GUARDIAN_POLL_MS,
+  sendGraceMs = DEFAULT_GUARDIAN_SEND_GRACE_MS,
+  now = Date.now,
+  sleep = delay,
+} = {}) {
+  const control = new ControlDatabase(path.resolve(root), { create: false });
+  const resolvedInspector = inspector ?? (process.platform === 'win32' ? createProcessInspector() : null);
+  const resolvedTerminator = terminator ?? createProcessTerminator({ inspector: resolvedInspector });
+  const startedAt = Number(now());
+  try {
+    const attempt = control.raw.prepare('SELECT task_id, submission FROM attempts WHERE attempt_id = ?').get(attemptId);
+    if (!attempt) return { mode: 'missing_attempt' };
+    const request = readTaskJson(taskDirectory(control.root, attempt.task_id), 'request.json');
+    const timeoutMs = request?.execution?.execution_timeout_ms;
+    if (!Number.isSafeInteger(Number(timeoutMs)) || Number(timeoutMs) <= 0) return { mode: 'disabled' };
+    const initialProcess = getNativeProcess(control, attemptId);
+    if (!initialProcess || initialProcess.workspace_guard_state === 'released' ||
+        !Number.isSafeInteger(Number(initialProcess.pid)) || Number(initialProcess.pid) <= 0 ||
+        !Number.isSafeInteger(Number(initialProcess.process_started_at_ms)) || Number(initialProcess.process_started_at_ms) <= 0 ||
+        typeof initialProcess.executable_path !== 'string' || !initialProcess.executable_path) {
+      return { mode: 'process_identity_unavailable' };
+    }
+    recordExecutionTimeoutGuardianReady(control, attemptId, { now: Number(now()) });
+
+    for (;;) {
+      if (executionTimeoutEvidence(control, attemptId)) return { mode: 'evidence_exists' };
+      const currentAttempt = control.raw.prepare('SELECT submission FROM attempts WHERE attempt_id = ?').get(attemptId);
+      const task = control.raw.prepare('SELECT status FROM tasks WHERE task_id = ?').get(attempt.task_id);
+      if (!currentAttempt || !task) return { mode: 'missing_state' };
+      if (['succeeded', 'failed', 'cancelled'].includes(task.status)) return { mode: 'task_terminal' };
+
+      let processRecord = getNativeProcess(control, attemptId);
+      if (!processRecord || processRecord.workspace_guard_state === 'released') return { mode: 'process_complete' };
+      if (resolvedInspector) {
+        try {
+          processRecord = await refreshWorkspaceExecutionGuard(control, attemptId, { inspector: resolvedInspector, now: Number(now()) });
+        } catch {}
+        if (!processRecord || processRecord.workspace_guard_state === 'released') return { mode: 'process_complete' };
+      }
+
+      const deadline = executionDeadlineAt(control, attemptId, Number(timeoutMs));
+      if (deadline === null) {
+        if (currentAttempt.submission !== 'not_sent') return { mode: 'deadline_evidence_missing' };
+        if (Number(now()) - startedAt >= Math.max(1, Number(sendGraceMs) || DEFAULT_GUARDIAN_SEND_GRACE_MS)) {
+          return { mode: 'send_checkpoint_missing' };
+        }
+        await sleep(Math.max(1, Number(pollMs) || DEFAULT_GUARDIAN_POLL_MS));
+        continue;
+      }
+
+      const remaining = deadline - Number(now());
+      if (remaining > 0) {
+        await sleep(Math.max(1, Math.min(remaining, Number(pollMs) || DEFAULT_GUARDIAN_POLL_MS)));
+        continue;
+      }
+
+      recordExecutionTimeoutStarted(control, attemptId, { now: Number(now()) });
+      const result = await enforceExecutionTimeout({
+        control,
+        attemptId,
+        inspector: resolvedInspector,
+        terminator: resolvedTerminator,
+        now,
+      });
+      if (result.already_exited) {
+        recordExecutionTimeoutCleared(control, attemptId, { now: Number(now()) });
+        return { mode: 'process_complete' };
+      }
+      return {
+        mode: result.termination_confirmed ? 'timeout_terminated' : 'timeout_unconfirmed',
+        termination_confirmed: result.termination_confirmed === true,
+      };
+    }
+  } finally {
+    control.close();
+  }
+}
+
+function guardianEnvironment(env) {
+  const output = {};
+  for (const key of ['SystemRoot', 'WINDIR', 'PATH', 'Path', 'PATHEXT', 'ComSpec', 'TEMP', 'TMP']) {
+    if (typeof env?.[key] === 'string' && env[key]) output[key] = env[key];
+  }
+  return output;
+}
+
+function guardianLaunchError(cause) {
+  const error = new Error('The execution-timeout guardian could not be started.');
+  error.code = 'execution_timeout_guardian_unavailable';
+  error.submission = 'not_sent';
+  error.cause = cause;
+  return error;
+}
+
+if (process.argv[1] && samePath(process.argv[1], SOURCE_FILE)) {
+  runExecutionTimeoutGuardian(process.argv[2], process.argv[3])
+    .then(() => process.exit(0))
+    .catch(() => process.exit(1));
+}
+
+function samePath(left, right) {
+  const a = path.resolve(left);
+  const b = path.resolve(right);
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}

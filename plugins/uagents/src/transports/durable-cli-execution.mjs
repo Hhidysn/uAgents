@@ -17,6 +17,8 @@ import {
 } from '../runtime/native-processes.mjs';
 import { canonicalWorkspace } from '../runtime/workspace-key.mjs';
 import { refreshWorkspaceExecutionGuard } from '../runtime/workspace-execution-guard.mjs';
+import { executionTimeoutEvidence, executionTimeoutPending } from '../runtime/execution-timeout.mjs';
+import { launchExecutionTimeoutGuardian } from '../runtime/execution-timeout-guardian.mjs';
 
 export const DURABLE_STDOUT_LIMIT_BYTES = 1024 * 1024;
 export const DURABLE_STDERR_LIMIT_BYTES = 64 * 1024;
@@ -24,6 +26,7 @@ export const DURABLE_STDERR_PARSER_WINDOW_CHARS = 8192;
 export const DEFAULT_PROCESS_IDENTITY_BUDGET_MS = 2_000;
 export const DEFAULT_PROCESS_IDENTITY_RETRY_MS = 40;
 export const DEFAULT_ACCEPT_POLL_MS = 20;
+export const EXECUTION_TIMEOUT_SETTLE_MS = 12_000;
 
 export function prepareDurableExecution({
   driver,
@@ -116,6 +119,7 @@ export async function launchAndAccept({
   acceptTimeoutMs = null,
   pollIntervalMs = DEFAULT_ACCEPT_POLL_MS,
   publishPatch = null,
+  timeoutGuardianLauncher = launchExecutionTimeoutGuardian,
   now = Date.now,
 } = {}) {
   requirePrepared(prepared);
@@ -192,6 +196,15 @@ export async function launchAndAccept({
     throw durableError(error?.code ?? 'native_process_identity_mismatch', 'Durable native process identity could not be verified.', 'not_sent', error);
   }
 
+  if (prepared.request.execution_timeout_ms !== null && prepared.request.execution_timeout_ms !== undefined) {
+    try {
+      await timeoutGuardianLauncher({ control, attemptId: prepared.attemptId });
+    } catch (error) {
+      if (!closeTracker.closed) await terminatePreSendChild(child, closeTracker, { control, prepared, inspector, lease, now });
+      throw error;
+    }
+  }
+
   try {
     await checkpoint('possibly_sent');
   } catch (error) {
@@ -243,6 +256,26 @@ export async function launchAndAccept({
         try { markProcessUnknown(control, prepared.attemptId, { lease, now: now() }); } catch {}
       }
       throw strengthenSubmission(error, control, prepared.attemptId);
+    }
+
+    const timeoutEvidence = executionTimeoutEvidence(control, prepared.attemptId);
+    if (timeoutEvidence) {
+      throw durableError(timeoutEvidence.termination_confirmed === true
+        ? 'execution_timeout' : 'execution_timeout_termination_unconfirmed',
+      timeoutEvidence.termination_confirmed === true
+        ? 'The durable native execution exceeded its execution deadline and its owned process tree was terminated.'
+        : 'The durable native execution exceeded its execution deadline but owned process-tree termination could not be confirmed.',
+      currentSubmission(control, prepared.attemptId));
+    }
+    const timeoutPending = executionTimeoutPending(control, prepared.attemptId);
+    if (timeoutPending) {
+      if (Date.now() - Number(timeoutPending.created_at_ms) >= EXECUTION_TIMEOUT_SETTLE_MS) {
+        throw durableError('execution_timeout_termination_unconfirmed',
+          'The execution deadline was reached but timeout termination evidence did not settle.',
+          currentSubmission(control, prepared.attemptId));
+      }
+      await delay(Math.max(1, pollIntervalMs));
+      continue;
     }
 
     if (parserSession.handle) {
@@ -332,6 +365,7 @@ export async function replayDurableExecution({
   return {
     handle: parserSession.handle,
     outcome,
+    timeout_evidence: executionTimeoutEvidence(control, attemptId),
     process: getNativeProcess(control, attemptId),
     stdout_cursor_bytes: stdoutReader.committedOffset,
     stderr_cursor_bytes: stderrCursor,
@@ -385,6 +419,38 @@ export async function observeDurableExecution({
         try { markProcessUnknown(control, attemptId, { lease, now: now() }); } catch {}
       }
       throw strengthenSubmission(error, control, attemptId);
+    }
+
+    const timeoutEvidence = executionTimeoutEvidence(control, attemptId);
+    if (timeoutEvidence) {
+      return {
+        handle: parserSession.handle,
+        outcome: null,
+        process: getNativeProcess(control, attemptId),
+        observation_complete: true,
+        timed_out: false,
+        execution_timed_out: true,
+        termination_confirmed: timeoutEvidence.termination_confirmed === true,
+      };
+    }
+    const timeoutPending = executionTimeoutPending(control, attemptId);
+    if (timeoutPending) {
+      if (Date.now() - Number(timeoutPending.created_at_ms) >= EXECUTION_TIMEOUT_SETTLE_MS) {
+        return {
+          handle: parserSession.handle,
+          outcome: null,
+          process: getNativeProcess(control, attemptId),
+          observation_complete: true,
+          timed_out: false,
+          execution_timed_out: true,
+          termination_confirmed: false,
+        };
+      }
+      if (signal?.aborted) {
+        return { handle: parserSession.handle, outcome: null, process: record, observation_complete: false, timed_out: false, aborted: true };
+      }
+      await delay(Math.max(1, pollIntervalMs), undefined, signal ? { signal } : undefined).catch(() => {});
+      continue;
     }
 
     record = getNativeProcess(control, attemptId);
@@ -583,15 +649,25 @@ function trackChildClose(child, { control, prepared, inspector, lease, now }) {
       tracker.closed = true;
       tracker.code = Number.isInteger(code) ? code : null;
       tracker.signal = typeof signal === 'string' ? signal : null;
+      let timeoutPending = false;
       try {
         atomicWriteJson(prepared.exitPath, {
           exit_code: tracker.code,
           signal: tracker.signal,
           observed_at_ms: now(),
         });
-        markProcessExited(control, prepared.attemptId, { exitCode: tracker.code, exitedAtMs: now() }, { lease, now: now() });
+        timeoutPending = Boolean(executionTimeoutPending(control, prepared.attemptId));
+        if (!timeoutPending) {
+          markProcessExited(control, prepared.attemptId, { exitCode: tracker.code, exitedAtMs: now() }, { lease, now: now() });
+        }
       } catch {}
-      Promise.resolve(refreshWorkspaceExecutionGuard(control, prepared.attemptId, { inspector, now: now() }))
+      let refresh = Promise.resolve();
+      if (!timeoutPending) {
+        try {
+          refresh = Promise.resolve(refreshWorkspaceExecutionGuard(control, prepared.attemptId, { inspector, now: now() }));
+        } catch {}
+      }
+      refresh
         .catch(() => {})
         .finally(() => resolve({ code: tracker.code, signal: tracker.signal }));
     });
@@ -649,10 +725,11 @@ async function terminatePreSendChild(child, closeTracker, { control, prepared, i
     try { markProcessUnknown(control, prepared.attemptId, { lease, now: now() }); } catch {}
     return false;
   }
-  // Identity binding intentionally has not happened yet, so the generic guard
-  // refresher cannot use a persisted root PID. The ChildProcess handle itself
-  // proves which just-created root we terminated; release is still allowed
-  // only after descendant enumeration proves that root tree quiescent.
+  // The ChildProcess handle proves which just-created root we terminated.
+  // This path is used both before identity binding and after identity binding
+  // when a required pre-send control-plane primitive (such as the timeout
+  // guardian) cannot start. Release is still allowed only after descendant
+  // enumeration proves that root tree quiescent.
   try {
     const tree = await inspector.inspectProcessTree({ rootPid: child.pid, rootStartedAtMs: null });
     if (tree?.kind === 'quiescent') {
