@@ -33,12 +33,8 @@ export function executionTimeoutEvidence(control, attemptId) {
   }
 }
 
-export function executionTimeoutStartedEvidence(control, attemptId) {
+function executionTimeoutStartedEvidence(control, attemptId) {
   return eventEvidence(control, attemptId, 'execution.timeout_started');
-}
-
-export function executionTimeoutGuardianReadyEvidence(control, attemptId) {
-  return eventEvidence(control, attemptId, 'execution.timeout_guardian_ready');
 }
 
 export function executionTimeoutGuardianReadySlots(control, attemptId) {
@@ -57,7 +53,7 @@ export function executionTimeoutGuardianReadySlots(control, attemptId) {
   return [...slots.values()];
 }
 
-export function executionTimeoutClearedEvidence(control, attemptId) {
+function executionTimeoutClearedEvidence(control, attemptId) {
   return eventEvidence(control, attemptId, 'execution.timeout_cleared');
 }
 
@@ -73,7 +69,7 @@ export function recordExecutionTimeoutStarted(control, attemptId, { now = Date.n
 }
 
 export function recordExecutionTimeoutGuardianReady(control, attemptId, {
-  slot = 'legacy',
+  slot,
   pid = null,
   now = Date.now(),
 } = {}) {
@@ -96,10 +92,6 @@ export function recordExecutionTimeoutGuardianReady(control, attemptId, {
     appendEvent(database, { taskId: attempt.task_id, attemptId, type: 'execution.timeout_guardian_ready', payload, now: timestamp });
     return { ...payload, created_at_ms: timestamp, replayed: false };
   });
-}
-
-export function recordExecutionTimeoutCleared(control, attemptId, { reason = 'process_already_exited', now = Date.now() } = {}) {
-  return recordControlEvidence(control, attemptId, 'execution.timeout_cleared', { reason }, Number(now));
 }
 
 export function recordExecutionTimeoutEvidence(control, attemptId, {

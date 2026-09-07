@@ -160,9 +160,6 @@ export class CliAdapter {
   async *observe(handle, context = {}) {
     if (this.target === 'opencode' && context.prepared?.durable) {
       const prepared = context.prepared;
-      if (!prepared?.durable) fail('native_observation_unavailable', 'Durable OpenCode observation requires the prepared execution descriptor.', {
-        category: 'runtime', submission: 'sent',
-      });
       const inspector = context.processInspector ?? (process.platform === 'win32' ? createProcessInspector() : null);
       const cancellation = cancellableSignal(context);
       let observed;

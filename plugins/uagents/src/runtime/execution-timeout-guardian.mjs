@@ -154,10 +154,10 @@ export async function runExecutionTimeoutGuardian(root, attemptId, {
   const resolvedTerminator = terminator ?? createProcessTerminator({ inspector: resolvedInspector });
   const startedAt = Number(now());
   try {
-    const attempt = control.raw.prepare('SELECT task_id, submission FROM attempts WHERE attempt_id = ?').get(attemptId);
+    const attempt = control.raw.prepare('SELECT task_id FROM attempts WHERE attempt_id = ?').get(attemptId);
     if (!attempt) return { mode: 'missing_attempt' };
     const timeoutMs = Number(executionTimeoutMs);
-    if (!Number.isSafeInteger(Number(timeoutMs)) || Number(timeoutMs) <= 0) return { mode: 'disabled' };
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) return { mode: 'disabled' };
     const initialProcess = getNativeProcess(control, attemptId);
     if (!initialProcess || initialProcess.workspace_guard_state === 'released' ||
         !Number.isSafeInteger(Number(initialProcess.pid)) || Number(initialProcess.pid) <= 0 ||
@@ -272,7 +272,7 @@ function guardianLaunchError(cause) {
 
 if (process.argv[1] && samePath(process.argv[1], SOURCE_FILE)) {
   runExecutionTimeoutGuardian(process.argv[2], process.argv[3], {
-    slot: process.argv[4] ?? 'legacy',
+    slot: process.argv[4],
     executionTimeoutMs: Number(process.argv[5]),
   })
     .then(() => process.exit(0))
