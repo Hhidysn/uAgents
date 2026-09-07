@@ -15,6 +15,8 @@ import {
 import {
   enforceExecutionTimeout,
   executionDeadlineAt,
+  executionTimeoutEvidence,
+  recordExecutionTimeoutEvidence,
   releaseExecutionTimeoutClaim,
   renewExecutionTimeoutClaim,
   tryAcquireExecutionTimeoutClaim,
@@ -39,6 +41,17 @@ test('execution deadline is derived from the durable possibly-sent checkpoint ac
   control = new ControlDatabase(state);
   try {
     assert.equal(executionDeadlineAt(control, fixture.attemptId, 10_000), 60_000);
+  } finally { control.close(); }
+});
+
+test('malformed persisted timeout evidence is not treated as missing evidence', () => {
+  const control = new ControlDatabase(path.join(root, `malformed-evidence-${randomUUID()}`));
+  try {
+    const fixture = createFixture(control, 10_000);
+    recordExecutionTimeoutEvidence(control, fixture.attemptId, { terminationConfirmed: true, now: 60_000 });
+    control.raw.prepare("UPDATE events SET payload_json = '{bad' WHERE attempt_id = ? AND type = 'execution.timeout'")
+      .run(fixture.attemptId);
+    assert.throws(() => executionTimeoutEvidence(control, fixture.attemptId), SyntaxError);
   } finally { control.close(); }
 });
 

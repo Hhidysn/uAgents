@@ -249,6 +249,15 @@ test('worker heartbeat renews short leases until a long observation completes', 
   });
 });
 
+test('malformed persisted lifecycle evidence is not treated as absent lifecycle state', async () => {
+  await fixture('malformed-lifecycle', async ({ control, service }) => {
+    const registered = service.submit(request());
+    control.raw.prepare("UPDATE events SET payload_json = '{bad' WHERE task_id = ? AND type = 'task.registered'")
+      .run(registered.task_id);
+    assert.throws(() => service.status(registered.task_id), SyntaxError);
+  });
+});
+
 async function fixture(name, operation) {
   const control = new ControlDatabase(path.join(base, `${name}-${randomUUID()}`));
   try { await operation({ control, service: new TaskService(control) }); }

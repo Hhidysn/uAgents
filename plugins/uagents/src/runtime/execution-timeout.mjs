@@ -24,13 +24,9 @@ export function executionTimeoutEvidence(control, attemptId) {
     WHERE attempt_id = ? AND type = 'execution.timeout'
     ORDER BY sequence DESC LIMIT 1`).get(attemptId);
   if (!row) return null;
-  try {
-    const payload = JSON.parse(row.payload_json);
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
-    return { ...payload, created_at_ms: Number(row.created_at_ms) };
-  } catch {
-    return null;
-  }
+  const payload = JSON.parse(row.payload_json);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  return { ...payload, created_at_ms: Number(row.created_at_ms) };
 }
 
 function executionTimeoutStartedEvidence(control, attemptId) {
@@ -43,12 +39,10 @@ export function executionTimeoutGuardianReadySlots(control, attemptId) {
     ORDER BY sequence ASC`).all(attemptId) ?? [];
   const slots = new Map();
   for (const row of rows) {
-    try {
-      const payload = JSON.parse(row.payload_json);
-      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) continue;
-      const slot = typeof payload.slot === 'string' && payload.slot ? payload.slot : 'legacy';
-      if (!slots.has(slot)) slots.set(slot, { ...payload, created_at_ms: Number(row.created_at_ms) });
-    } catch {}
+    const payload = JSON.parse(row.payload_json);
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) continue;
+    const slot = typeof payload.slot === 'string' && payload.slot ? payload.slot : 'legacy';
+    if (!slots.has(slot)) slots.set(slot, { ...payload, created_at_ms: Number(row.created_at_ms) });
   }
   return [...slots.values()];
 }
@@ -81,8 +75,7 @@ export function recordExecutionTimeoutGuardianReady(control, attemptId, {
       WHERE attempt_id = ? AND type = 'execution.timeout_guardian_ready'
       AND json_extract(payload_json, '$.slot') = ? ORDER BY sequence ASC LIMIT 1`).get(attemptId, slot);
     if (existing) {
-      try { return { ...JSON.parse(existing.payload_json), created_at_ms: Number(existing.created_at_ms), replayed: true }; }
-      catch { return null; }
+      return { ...JSON.parse(existing.payload_json), created_at_ms: Number(existing.created_at_ms), replayed: true };
     }
     const payload = {
       phase: 'ready',
@@ -109,8 +102,7 @@ export function recordExecutionTimeoutEvidence(control, attemptId, {
       WHERE attempt_id = ? AND type = 'execution.timeout'
       ORDER BY sequence ASC LIMIT 1`).get(attemptId);
     if (existing) {
-      try { return { ...JSON.parse(existing.payload_json), created_at_ms: Number(existing.created_at_ms), replayed: true }; }
-      catch { return null; }
+      return { ...JSON.parse(existing.payload_json), created_at_ms: Number(existing.created_at_ms), replayed: true };
     }
     const payload = {
       termination_confirmed: terminationConfirmed === true,
@@ -156,11 +148,9 @@ function eventEvidence(control, attemptId, type) {
   const row = control?.raw?.prepare?.(`SELECT payload_json, created_at_ms FROM events
     WHERE attempt_id = ? AND type = ? ORDER BY sequence DESC LIMIT 1`).get(attemptId, type);
   if (!row) return null;
-  try {
-    const payload = JSON.parse(row.payload_json);
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
-    return { ...payload, created_at_ms: Number(row.created_at_ms) };
-  } catch { return null; }
+  const payload = JSON.parse(row.payload_json);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  return { ...payload, created_at_ms: Number(row.created_at_ms) };
 }
 
 function recordControlEvidence(control, attemptId, type, payload, now) {
@@ -170,8 +160,7 @@ function recordControlEvidence(control, attemptId, type, payload, now) {
     const existing = database.prepare(`SELECT payload_json, created_at_ms FROM events
       WHERE attempt_id = ? AND type = ? ORDER BY sequence ASC LIMIT 1`).get(attemptId, type);
     if (existing) {
-      try { return { ...JSON.parse(existing.payload_json), created_at_ms: Number(existing.created_at_ms), replayed: true }; }
-      catch { return null; }
+      return { ...JSON.parse(existing.payload_json), created_at_ms: Number(existing.created_at_ms), replayed: true };
     }
     appendEvent(database, { taskId: attempt.task_id, attemptId, type, payload, now });
     return { ...payload, created_at_ms: now, replayed: false };

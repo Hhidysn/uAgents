@@ -391,12 +391,10 @@ export class TaskService {
   #latestLifecycle(database, taskId) {
     const rows = database.prepare('SELECT payload_json FROM events WHERE task_id = ? ORDER BY sequence DESC LIMIT 50').all(taskId);
     for (const row of rows) {
-      try {
-        const payload = JSON.parse(row.payload_json);
-        if (payload && typeof payload === 'object' && !Array.isArray(payload) && payload.lifecycle && typeof payload.lifecycle === 'object') {
-          return payload.lifecycle;
-        }
-      } catch {}
+      const payload = JSON.parse(row.payload_json);
+      if (payload && typeof payload === 'object' && !Array.isArray(payload) && payload.lifecycle && typeof payload.lifecycle === 'object') {
+        return payload.lifecycle;
+      }
     }
     return null;
   }
