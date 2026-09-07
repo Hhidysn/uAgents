@@ -252,6 +252,28 @@ test('desktop waiting-user task reconciles through the same native identity with
   } finally { control.close(); }
 });
 
+test('desktop observation keeps coded transport failures indeterminate but surfaces programmer errors', async () => {
+  const doubaoBridge = new DoubaoBridge();
+  const doubao = new DoubaoAdapter({ bridge: doubaoBridge, pollIntervalMs: 0 });
+  doubaoBridge.inspect = async () => { throw Object.assign(new Error('cdp closed'), { code: 'cdp_closed' }); };
+  let event = (await doubao.observe({ target_id: 'page-1', native_conversation_id: 'conversation-1', user_message_index: 0 }).next()).value;
+  assert.equal(event.type, 'indeterminate');
+  assert.equal(event.error, 'cdp_closed');
+  doubaoBridge.inspect = async () => { throw new TypeError('fixture programmer error'); };
+  await assert.rejects(doubao.observe({ target_id: 'page-1', native_conversation_id: 'conversation-1', user_message_index: 0 }).next(), TypeError);
+  await assert.rejects(doubao.reconcile({ task_id: 'page-1', session_id: 'conversation-1', user_message_index: 0 }), TypeError);
+
+  const traeClient = new TraeClient();
+  const trae = new TraeAdapter({ client: traeClient, pollIntervalMs: 0 });
+  traeClient.task = async () => { throw Object.assign(new Error('gateway offline'), { code: 'gateway_unavailable' }); };
+  event = (await trae.observe({ task_id: 'trae-task-1' }).next()).value;
+  assert.equal(event.type, 'indeterminate');
+  assert.equal(event.error, 'gateway_unavailable');
+  traeClient.task = async () => { throw new TypeError('fixture programmer error'); };
+  await assert.rejects(trae.observe({ task_id: 'trae-task-1' }).next(), TypeError);
+  await assert.rejects(trae.reconcile({ task_id: 'trae-task-1' }), TypeError);
+});
+
 test('managed doubao task waits for preflight login and resumes on the same attempt', async () => {
   const control = new ControlDatabase(path.join(root, `managed-${randomUUID()}`));
   try {

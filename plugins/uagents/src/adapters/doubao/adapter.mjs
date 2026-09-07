@@ -95,7 +95,8 @@ export class DoubaoAdapter {
       try {
         observed = await bridge.inspect(handle.target_id, handle.native_conversation_id, handle.user_message_index);
       } catch (error) {
-        yield nativeEvent('indeterminate', { error: error.code ?? 'result_inspection_failed', native_status: 'unknown' });
+        if (!error?.code) throw error;
+        yield nativeEvent('indeterminate', { error: error.code, native_status: 'unknown' });
         return;
       }
       const event = mapDoubaoObservation(observed);
@@ -113,8 +114,9 @@ export class DoubaoAdapter {
     try {
       bridge = this.#bridgeFor(context);
     } catch (error) {
+      if (!error?.code) throw error;
       return nativeEvent('indeterminate', {
-        error: error.code ?? 'managed_instance_identity_mismatch',
+        error: error.code,
         native_status: 'unknown',
         evidence_strength: 1,
       });
@@ -128,7 +130,8 @@ export class DoubaoAdapter {
     } catch (error) {
       // A failed read leaves the native state unknown; it is intentionally
       // weaker than a later stable result from the same identity.
-      return nativeEvent('indeterminate', { error: error.code ?? 'result_inspection_failed', native_status: 'unknown', evidence_strength: 1 });
+      if (!error?.code) throw error;
+      return nativeEvent('indeterminate', { error: error.code, native_status: 'unknown', evidence_strength: 1 });
     }
   }
 }

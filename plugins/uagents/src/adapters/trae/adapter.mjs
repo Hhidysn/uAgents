@@ -129,7 +129,8 @@ export class TraeAdapter {
       // caller supplies a reconstructed context after a process restart.
       if (context?.managed) await client.status();
     } catch (error) {
-      yield nativeEvent('indeterminate', { error: error.code ?? 'result_inspection_failed', native_status: 'unknown', evidence_strength: 1 });
+      if (!error?.code) throw error;
+      yield nativeEvent('indeterminate', { error: error.code, native_status: 'unknown', evidence_strength: 1 });
       return;
     }
     const deadline = handle.deadline_at_ms ?? this.now() + 7_200_000;
@@ -138,7 +139,8 @@ export class TraeAdapter {
       try {
         native = await client.task(handle.task_id);
       } catch (error) {
-        yield nativeEvent('indeterminate', { error: error.code ?? 'result_inspection_failed', native_status: 'unknown' });
+        if (!error?.code) throw error;
+        yield nativeEvent('indeterminate', { error: error.code, native_status: 'unknown' });
         return;
       }
       const event = mapTraeNative(native);
@@ -164,7 +166,8 @@ export class TraeAdapter {
     catch (error) {
       // A failed read leaves the native state unknown; it is intentionally
       // weaker than a later stable result from the same identity.
-      return nativeEvent('indeterminate', { error: error.code ?? 'result_inspection_failed', native_status: 'unknown', evidence_strength: 1 });
+      if (!error?.code) throw error;
+      return nativeEvent('indeterminate', { error: error.code, native_status: 'unknown', evidence_strength: 1 });
     }
   }
 }
