@@ -57,7 +57,7 @@ export class TraeAdapter {
     if (typeof this.client.forManagedContext === 'function') return this.client.forManagedContext(managed);
     return new TraeGatewayClient({
       port: managed.gateway_port,
-      token: typeof managed.capability_token === 'string' && managed.capability_token.length > 0 ? managed.capability_token : '',
+      token: managed.capability_token,
       expectedInstanceNonce: managed.instance_nonce,
       fetchImpl: typeof this.client.fetchImpl === 'function' ? this.client.fetchImpl : fetch,
     });

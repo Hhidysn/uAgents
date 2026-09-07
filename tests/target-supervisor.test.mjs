@@ -459,4 +459,16 @@ describe('target supervisor', () => {
       ctx.cleanup();
     }
   });
+
+  test('11) malformed managed instance payload is not ignored as a missing instance', () => {
+    const supervisor = createTargetSupervisor({
+      hostStore: {
+        raw: () => [{ instance_id: 'broken', payload: '{' }],
+        getInstallation: () => null,
+      },
+      locator: { resolve: async () => desktopInstallation() },
+      runPowerShell: async () => { throw new Error('must not run'); },
+    });
+    assert.throws(() => supervisor.inspect('doubao'), SyntaxError);
+  });
 });

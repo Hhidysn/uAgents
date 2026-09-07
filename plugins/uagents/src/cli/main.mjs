@@ -62,9 +62,7 @@ export async function execute(argv, options = {}) {
   } finally { runtime.close(); }
 }
 
-// The managed lifecycle supervisor is constructed only for commands that need
-// it; a construction failure degrades to a structured unsupported_capability
-// error instead of breaking task-free commands.
+// The managed lifecycle supervisor is constructed only for commands that need it.
 async function createSupervisor() {
   const { createHostSupervisor } = await import('../host/target-supervisor.mjs');
   return createHostSupervisor();

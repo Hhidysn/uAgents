@@ -6,9 +6,7 @@ import { TaskService } from './task-service.mjs';
 import { runTask } from './worker.mjs';
 
 // Worker-side host control plane. Uses the shared factory so CLI, MCP and
-// worker subprocesses construct one identical supervisor. Best-effort: when
-// the host control plane cannot be created, tasks continue without the
-// managed lifecycle (identical to pre-supervisor behavior).
+// worker subprocesses construct one identical supervisor.
 async function createSupervisor() {
   const { createHostSupervisor } = await import('../host/target-supervisor.mjs');
   return createHostSupervisor();

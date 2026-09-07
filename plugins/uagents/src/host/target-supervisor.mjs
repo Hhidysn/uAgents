@@ -77,17 +77,13 @@ export function executableInInstallTree(executablePath, installationPath) {
 }
 
 function parseInstancePayload(row) {
-  try {
-    const payload = JSON.parse(row.payload);
-    if (
-      isPlainObject(payload) &&
-      typeof payload.instance_id === "string" &&
-      typeof payload.target === "string"
-    ) {
-      return payload;
-    }
-  } catch {
-    // fall through
+  const payload = JSON.parse(row.payload);
+  if (
+    isPlainObject(payload) &&
+    typeof payload.instance_id === "string" &&
+    typeof payload.target === "string"
+  ) {
+    return payload;
   }
   return null;
 }

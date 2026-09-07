@@ -50,13 +50,9 @@ export class UnifiedRuntime {
     }, { registry: this.registry });
     const result = await this.adapterFactory(target).probe(evaluated.request, { workspace });
     if (this.supervisor) {
-      try {
-        // Read-only managed-lifecycle snapshot merged into probe output;
-        // never starts, never mutates host state.
-        return { ...result, managed: this.supervisor.inspect(target) };
-      } catch {
-        return result;
-      }
+      // Read-only managed-lifecycle snapshot merged into probe output;
+      // never starts, never mutates host state.
+      return { ...result, managed: this.supervisor.inspect(target) };
     }
     return result;
   }

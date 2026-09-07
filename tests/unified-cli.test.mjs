@@ -5,6 +5,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { execute, main } from '../plugins/uagents/src/cli/main.mjs';
+import { UnifiedRuntime } from '../plugins/uagents/src/runtime/api.mjs';
 
 const root = path.resolve('.local', 'test-runs', randomUUID(), 'unified CLI');
 fs.mkdirSync(root, { recursive: true });
@@ -25,6 +26,20 @@ test('discovery commands expose the approved static registry', async () => {
   assert.deepEqual(models.data.map(model => model.route_id).sort(), [
     'commandcode-goat/deepseek/deepseek-v4-flash', 'commandcode-goat/z-ai/glm-5.3-flash',
   ]);
+});
+
+test('probe does not hide managed snapshot failures', async () => {
+  const stateRoot = path.join(root, `probe-supervisor-${randomUUID()}`);
+  const runtime = new UnifiedRuntime({
+    stateRoot,
+    adapterFactory: () => ({ probe: async () => ({ status: 'available', submission: 'not_sent' }) }),
+    supervisor: { inspect: () => { throw new Error('host snapshot failed'); } },
+  });
+  try {
+    await assert.rejects(runtime.probe('doubao'), /host snapshot failed/);
+  } finally {
+    runtime.close();
+  }
 });
 
 test('submit is nonblocking, idempotent and creates one detached worker request', async () => {
