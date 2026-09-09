@@ -234,7 +234,7 @@ test('worker keeps an unresolved durable guard queued and preserves the specific
       adapter,
       leaseOptions: {
         processInspector: inspector,
-        maxLeaseWaitMs: 15,
+        maxLeaseWaitMs: 0,
         leaseRetryIntervalMs: 1,
         maxLeaseRetryIntervalMs: 2,
       },

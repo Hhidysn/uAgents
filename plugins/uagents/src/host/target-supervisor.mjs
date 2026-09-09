@@ -716,26 +716,18 @@ export function createTargetSupervisor({
 
 // Shared host control-plane factory for every entrypoint (CLI, unified MCP,
 // worker subprocess). One construction path, one Host DB per Windows user.
-// Construction is best-effort: a failure yields null so callers continue
-// without the managed lifecycle, exactly like the worker path. The warning is
-// a fixed string that never carries error messages, paths or environment.
 export async function createHostSupervisor() {
-  try {
-    const [{ HostStore }, { createAgentLocator }, { createDoubaoLauncher }, { createTraeLauncher }] = await Promise.all([
-      import("./host-store.mjs"),
-      import("./agent-locator.mjs"),
-      import("./doubao-launcher.mjs"),
-      import("./trae-launcher.mjs"),
-    ]);
-    const hostStore = new HostStore();
-    const locator = createAgentLocator({ hostStore });
-    return createTargetSupervisor({
-      hostStore,
-      locator,
-      launchers: { doubao: createDoubaoLauncher(), trae: createTraeLauncher() },
-    });
-  } catch {
-    process.stderr.write("uagents: host supervisor unavailable, continuing without managed lifecycle\n");
-    return null;
-  }
+  const [{ HostStore }, { createAgentLocator }, { createDoubaoLauncher }, { createTraeLauncher }] = await Promise.all([
+    import("./host-store.mjs"),
+    import("./agent-locator.mjs"),
+    import("./doubao-launcher.mjs"),
+    import("./trae-launcher.mjs"),
+  ]);
+  const hostStore = new HostStore();
+  const locator = createAgentLocator({ hostStore });
+  return createTargetSupervisor({
+    hostStore,
+    locator,
+    launchers: { doubao: createDoubaoLauncher(), trae: createTraeLauncher() },
+  });
 }

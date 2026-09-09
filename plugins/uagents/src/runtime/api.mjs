@@ -65,9 +65,7 @@ export class UnifiedRuntime {
   async ensure(target, { refresh = false } = {}) {
     if (!this.supervisor) fail('unsupported_capability', 'Managed lifecycle is unavailable in this process.', { submission: 'not_sent' });
     const ensured = await this.supervisor.ensure(target, { refresh });
-    if (ensured.lease) {
-      try { this.supervisor.releaseInstanceLease(ensured.lease); } catch {}
-    }
+    if (ensured.lease) this.supervisor.releaseInstanceLease(ensured.lease);
     return {
       target,
       mode: ensured.mode,

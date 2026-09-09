@@ -106,7 +106,9 @@ function launchExecutionTimeoutGuardianSlot({
           slot,
           child,
         });
-      } catch {}
+      } catch (error) {
+        finish(reject, guardianLaunchError(error));
+      }
     };
     try {
       child = spawnImpl(process.execPath, [sourceFile, control.root, attemptId, slot, String(executionTimeoutMs)], {
@@ -181,9 +183,7 @@ export async function runExecutionTimeoutGuardian(root, attemptId, {
       let processRecord = getNativeProcess(control, attemptId);
       if (!processRecord || processRecord.workspace_guard_state === 'released') return { mode: 'process_complete' };
       if (resolvedInspector) {
-        try {
-          processRecord = await refreshWorkspaceExecutionGuard(control, attemptId, { inspector: resolvedInspector, now: Number(now()) });
-        } catch {}
+        processRecord = await refreshWorkspaceExecutionGuard(control, attemptId, { inspector: resolvedInspector, now: Number(now()) });
         if (!processRecord || processRecord.workspace_guard_state === 'released') return { mode: 'process_complete' };
       }
 

@@ -151,6 +151,21 @@ test('ensure and stop delegate to the host supervisor without a state-dir depend
   assert.deepEqual(stopped, ['doubao']);
 });
 
+test('ensure does not report success when the one-shot host lease cannot be released', async () => {
+  const lease = { resource_key: 'instance:doubao', owner_nonce: 'cli', epoch: 1, fencing_token: 'fence-1' };
+  const supervisor = {
+    ensure: async () => ({
+      mode: 'reuse',
+      lease,
+      lifecycle: { state: 'ready', instance_id: 'managed-doubao-1', installation_id: 'inst-doubao', profile_generation: 1, started_by_uagents: true, reused: true },
+      installation: { installation_id: 'inst-doubao', canonical_path: 'C:\\fake\\DoubaoWork.exe' },
+      instance: { instance_id: 'managed-doubao-1', port: 19222 },
+    }),
+    releaseInstanceLease: () => { throw new TypeError('fixture release failure'); },
+  };
+  await assert.rejects(() => execute(['ensure', 'doubao', '--state-dir', root], { supervisor }), TypeError);
+});
+
 test('ensure without a host supervisor is a structured unsupported error', async () => {
   await assert.rejects(
     () => execute(['ensure', 'doubao', '--state-dir', root], { supervisor: null }),

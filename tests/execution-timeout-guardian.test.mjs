@@ -115,6 +115,40 @@ test('guardian process exit before durable ready evidence fails closed', async (
   } finally { control.close(); }
 });
 
+test('guardian ready handshake surfaces corrupted persisted evidence instead of timing out', async () => {
+  const stateRoot = path.join(root, `corrupt-ready-${randomUUID()}`);
+  const control = new ControlDatabase(stateRoot);
+  const service = new TaskService(control);
+  const registered = service.submit({
+    schema_version: '1.0', request_id: randomUUID(), target: 'opencode',
+    model: 'commandcode-goat/deepseek/deepseek-v4-flash', mode: 'analysis', prompt: 'fixture',
+    execution: { observation_timeout_ms: 5_000, effort: 'medium', permission: 'native' },
+    policy: { fallback: 'none', max_cost_usd: null },
+  });
+  const child = new EventEmitter();
+  child.pid = 4401;
+  child.kill = () => {};
+  try {
+    await assert.rejects(() => launchExecutionTimeoutGuardian({
+      control,
+      attemptId: registered.attempt.attempt_id,
+      executionTimeoutMs: 1_000,
+      sourceFile: path.join(root, 'guardian.mjs'),
+      readyTimeoutMs: 500,
+      readyPollMs: 5,
+      spawnImpl(_command, args) {
+        const slot = args.at(-2);
+        queueMicrotask(() => {
+          child.emit('spawn');
+          recordExecutionTimeoutGuardianReady(control, registered.attempt.attempt_id, { slot, pid: child.pid });
+          control.raw.prepare(`UPDATE events SET payload_json = '{bad' WHERE attempt_id = ? AND type = 'execution.timeout_guardian_ready'`).run(registered.attempt.attempt_id);
+        });
+        return child;
+      },
+    }), error => error.code === 'execution_timeout_guardian_unavailable' && error.cause instanceof SyntaxError);
+  } finally { control.close(); }
+});
+
 test('secondary guardian failure after primary ready kills the primary and fails closed before send', async () => {
   const stateRoot = path.join(root, `secondary-not-ready-${randomUUID()}`);
   const control = new ControlDatabase(stateRoot);
@@ -204,6 +238,27 @@ test('guardian records unconfirmed timeout without releasing an uncertain writer
     const processRecord = getNativeProcess(fixture.control, fixture.attemptId);
     assert.equal(processRecord.process_state, 'unknown');
     assert.equal(processRecord.workspace_guard_state, 'unknown');
+  } finally { fixture.control.close(); }
+});
+
+test('guardian surfaces unexpected workspace guard refresh failures', async () => {
+  const fixture = createFixture('refresh-programmer-error');
+  try {
+    persistCheckpoint(fixture.control, {
+      taskId: fixture.taskId,
+      attemptId: fixture.attemptId,
+      kind: 'possibly_sent',
+      payload: { target: 'opencode' },
+      now: Date.now(),
+    });
+    await assert.rejects(() => runExecutionTimeoutGuardian(fixture.control.root, fixture.attemptId, {
+      executionTimeoutMs: 60_000,
+      inspector: {
+        inspectProcess: async () => { throw new TypeError('fixture programmer error'); },
+        inspectProcessTree: async () => ({ kind: 'quiescent', descendants: [] }),
+      },
+      pollMs: 1,
+    }), TypeError);
   } finally { fixture.control.close(); }
 });
 

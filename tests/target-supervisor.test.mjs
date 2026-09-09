@@ -6,10 +6,21 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { HostStore, HostStoreError, resolveHostRoot } from '../plugins/uagents/src/host/host-store.mjs';
-import { createTargetSupervisor } from '../plugins/uagents/src/host/target-supervisor.mjs';
+import { createHostSupervisor, createTargetSupervisor } from '../plugins/uagents/src/host/target-supervisor.mjs';
 import { UAgentsError } from '../plugins/uagents/src/protocol/errors.mjs';
 
 const INSTALLATION_PATH = 'C:\\fake\\App.exe';
+
+test('default host supervisor construction fails instead of falling back to unmanaged execution', async () => {
+  const previous = process.env.LOCALAPPDATA;
+  process.env.LOCALAPPDATA = 'relative-host-root';
+  try {
+    await assert.rejects(() => createHostSupervisor(), { code: 'invalid_workspace' });
+  } finally {
+    if (previous === undefined) delete process.env.LOCALAPPDATA;
+    else process.env.LOCALAPPDATA = previous;
+  }
+});
 
 function desktopInstallation(target = 'doubao') {
   return {

@@ -54,6 +54,14 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
       taskLease = null;
     }
   };
+  const acquireSharedLeases = () => acquireExecutionLeases(service.control, {
+    target: request.target,
+    workspace: request.workspace,
+    ...leaseOptions,
+    attemptId,
+    ownerNonce,
+    now: service.clock(),
+  });
 
   // Keep a task-scoped fenced claim while waiting for global/target/workspace
   // resources.  A bounded wait leaves the attempt queued, and the persisted
@@ -80,14 +88,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
         ttlMs: taskLeaseTtlMs,
         now: service.clock(),
       });
-      const acquired = acquireExecutionLeases(service.control, {
-        target: request.target,
-        workspace: request.workspace,
-        ...leaseOptions,
-        attemptId,
-        ownerNonce,
-        now: service.clock(),
-      });
+      const acquired = acquireSharedLeases();
       leases.push(...acquired);
       break;
     } catch (error) {
@@ -106,10 +107,24 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
       }
       const elapsed = Date.now() - waitStartedAt;
       if (elapsed >= maxLeaseWaitMs) {
+        let finalConflict = error;
+        if (isWorkspaceExecutionConflict(error) && request.workspace) {
+          try {
+            const acquired = acquireSharedLeases();
+            leases.push(...acquired);
+            break;
+          } catch (refreshedError) {
+            if (!isUnsentResourceConflict(refreshedError)) {
+              releaseAcquiredLeases();
+              throw refreshedError;
+            }
+            finalConflict = refreshedError;
+          }
+        }
         const queued = service.recordLeaseWait(taskId, attemptId, {
           waitMs: elapsed,
-          error,
-          reason: error?.code ?? 'lease_conflict',
+          error: finalConflict,
+          reason: finalConflict?.code ?? 'lease_conflict',
           now: service.clock(),
         });
         releaseAcquiredLeases();
