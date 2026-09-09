@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { pathIsWithin } from '../path-containment.mjs';
 import { fail } from '../protocol/errors.mjs';
 import { uuidPattern } from '../protocol/schema.mjs';
 
@@ -13,7 +14,7 @@ export function taskDirectory(root, taskId, { create = false } = {}) {
   if (fs.existsSync(directory)) {
     const realTasks = fs.realpathSync(tasksRoot);
     const realDirectory = fs.realpathSync(directory);
-    if (!isWithin(realTasks, realDirectory)) fail('unsafe_task_path', 'Task directory resolves outside the task root.');
+    if (!pathIsWithin(realTasks, realDirectory)) fail('unsafe_task_path', 'Task directory resolves outside the task root.');
   }
   return directory;
 }
@@ -50,9 +51,4 @@ function atomicWrite(file, value) {
 
 export function readTaskJson(directory, name) {
   return JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));
-}
-
-function isWithin(parent, child) {
-  const relative = path.relative(parent, child);
-  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }

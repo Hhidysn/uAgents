@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { setTimeout as delay } from 'node:timers/promises';
+import { pathIsWithin } from '../path-containment.mjs';
 import { fail, UAgentsError } from '../protocol/errors.mjs';
 import { atomicWriteJson } from '../store/task-files.mjs';
 import {
@@ -633,8 +634,7 @@ function createTranscriptFiles(prepared) {
   fs.mkdirSync(prepared.nativeDirectory, { recursive: true, mode: 0o700 });
   const realTask = fs.realpathSync(prepared.taskDirectory);
   const realNative = fs.realpathSync(prepared.nativeDirectory);
-  const relativeNative = path.relative(realTask, realNative);
-  if (relativeNative === '..' || relativeNative.startsWith(`..${path.sep}`) || path.isAbsolute(relativeNative)) {
+  if (!pathIsWithin(realTask, realNative)) {
     fail('unsafe_task_path', 'Durable transcript directory resolves outside the task directory.');
   }
   let stdout;
@@ -808,8 +808,7 @@ function taskRelativePath(taskDirectory, relative) {
     fail('invalid_request', 'Durable transcript path escapes the task directory.');
   }
   const candidate = path.resolve(taskDirectory, ...normalized.split('/'));
-  const relativeToTask = path.relative(path.resolve(taskDirectory), candidate);
-  if (relativeToTask === '..' || relativeToTask.startsWith(`..${path.sep}`) || path.isAbsolute(relativeToTask)) {
+  if (!pathIsWithin(path.resolve(taskDirectory), candidate)) {
     fail('invalid_request', 'Durable transcript path escapes the task directory.');
   }
   return candidate;

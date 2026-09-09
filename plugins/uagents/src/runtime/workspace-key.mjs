@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathIsWithin } from '../path-containment.mjs';
 import { fail } from '../protocol/errors.mjs';
 
 export function canonicalWorkspace(workspace) {
@@ -13,14 +14,9 @@ export function canonicalWorkspace(workspace) {
 export function workspacesOverlap(left, right) {
   const a = canonicalWorkspace(left);
   const b = canonicalWorkspace(right);
-  return within(a, b) || within(b, a);
+  return pathIsWithin(a, b) || pathIsWithin(b, a);
 }
 
 export function canonicalWorkspacesOverlap(leftCanonical, rightCanonical) {
-  return within(leftCanonical, rightCanonical) || within(rightCanonical, leftCanonical);
-}
-
-function within(parent, child) {
-  const relative = path.relative(parent, child);
-  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+  return pathIsWithin(leftCanonical, rightCanonical) || pathIsWithin(rightCanonical, leftCanonical);
 }

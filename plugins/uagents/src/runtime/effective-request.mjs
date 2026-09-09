@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { canonicalHash } from '../protocol/canonical-json.mjs';
 import { fail } from '../protocol/errors.mjs';
 import { parseRequest } from '../protocol/schema.mjs';
+import { pathIsWithin } from '../path-containment.mjs';
 import { canonicalWorkspace } from './workspace-key.mjs';
 
 export function materializeEffectiveRequest(originalInput, evaluated, versions = {}) {
@@ -41,7 +42,7 @@ export function snapshotInputs(workspace, inputs) {
     try { real = fs.realpathSync.native(candidate); }
     catch (error) { fail('invalid_input', `Input cannot be read: ${input.path}`, { details: { cause: error.code } }); }
     const normalized = process.platform === 'win32' ? real.normalize('NFC').toLocaleLowerCase('en-US') : real.normalize('NFC');
-    if (!within(root, normalized)) fail('invalid_input', `Input resolves outside workspace: ${input.path}`);
+    if (!pathIsWithin(root, normalized)) fail('invalid_input', `Input resolves outside workspace: ${input.path}`);
     const info = fs.statSync(real);
     if (!info.isFile()) fail('invalid_input', `Input is not a file: ${input.path}`);
     const sha256 = createHash('sha256').update(fs.readFileSync(real)).digest('hex');
@@ -53,9 +54,4 @@ export function verifyInputSnapshots(workspace, snapshots) {
   const current = snapshotInputs(workspace, snapshots.map(({ type, path: inputPath }) => ({ type, path: inputPath })));
   if (canonicalHash(current) !== canonicalHash(snapshots)) fail('input_changed', 'An input changed after task registration.', { category: 'conflict', submission: 'not_sent' });
   return true;
-}
-
-function within(parent, child) {
-  const relative = path.relative(parent, child);
-  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }

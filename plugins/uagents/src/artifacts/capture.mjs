@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { pathIsWithin } from '../path-containment.mjs';
 import { atomicWriteJson } from '../store/task-files.mjs';
 import { canonicalWorkspace } from '../runtime/workspace-key.mjs';
 
@@ -21,7 +22,7 @@ function captureOne({ workspace, workspaceIdentity, captureRoot, taskDirectory, 
   try { real = fs.realpathSync.native(source); }
   catch (error) { return { path: expected.path, required: expected.required, verified: false, error: error.code === 'ENOENT' ? 'missing' : 'unreadable' }; }
   const normalized = process.platform === 'win32' ? real.normalize('NFC').toLocaleLowerCase('en-US') : real.normalize('NFC');
-  if (!within(workspaceIdentity, normalized)) return { path: expected.path, required: expected.required, verified: false, error: 'outside_workspace' };
+  if (!pathIsWithin(workspaceIdentity, normalized)) return { path: expected.path, required: expected.required, verified: false, error: 'outside_workspace' };
 
   let sourceHandle;
   const destination = path.join(captureRoot, ...expected.path.split('/'));
@@ -67,9 +68,4 @@ function captureOne({ workspace, workspaceIdentity, captureRoot, taskDirectory, 
   } finally {
     if (sourceHandle !== undefined) fs.closeSync(sourceHandle);
   }
-}
-
-function within(parent, child) {
-  const relative = path.relative(parent, child);
-  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }
