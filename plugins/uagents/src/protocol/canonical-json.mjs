@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { fail } from './errors.mjs';
 
-export function canonicalize(value) {
+function canonicalize(value) {
   return encode(value, new Set());
 }
 

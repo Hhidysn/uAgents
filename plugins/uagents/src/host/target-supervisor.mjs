@@ -33,9 +33,9 @@ const PERSISTED_LAUNCHER_FIELDS = Object.freeze([
   "desktop_pid", "gateway_pid", "gateway_started_at_ms", "gateway_port",
   "capability_file", "instance_nonce", "adopted",
 ]);
-export const INSTANCE_LEASE_PREFIX = "instance:";
-export const STARTED_AT_TOLERANCE_MS = 1000;
-export const TASKKILL_TIMEOUT_MS = 10_000;
+const INSTANCE_LEASE_PREFIX = "instance:";
+const STARTED_AT_TOLERANCE_MS = 1000;
+const TASKKILL_TIMEOUT_MS = 10_000;
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);

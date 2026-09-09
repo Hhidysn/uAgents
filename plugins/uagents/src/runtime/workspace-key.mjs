@@ -10,10 +10,6 @@ export function canonicalWorkspace(workspace) {
   return process.platform === 'win32' ? real.normalize('NFC').toLocaleLowerCase('en-US') : real.normalize('NFC');
 }
 
-export function workspaceResourceKey(workspace) {
-  return `workspace:${canonicalWorkspace(workspace)}`;
-}
-
 export function workspacesOverlap(left, right) {
   const a = canonicalWorkspace(left);
   const b = canonicalWorkspace(right);

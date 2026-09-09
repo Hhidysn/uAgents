@@ -195,7 +195,7 @@ export function publicProbe(status) {
   };
 }
 
-export function mapTraeNative(native) {
+function mapTraeNative(native) {
   const status = String(native?.status ?? '').toLowerCase();
   if (['accepted', 'queued', 'executing'].includes(status)) return nativeEvent('running', { native_status: status });
   if (['approval_required', 'awaiting_review'].includes(status)) return nativeEvent('waiting_user', {

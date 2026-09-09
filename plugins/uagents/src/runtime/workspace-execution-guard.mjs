@@ -2,7 +2,7 @@ import { createProcessInspector, classifyPersistedProcess } from '../host/proces
 import { canonicalWorkspace, canonicalWorkspacesOverlap } from './workspace-key.mjs';
 import { compareAndSetProcessRefresh, getNativeProcess, listGuardedProcesses } from './native-processes.mjs';
 
-export function listOverlappingWorkspaceGuards(control, { workspace, attemptId = null } = {}) {
+function listOverlappingWorkspaceGuards(control, { workspace, attemptId = null } = {}) {
   if (!workspace) return [];
   const canonical = canonicalWorkspace(workspace);
   return listGuardedProcesses(control).filter(row =>

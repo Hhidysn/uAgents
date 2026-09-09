@@ -4,8 +4,8 @@ import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { classifyPersistedProcess, createProcessInspector } from './process-inspector.mjs';
 
-export const DEFAULT_TERMINATION_BUDGET_MS = 10_000;
-export const DEFAULT_TERMINATION_POLL_MS = 50;
+const DEFAULT_TERMINATION_BUDGET_MS = 10_000;
+const DEFAULT_TERMINATION_POLL_MS = 50;
 
 export function createProcessTerminator({ inspector = null, spawnImpl = spawn, env = process.env } = {}) {
   const resolvedInspector = inspector ?? (process.platform === 'win32' ? createProcessInspector() : null);

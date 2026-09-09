@@ -136,7 +136,7 @@ export class DoubaoAdapter {
   }
 }
 
-export function mapDoubaoObservation(observed) {
+function mapDoubaoObservation(observed) {
   if (observed?.status === 'running') return nativeEvent('running', { response: observed.response ?? '', native_status: 'running' });
   if (observed?.status === 'needs_user') return nativeEvent('waiting_user', { error: observed.error ?? 'native_approval_required', native_status: 'needs_user', interaction: observed.interaction ?? null });
   if (observed?.status === 'succeeded') return nativeEvent('succeeded', { response: observed.response ?? '', native_status: 'succeeded', evidence: observed.evidence ?? null });

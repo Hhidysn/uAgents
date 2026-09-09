@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { errorRecord, fail, UAgentsError } from '../protocol/errors.mjs';
 
-export const OPENCODE_PROTOCOL_FLAGS = Object.freeze(['--model', '--format', '--dir', '--title']);
+const OPENCODE_PROTOCOL_FLAGS = Object.freeze(['--model', '--format', '--dir', '--title']);
 
 export function validateOpenCodeNativeArgs(nativeArgs = []) {
   if (!Array.isArray(nativeArgs)) {

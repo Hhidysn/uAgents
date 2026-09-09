@@ -25,8 +25,8 @@ import { executableInInstallTree } from "./target-supervisor.mjs";
 export const DOUBAO_PORT_CANDIDATES = Object.freeze([
   19222, 19223, 19224, 19225, 19226, 19227, 19228, 19229, 19230,
 ]);
-export const CDP_READY_TIMEOUT_MS = 45_000;
-export const CHAT_SURFACE_TIMEOUT_MS = 20_000;
+const CDP_READY_TIMEOUT_MS = 45_000;
+const CHAT_SURFACE_TIMEOUT_MS = 20_000;
 export const CDP_POLL_MS = 400;
 export const CHAT_BASE = "doubaowork://doubaowork-chat/chat";
 const CHAT_URL = /^doubaowork:\/\/doubaowork-chat\/chat(?:\/(\d+))?$/;
@@ -93,7 +93,7 @@ export async function pickDoubaoPort(runPowerShell) {
 //   ready          - the chat page exists
 //   waiting_user   - CDP is up but only login/setup surfaces exist
 //   stale          - CDP refused/aborted: process alive but browser dead
-export async function classifyDoubaoSurface(fetchImpl, port) {
+async function classifyDoubaoSurface(fetchImpl, port) {
   let targets;
   try {
     const response = await fetchImpl(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(2500) });

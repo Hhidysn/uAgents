@@ -21,12 +21,12 @@ import {
 } from './execution-timeout.mjs';
 
 const SOURCE_FILE = fileURLToPath(import.meta.url);
-export const DEFAULT_GUARDIAN_POLL_MS = 250;
-export const DEFAULT_GUARDIAN_SEND_GRACE_MS = 30_000;
-export const DEFAULT_GUARDIAN_READY_TIMEOUT_MS = 5_000;
-export const DEFAULT_GUARDIAN_CLAIM_TTL_MS = 5_000;
-export const DEFAULT_GUARDIAN_CLAIM_HEARTBEAT_MS = 1_000;
-export const EXECUTION_TIMEOUT_GUARDIAN_SLOTS = Object.freeze(['primary', 'secondary']);
+const DEFAULT_GUARDIAN_POLL_MS = 250;
+const DEFAULT_GUARDIAN_SEND_GRACE_MS = 30_000;
+const DEFAULT_GUARDIAN_READY_TIMEOUT_MS = 5_000;
+const DEFAULT_GUARDIAN_CLAIM_TTL_MS = 5_000;
+const DEFAULT_GUARDIAN_CLAIM_HEARTBEAT_MS = 1_000;
+const EXECUTION_TIMEOUT_GUARDIAN_SLOTS = Object.freeze(['primary', 'secondary']);
 
 export async function launchExecutionTimeoutGuardian({
   control,

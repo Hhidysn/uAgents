@@ -145,7 +145,7 @@ export function resolveStateRoot(value, env = process.env) {
   return path.resolve(root);
 }
 
-export function spawnSourceWorker(root, taskId) {
+function spawnSourceWorker(root, taskId) {
   const child = spawn(process.execPath, [sourceWorkerFile, root, taskId], {
     detached: true, windowsHide: true, env: childEnvironment(), stdio: 'ignore',
   });

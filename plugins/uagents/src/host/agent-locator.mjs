@@ -26,7 +26,7 @@ import { fail } from "../protocol/errors.mjs";
 import { nativeCliCandidates } from "../transports/cli-process.mjs";
 
 export const VERIFIER_VERSION = "windows-host-v1";
-export const DEFAULT_RUNNER_TIMEOUT_MS = 20_000;
+const DEFAULT_RUNNER_TIMEOUT_MS = 20_000;
 export const CACHE_ID_PREFIX = "installation:";
 const OPEN_CODE_SHIM_NAMES = new Set(["opencode", "opencode.cmd", "opencode.ps1"]);
 
@@ -174,7 +174,7 @@ function sameMtime(leftMs, rightMs) {
 // with -NoProfile and is intentionally limited to identity checks; relying on
 // a profile-provided Get-FileHash makes a valid installation appear untrusted
 // on otherwise supported Windows hosts.
-export async function hashFileSha256(filePath) {
+async function hashFileSha256(filePath) {
   let before;
   try {
     before = await fs.stat(filePath);
@@ -217,7 +217,7 @@ function isOpenCodeNativeExecutable(candidatePath) {
 // spawnable .exe can enter the trusted installation cache. Reuse the same
 // native npm-layout candidate generator as the CLI transport and never invoke
 // a shell to resolve the hint.
-export async function resolveNativeExecutableCandidates(target, candidatePath) {
+async function resolveNativeExecutableCandidates(target, candidatePath) {
   if (target !== "opencode" || process.platform !== "win32") return [candidatePath];
   if (isOpenCodeNativeExecutable(candidatePath)) return [candidatePath];
 

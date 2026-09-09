@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createDefaultRunner } from './agent-locator.mjs';
 
-export const PROCESS_START_TOLERANCE_MS = 1000;
+const PROCESS_START_TOLERANCE_MS = 1000;
 
 export function createProcessInspector({ runPowerShell = null } = {}) {
   const runner = runPowerShell ?? createDefaultRunner();

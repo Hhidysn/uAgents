@@ -37,10 +37,10 @@ export const TRAE_CDP_PORT_CANDIDATES = Object.freeze([
 export const TRAE_GATEWAY_PORT_CANDIDATES = Object.freeze([
   19422, 19423, 19424, 19425, 19426, 19427, 19428, 19429, 19430,
 ]);
-export const GATEWAY_READY_TIMEOUT_MS = 20_000;
-export const WORKBENCH_SURFACE_TIMEOUT_MS = 30_000;
+const GATEWAY_READY_TIMEOUT_MS = 20_000;
+const WORKBENCH_SURFACE_TIMEOUT_MS = 30_000;
 export const POLL_MS = 500;
-export const CAPABILITY_FILE_NAME = "trae-gateway-token";
+const CAPABILITY_FILE_NAME = "trae-gateway-token";
 
 const GATEWAY_ENTRY = fileURLToPath(new URL("../../mcp/trae/dist/gateway.cjs", import.meta.url));
 
