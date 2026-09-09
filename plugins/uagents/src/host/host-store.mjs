@@ -7,8 +7,7 @@ import {
   releaseLeases,
   assertFencing,
 } from "../runtime/leases.mjs";
-
-const FORBIDDEN_KEY_PATTERN = /prompt|token|secret|password|cookie|authorization/i;
+import { isHostForbiddenKeyName } from "../sensitive-fields.mjs";
 
 const SCHEMA_VERSION = "1";
 
@@ -62,7 +61,7 @@ function assertWritable(value, seen) {
   if (seen.has(value)) return;
   seen.add(value);
   for (const [key, item] of Object.entries(value)) {
-    if (FORBIDDEN_KEY_PATTERN.test(key)) {
+    if (isHostForbiddenKeyName(key)) {
       throw new HostStoreError("invalid_input", `refusing to persist forbidden key "${key}"`);
     }
     assertWritable(item, seen);

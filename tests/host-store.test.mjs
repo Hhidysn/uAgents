@@ -137,7 +137,10 @@ test("markManagedInstanceStale keeps the row and stamps status/stale_at_ms", (t)
 
 test("rejects payloads containing forbidden keys at any depth, case-insensitive", (t) => {
   const { store } = withStore(t);
-  for (const key of ["prompt", "token", "secret", "password", "cookie", "authorization"]) {
+  for (const key of [
+    "prompt", "token", "secret", "password", "cookie", "authorization",
+    "api_key", "apiKey", "private_key", "privateKey",
+  ]) {
     assert.throws(() => store.upsertInstallation("k", { [key]: "x" }), invalidInput);
   }
   assert.throws(

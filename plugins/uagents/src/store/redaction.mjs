@@ -1,6 +1,5 @@
 import { redactText } from '../protocol/errors.mjs';
-
-const SENSITIVE_KEYS = /^(authorization|cookie|set-cookie|api[-_]?key|token|access[-_]?token|refresh[-_]?token|client[-_]?secret|password|private[-_]?key)$/i;
+import { isSensitiveKeyName } from '../sensitive-fields.mjs';
 
 function redactValue(value, seen = new WeakSet()) {
   if (typeof value === 'string') return redactText(value);
@@ -9,6 +8,6 @@ function redactValue(value, seen = new WeakSet()) {
   seen.add(value);
   if (Array.isArray(value)) return value.map(item => redactValue(item, seen));
   const result = {};
-  for (const [key, item] of Object.entries(value)) result[key] = SENSITIVE_KEYS.test(key) ? '[REDACTED]' : redactValue(item, seen);
+  for (const [key, item] of Object.entries(value)) result[key] = isSensitiveKeyName(key) ? '[REDACTED]' : redactValue(item, seen);
   return result;
 }
