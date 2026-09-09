@@ -33,7 +33,7 @@ Verified execution-timeout 门禁已通过：Core `254/254` + MCP `11/9/2`，共
 
 ## 一句话结论
 
-OpenCode 在当前工作树和当前安装缓存中都支持 `analysis` 和 `implementation`，并开放声明式文件输入与文件输出验收；当前安装缓存已通过真实 provider 的 analysis、implementation artifact 和 execution-timeout E2E。
+OpenCode 在当前源码和已安装发布候选中都支持 `analysis` 和 `implementation`，并开放声明式文件输入与文件输出验收；已安装发布候选已通过真实 provider 的 analysis、implementation artifact 和 execution-timeout E2E。
 运行时通过 `opencode run --model ... --format json --dir ... --title ...` 启动；`--pure`、`--auto` 等原生选项由
 `execution.native_args` 控制。uAgents 仍不提供执行沙箱，`execution.permission` 只作为 Schema 1.0 兼容元数据，
 不再参与权限能力准入。
@@ -42,16 +42,16 @@ OpenCode 在当前工作树和当前安装缓存中都支持 `analysis` 和 `imp
 
 | 层次 | 当前事实 | 结论 |
 | --- | --- | --- |
-| 插件 manifest | `0.2.0-alpha.1+codex.20260907011733` | 当前工作树、marketplace 源和当前安装 cache 版本一致 |
+| 插件 manifest | `0.2.0-alpha.1+codex.20260907011733` | manifest 版本尚未因后续源码 cleanup 重新发布 |
 | Durable 已提交基线 | `686b02d`（Gate A）、`6702f32`（Gate B）、`f71a891`（Gate C）、`fa01ca5`（Gate D）、`2fd090b`（RC metadata） | 当前源码、个人 marketplace 源和新缓存均包含 durable OpenCode production/recovery |
-| 当前源码 | Durable baseline + `3fb582e` verified timeout + `c20172d` redundant guardian follow-up | 双 guardian 源码、RC metadata、安装与 fresh-process 验收均已完成 |
-| marketplace 源 | `C:\Users\24590\plugins\uagents` | 从当前提交同步 120 个 tracked 插件文件；旧源完整备份 |
-| 实际安装缓存 | `C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260907011733` | `codex plugin list --json` 显示 installed/enabled 的当前版本 |
+| 当前源码 | 功能基线 + `332061a`..`04e3317` 的 runtime/complexity cleanup | 当前功能代码 HEAD 已前进到 `04e3317`；tracked plugin 文件为 121 个 |
+| marketplace 源 | `C:\Users\24590\plugins\uagents` | 仍是 2026-09-07 发布候选源；尚未同步后续 cleanup（缺少 `path-containment.mjs`、`sensitive-fields.mjs`） |
+| 实际安装缓存 | `C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260907011733` | 已安装/已验证的 2026-09-07 发布候选；不是当前源码 HEAD 的逐文件副本 |
 | 旧缓存 | `...0.2.0-alpha.1+codex.20260906234542`、`...20260906212805`、`...20260906063959`、`...20260905113451` | 均保留用于回滚，不是当前 marketplace 安装版本 |
 
-核对依据：以 `git ls-files -- plugins/uagents` 为仓库发布权威集合，当前 tracked plugin、marketplace 源和新安装缓存均为 120 个文件、4,142,065 字节，逐文件
-SHA-256 `120/120` 一致，且 marketplace/cache 均无额外文件。旧 C 盘源完整保留为
-`C:\Users\24590\plugins\uagents-backup-before-20260907011733`，旧缓存均未删除。
+2026-09-07 发布验收时，tracked plugin、marketplace 源和安装缓存曾为 120 个文件并逐文件一致；此后源码完成多轮 cleanup，
+当前 `git ls-files -- plugins/uagents` 为 121 个文件，marketplace/cache 尚未重发。旧 C 盘源完整保留为
+`C:\Users\24590\plugins\uagents-backup-before-20260907011733`，旧缓存均未删除。新功能开发应以仓库源码为准，不能把当前安装 cache 当成最新源码快照。
 
 本次核对使用了以下只读命令：
 
@@ -67,15 +67,16 @@ node plugins/uagents/bin/uagents.mjs capabilities opencode
 
 ## 实际能力矩阵
 
-下面的“文件输入/输出”是 uAgents 协议能力，不等于目标原生应用理论上永远不能处理文件。
+下面区分“声明式文件输入”和“native attachment 映射”。前者表示 Schema/快照层接受 `inputs[]`；后者表示 transport
+确实把这些输入作为目标原生文件参数/附件交给 subagent。仅仅让 Agent 在 workspace 里自行读文件，不等于 native attachment 已接通。
 
-| 目标 | 模式 | 文件输入 | 文件输出 | 图片 | 模型选择 | 运输与生命周期 | 主要限制 |
-| --- | --- | ---: | ---: | ---: | --- | --- | --- |
-| agy | `analysis`、`implementation` | 是 | 是 | 否 | 显式 Gemini | CLI；继承环境 | 无硬只读；模型/cwd/会话核验依赖原生回显 |
-| WorkBuddy | `analysis`、`implementation` | 是 | 是 | 否 | 后端默认 | CLI；继承环境 | 后端模型不具备可验证具体身份；无远端取消确认 |
-| OpenCode | `analysis`、`implementation` | 是 | 是 | 否 | 两条显式 Command Code Flash 路线 | CLI；Windows durable process/transcript + verified execution timeout | 无 uAgents 执行沙箱；timeout 只确认本地 owned process-tree 终止，不代表 provider/native cancelled；模型不从事件流回显 |
-| 豆包工作 | `analysis` | 否 | 否 | 否 | 后端默认 | CDP；受管隔离 Profile | 无原生取消；不回显可验证模型；真实消息 E2E 尚未作为发布前证据完成 |
-| TRAE CN | `analysis`、`implementation` | 否 | 是 | 否 | 后端默认 | gateway；受管隔离 Profile | 不接受显式文件输入；无原生取消确认；模型不可靠回显；gateway 白名单待补 |
+| 目标 | 模式 | 声明式文件输入 | native attachment | 文件输出 | 图片 | 模型选择 | 主要限制 |
+| --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| agy | `analysis`、`implementation` | 是 | **否** | 是 | 否 | 显式 Gemini | Registry 目前声明 `files:true`，输入会快照且 workspace 可见，但 transport 不读取 `request.inputs` 形成原生附件；能力声明偏乐观 |
+| WorkBuddy | `analysis`、`implementation` | 是 | **否** | 是 | 否 | 后端默认 | 同 agy：workspace 文件可由 Agent 工具自行读取，但没有显式 native attachment mapping；无远端取消确认 |
+| OpenCode | `analysis`、`implementation` | 是 | **是：`--file <absolute>`** | 是 | 否 | 两条显式 Command Code Flash 路线 | 当前唯一端到端验证过声明式文件输入→native attachment 的目标；模型不从事件流回显 |
+| 豆包工作 | `analysis` | 否 | 否 | 否 | 否 | 后端默认 | 无文件/图片输入通道；无原生取消；真实消息 E2E 尚未作为发布前证据完成 |
+| TRAE CN | `analysis`、`implementation` | 否 | 否 | 是 | 否 | 后端默认 | gateway 尚未接输入附件；无原生取消确认；模型不可靠回显；gateway 白名单待补 |
 
 当前全部目标的静态权限字段都是：`native=true`、`advisory_read_only=true`、
 `enforced_read_only=false`、`workspace_write=false`、`full_access=false`。这些字段保留用于兼容能力描述，
@@ -122,7 +123,8 @@ node plugins/uagents/bin/uagents.mjs capabilities opencode
   lease/fencing、有限排队、未发送任务恢复和显式 reconcile。
 - CLI-first 调用与一个兼容 stdio MCP；MCP 当前暴露 13 个统一工具。
 - CLI 入口发现/校验缓存；豆包和 TRAE 的专用隔离 Profile、Host lease、首次登录等待和原 Attempt 恢复。
-- 声明式文件输入快照、输出捕获、路径范围检查和 SHA-256 验证；这些是验收机制而非安全沙箱。
+- 声明式文件输入快照、输出捕获、路径范围检查和 SHA-256 验证；OpenCode 已把声明式文件映射为 native `--file`，
+  agy/WorkBuddy 目前仍只有 workspace 可见性，没有 native attachment mapping。这些机制是验收/一致性能力，不是安全沙箱。
 
 ## 仍需补齐的功能
 
@@ -130,8 +132,10 @@ node plugins/uagents/bin/uagents.mjs capabilities opencode
 
 | 优先级 | 缺口 | 影响 | 建议验收 |
 | --- | --- | --- | --- |
+| P0 | Universal Attachment Input | 当前协议只有 workspace 内 `type=file` 相对路径，没有统一附件 ingestion、MIME/媒体元数据，也不能从 blob/file-id/外部路径导入 | 先定义兼容现有 file input 的 attachment contract、snapshot/size/hash/MIME 规则和 target capability；保持 prompt/credentials 不进入控制面 |
+| P0 | agy / WorkBuddy 文件输入能力诚实化 | Registry 声明 `inputs.files=true`，但 transport 没有把 `request.inputs` 映射为 native attachment | 优先实现真实 mapping；若目标原生 CLI 无可验证附件接口，则在实现前把 capability 收紧，避免把 workspace 可见性描述成附件支持 |
+| P1 | 图片/多模态通道 | Schema 的 `inputs[]` 当前只允许 `type=file`；五个目标全部 `images:false` | 固定 MIME、大小、像素/格式边界、快照与 target mapping；先 provider-free fixture，再逐 target 做真实 E2E |
 | P1 | 其他 CLI target 的 `native_args` 映射 | 当前第一版只为 OpenCode 建立了协议参数冲突保护和原生参数透传 | 为 agy/WorkBuddy 各自定义 dispatcher-owned 参数，再独立开放原生参数透传；不要无校验复用 OpenCode 规则 |
-| P1 | 图片/多模态通道 | 五个目标都不能通过统一协议接收图片 | 固定 MIME、大小、快照、脱敏和目标能力后，再按目标逐个开放 |
 | P1 | 原生取消与多轮 resume | 豆包/TRAE 取消后只能进入未知；所有 CLI 续接能力仍有限 | 保存并验证原生任务身份，证明远端终止或同会话续接；不确定时保持 `indeterminate` |
 | P1 | 模型身份与额度证据 | WorkBuddy/桌面目标不能证明具体模型；probe 不能证明真实额度 | 仅在原生事件或受信接口能绑定时设置 `model_verified=true`；补显式 live smoke |
 | P1 | 真实消息 E2E | OpenCode 已完成一条 DPF 标准 CLI submit 最小真实闭环；其他目标仍主要是 fixture、连接探测或版本探测 | 在用户明确允许额度消耗后，分别完成其他目标最小真实闭环，不自动 fallback |
@@ -141,9 +145,9 @@ node plugins/uagents/bin/uagents.mjs capabilities opencode
 
 ## 验证状态与限制
 
-本次 OpenCode native-execution 实现与 Windows CLI 修复的本地门禁为：根项目 176 项、豆包 MCP 11 项、TRAE MCP 9 项、
-Unified MCP 2 项，共 198 项通过；`agent-dispatch` skill validator、插件 validator 和
-`git diff --check` 同时通过。安装后的源目录和新缓存也分别通过插件 validator，前序 Runtime 修复的独立记录仍见
+当前源码在 2026-09-09 cleanup/architecture consolidation 后的最近完整门禁为：Core 266 项、豆包 MCP 11 项、TRAE MCP 9 项、
+Unified MCP 2 项，共 **288/288** 通过；`agent-dispatch` skill validator、插件 validator 和
+`git diff --check` 同时通过。2026-09-07 安装发布候选另有独立安装验收；前序 Runtime 修复记录仍见
 [2026-09-06 Runtime reliability repair verification](../verification/2026-09-06-runtime-reliability-fixes.md)。
 
 独立新启动的 `codex exec` 进程实际读取上述新缓存路径，并返回 `targets`、`capabilities opencode` 和
@@ -170,8 +174,9 @@ SHA-256 为 `50ff54c55e15325fc23ace446a2ef545f75aa1c5990d3352af9b98c331aba55e`�
 - provider 返回了 usage，但没有返回可验证的具体模型身份，因此 `model_verified=false`
 
 这证明标准 CLI submit 可以自行发现并验证真实 `opencode.exe`，启动 native OpenCode implementation，读取声明式
-文件输入，写入声明输出，并完成路径检查、artifact capture 和 SHA-256 验收。持久化 session/PID/游标、崩溃恢复、
-独立执行超时、图片/多模态和双 Worker workspace 写入防护仍不属于本轮修复范围。
+文件输入，写入声明输出，并完成路径检查、artifact capture 和 SHA-256 验收。当前仍未补齐的是图片/多模态、
+统一附件 ingestion、agy/WorkBuddy native attachment mapping、多轮 session continuation、provider-native cancel acknowledgement，
+以及非 Windows OpenCode execution timeout。
 
 本轮发布候选已重新执行：
 

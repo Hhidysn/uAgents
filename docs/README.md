@@ -5,6 +5,7 @@
 ## 当前先读
 
 - [当前状态与能力矩阵](status/2026-09-06-current-status.md)：目标能力、OpenCode 版本核对、已验证范围、短板和优先级。
+- [下一阶段功能交接：Universal Attachment Input](status/2026-09-09-next-feature-handoff.md)：当前附件能力真值、图片/文件缺口、建议实施顺序和新对话启动上下文。
 - [项目 README](../README.md)：安装、CLI、MCP 和开发验证的快速入口。
 
 ## 设计与实施
