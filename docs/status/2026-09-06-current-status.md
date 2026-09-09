@@ -22,16 +22,18 @@ Verified execution-timeout 门禁已通过：Core `254/254` + MCP `11/9/2`，共
 
 新版本已通过正常 `codex plugin add uagents@personal --json` 安装。仓库 tracked plugin、个人 marketplace source 和新 cache 的发布集合均为 `120` 个文件、`4,142,065` 字节，逐文件 SHA-256 `120/120` 一致且 marketplace/cache 无额外文件。旧 marketplace source 保留为 `C:\Users\24590\plugins\uagents-backup-before-20260907011733`，旧 cache 未删除。独立 fresh `codex exec --ephemeral --sandbox read-only` 明确加载 `C:\Users\24590\.codex\plugins\cache\personal\uagents\0.2.0-alpha.1+codex.20260907011733\skills\agent-dispatch\SKILL.md`，并从该 cache 只读查询得到 `opencode.execution_timeout=true`、`analysis + implementation`、files in/out true 和两条既有 Flash route；只执行了 `targets`、`capabilities opencode`、`models opencode`，没有调用任何 uAgents target/provider。
 
+2026-09-07 已进一步完成 **真实 OpenCode/provider E2E**，使用当前已安装 `...20260907011733` cache、`commandcode-goat/deepseek/deepseek-v4-flash`、`execution.native_args=[]`、`fallback=none`。真实 analysis 任务返回精确文本 `UAGENTS_REAL_E2E_ANALYSIS_OK`；真实 implementation 任务创建并由 artifact pipeline 验证 `result.txt`（35 bytes，SHA-256 `523fb3177376eb91b63587acd4c393e78dd493993ff8674181e598f5f70a5c20`）。两条 happy path 都持久化真实 OpenCode session、两个 guardian-ready event、`possibly_sent`/`accepted`，并在 native exit 后释放 workspace guard。随后真实 `execution_timeout_ms=8000` smoke 也按预期收敛为 `indeterminate + execution_timeout`：primary/secondary guardian 都真实 ready，deadline 后 `termination_confirmed=true`、reason=`owned_process_tree_quiescent`，native process 标记 exited、guard released，且没有伪造 provider/native cancelled。详细证据见 `docs/verification/2026-09-07-real-opencode-e2e.md`。
+
 上一轮 Durable Native Execution Gate E 的历史门禁为 Core `238/238` + MCP `11/9/2`，共 `260/260` 通过；决定性的 durable recovery / dual-writer / transcript 子集为 `25/25`。该轮版本 `0.2.0-alpha.1+codex.20260906212805` 曾完成个人 marketplace 与 fresh Codex 验收；它现在作为旧缓存保留。当前安装事实以 `...20260907011733` redundant-guardian RC 为准。
 
-日期：2026-09-06（Asia/Shanghai）。项目目录：`F:\documents\software\uAgents`。
+日期：2026-09-07（Asia/Shanghai）。项目目录：`F:\documents\software\uAgents`。
 
 本文是当前状态入口，专门回答两个问题：OpenCode 是否支持文件修改编码，以及已安装缓存、最新提交版和当前工作树是否一致。
 本次安装以当前工作树为唯一源码基线，并已在独立新启动的 Codex CLI 进程中验证宿主实际加载路径。
 
 ## 一句话结论
 
-OpenCode 在当前工作树和当前安装缓存中都支持 `analysis` 和 `implementation`，并开放声明式文件输入与文件输出验收。
+OpenCode 在当前工作树和当前安装缓存中都支持 `analysis` 和 `implementation`，并开放声明式文件输入与文件输出验收；当前安装缓存已通过真实 provider 的 analysis、implementation artifact 和 execution-timeout E2E。
 运行时通过 `opencode run --model ... --format json --dir ... --title ...` 启动；`--pure`、`--auto` 等原生选项由
 `execution.native_args` 控制。uAgents 仍不提供执行沙箱，`execution.permission` 只作为 Schema 1.0 兼容元数据，
 不再参与权限能力准入。

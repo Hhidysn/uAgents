@@ -24,6 +24,7 @@
 
 ## 验证证据
 
+- [真实 OpenCode Provider E2E（analysis / implementation / timeout，2026-09-07）](verification/2026-09-07-real-opencode-e2e.md)
 - [冗余 execution-timeout guardian 安装验收（2026-09-07）](verification/2026-09-07-redundant-timeout-guardian-release.md)
 - [Verified Execution Timeout 安装验收（2026-09-06）](verification/2026-09-06-verified-execution-timeout-release.md)
 - [Durable Native Execution Gate E 安装验收（2026-09-06）](verification/2026-09-06-durable-native-execution-release.md)
