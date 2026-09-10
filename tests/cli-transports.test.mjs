@@ -5,10 +5,12 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { createParser, invokeCli, locateCli } from '../plugins/uagents/src/transports/cli-process.mjs';
+import { createParser, invokeCli, locateCli, nativeDriver } from '../plugins/uagents/src/transports/cli-process.mjs';
 import { buildOpenCodeArgs } from '../plugins/uagents/src/transports/opencode-driver.mjs';
+import { buildWorkBuddyArgs, buildWorkBuddyInput } from '../plugins/uagents/src/transports/workbuddy-driver.mjs';
 import { advisoryPrompt } from '../plugins/uagents/src/policy/advisory.mjs';
 import { childEnvironment } from '../plugins/uagents/src/runtime/child-environment.mjs';
+import { snapshotInputs } from '../plugins/uagents/src/artifacts/inputs.mjs';
 
 const root = path.resolve('.local', 'test-runs', randomUUID(), 'CLI transport');
 fs.mkdirSync(root, { recursive: true });
@@ -53,6 +55,22 @@ test('WorkBuddy validates session/cwd and preserves approval/background-task evi
   assert.equal(active.finish(0).status, 'succeeded');
 });
 
+test('WorkBuddy continuation resumes the persisted native session instead of creating a new one', () => {
+  const sourceSession = 'session_parent_123';
+  const input = request('workbuddy', { continue_session_id: sourceSession });
+  const args = buildWorkBuddyArgs(input);
+  assert.equal(args.includes('--session-id'), false);
+  const resumeIndex = args.indexOf('--resume');
+  assert.deepEqual(args.slice(resumeIndex, resumeIndex + 2), ['--resume', sourceSession]);
+  const parser = createParser(input, root, () => {});
+  parser.event({ type: 'system', subtype: 'init', session_id: sourceSession, cwd: root, model: 'native-default' });
+  parser.event(wbResult(sourceSession));
+  assert.equal(parser.finish(0).result.native_session_id, sourceSession);
+  assert.throws(() => createParser(input, root, () => {}).event({
+    type: 'system', subtype: 'init', session_id: input.request_id, cwd: root, model: 'native-default',
+  }), { code: 'native_session_mismatch' });
+});
+
 test('OpenCode returns only the final completed message and rejects mixed identity', () => {
   const parser = createParser(request('opencode'), root, () => {});
   parser.event(ocEvent('step_start', 'old-start', 'previous'));
@@ -78,6 +96,60 @@ test('OpenCode driver keeps native flags caller-controlled and maps file inputs 
     '--pure', '--auto', '--agent', 'build', '--variant=fast',
   ]);
   assert.equal(buildOpenCodeArgs(request('opencode'), root).includes('--pure'), false);
+});
+
+test('OpenCode maps image attachments through the same native --file channel', () => {
+  const input = request('opencode', { inputs: [{ type: 'image', path: 'assets/screenshot.png', media_type: 'image/png' }] });
+  const args = buildOpenCodeArgs(input, root);
+  assert.deepEqual(args.slice(-2), ['--file', path.resolve(root, 'assets/screenshot.png')]);
+});
+
+test('OpenCode continuation selects the persisted session explicitly', () => {
+  const input = request('opencode', { continue_session_id: 'ses_parent' });
+  assert.deepEqual(buildOpenCodeArgs(input, root), [
+    'run', '--session', 'ses_parent', '--model', input.model, '--format', 'json', '--dir', root,
+  ]);
+  assert.throws(() => buildOpenCodeArgs({ ...input, native_args: ['--session', 'other'] }, root), { code: 'invalid_request' });
+  assert.throws(() => buildOpenCodeArgs({ ...input, native_args: ['--continue'] }, root), { code: 'invalid_request' });
+  const parser = createParser(input, root, () => {});
+  parser.event({ type: 'step_start', sessionID: 'ses_parent', part: { id: 'start', messageID: 'answer', sessionID: 'ses_parent' } });
+  assert.throws(() => parser.event({ type: 'text', sessionID: 'ses_other', part: {
+    id: 'text', messageID: 'answer', sessionID: 'ses_other', text: 'wrong session',
+  } }), { code: 'native_session_mismatch' });
+});
+
+test('WorkBuddy maps declared files and images into native stream-json attachment blocks', () => {
+  const workspace = path.join(root, 'workbuddy attachments');
+  fs.mkdirSync(workspace, { recursive: true });
+  const pdf = Buffer.from('%PDF-1.7\nfixture');
+  const png = pngFixture(2, 3);
+  fs.writeFileSync(path.join(workspace, 'brief.pdf'), pdf);
+  fs.writeFileSync(path.join(workspace, 'screen.png'), png);
+  const input = request('workbuddy', {
+    inputs: [{ type: 'file', path: 'brief.pdf' }, { type: 'image', path: 'screen.png' }],
+  });
+  const snapshots = snapshotInputs(workspace, input.inputs);
+  assert.deepEqual(buildWorkBuddyArgs(input).slice(0, 5), ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json']);
+  const payload = buildWorkBuddyInput(input, workspace, snapshots);
+  const message = JSON.parse(payload);
+  assert.equal(message.type, 'user');
+  assert.equal(message.message.role, 'user');
+  assert.equal(message.message.content[0].type, 'text');
+  assert.deepEqual(message.message.content[1], {
+    type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdf.toString('base64') },
+  });
+  assert.deepEqual(message.message.content[2], {
+    type: 'image', source: { type: 'base64', media_type: 'image/png', data: png.toString('base64') }, original_filename: 'screen.png',
+  });
+  const entry = path.join(workspace, 'codebuddy.js');
+  fs.writeFileSync(entry, '// fixture entry');
+  const driver = nativeDriver(input, workspace, entry, snapshots);
+  assert.equal(driver.stdinPayload, payload);
+  assert.equal(driver.args.includes('--input-format'), true);
+  assert.equal(driver.args.includes('stream-json'), true);
+  assert.throws(() => buildWorkBuddyInput(input, workspace, []), { code: 'input_changed' });
+  fs.writeFileSync(path.join(workspace, 'brief.pdf'), '%PDF-1.7\nchanged');
+  assert.throws(() => buildWorkBuddyInput(input, workspace, snapshots), { code: 'input_changed' });
 });
 
 test('OpenCode turns provider authentication failures into a redacted structured error', () => {
@@ -173,3 +245,13 @@ test('advisory prompt leaves other permission prompts byte-for-byte unchanged', 
     assert.equal(advisoryPrompt({ prompt, execution: { permission } }), prompt);
   }
 });
+
+function pngFixture(width, height) {
+  const bytes = Buffer.alloc(33);
+  Buffer.from('89504e470d0a1a0a', 'hex').copy(bytes, 0);
+  bytes.writeUInt32BE(13, 8);
+  bytes.write('IHDR', 12, 'ascii');
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return bytes;
+}

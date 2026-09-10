@@ -10,24 +10,24 @@ const target = (modes, inputs, outputs, permissions, extra = {}) => ({
 export const BUILTIN_REGISTRY = Object.freeze({
   version: 'builtin-2026-09-04',
   targets: Object.freeze({
-    agy: target(['analysis', 'implementation'], { text: true, files: true, images: false }, { text: true, files: true, images: false }, {
+    agy: target(['analysis', 'implementation'], { text: true, files: false, images: false, workspace_readable: true }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
     }, { transport: 'cli', model_selection: 'explicit', cancel: 'local-request', resume: false,
       lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),
-    workbuddy: target(['analysis', 'implementation'], { text: true, files: true, images: false }, { text: true, files: true, images: false }, {
+    workbuddy: target(['analysis', 'implementation'], { text: true, files: true, images: true, workspace_readable: true }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
-    }, { transport: 'cli', model_selection: 'default', cancel: 'local-request', resume: false,
+    }, { transport: 'cli', model_selection: 'default', cancel: 'local-request', resume: true,
       lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),
-    opencode: target(['analysis', 'implementation'], { text: true, files: true, images: false }, { text: true, files: true, images: false }, {
+    opencode: target(['analysis', 'implementation'], { text: true, files: true, images: true, workspace_readable: true }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
-    }, { transport: 'cli', model_selection: 'explicit', cancel: 'local-request', resume: false,
+    }, { transport: 'cli', model_selection: 'explicit', cancel: 'local-request', resume: true,
       execution_timeout: process.platform === 'win32',
       lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),
-    doubao: target(['analysis'], { text: true, files: false, images: false }, { text: true, files: false, images: false }, {
+    doubao: target(['analysis'], { text: true, files: false, images: false, workspace_readable: false }, { text: true, files: false, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
     }, { transport: 'cdp', model_selection: 'default', cancel: 'unsupported', resume: false,
       lifecycle: { managed: true, auto_launch: true, profile: 'isolated', ensure: true, resume: true, stop: true } }),
-    trae: target(['analysis', 'implementation'], { text: true, files: false, images: false }, { text: true, files: true, images: false }, {
+    trae: target(['analysis', 'implementation'], { text: true, files: false, images: false, workspace_readable: true }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
     }, { transport: 'gateway', model_selection: 'default', cancel: 'unsupported', resume: false,
       lifecycle: { managed: true, auto_launch: true, profile: 'isolated', ensure: true, resume: true, stop: true } }),

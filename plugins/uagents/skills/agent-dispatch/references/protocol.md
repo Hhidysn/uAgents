@@ -20,29 +20,44 @@ Exactly one of `--request FILE` and `--request-stdin` is required. Do not inline
 {
   "schema_version": "1.0",
   "request_id": "9de3b16c-f16f-44a0-8c5a-a436a35d6d4f",
-  "target": "agy",
-  "model": "gemini-3.1-pro-low",
+  "target": "workbuddy",
+  "model": "default",
   "mode": "implementation",
   "prompt": "Complete the bounded task and produce the declared output.",
   "workspace": "F:\\absolute\\project",
-  "inputs": [{ "type": "file", "path": "requirements.md" }],
+  "inputs": [
+    { "type": "file", "path": "requirements.md" },
+    { "type": "image", "source": "F:\\Downloads\\screenshot.png" }
+  ],
   "expected_outputs": [{ "type": "file", "path": "result.md", "required": true, "max_bytes": 10485760 }],
   "execution": {
     "observation_timeout_ms": 120000,
     "execution_timeout_ms": null,
     "effort": "medium",
     "permission": "native",
-    "native_args": ["--auto"]
+    "native_args": []
   },
   "policy": { "fallback": "none", "max_cost_usd": null }
 }
 ```
 
-Unknown fields and unsupported capability combinations are rejected before registration. File paths are relative to `workspace`, use `/`, and may not escape it. If `inputs` are declared, `workspace` is required and their identity is snapshotted before dispatch. If no workspace is supplied, uAgents creates one under the task directory.
+Unknown fields and unsupported capability combinations are rejected before registration. Each attachment input contains exactly one of `path` or `source`. `path` is the existing workspace-relative form, uses `/`, and may not escape `workspace`. `source` is an absolute local path for callers that already have the attachment materialized outside the workspace. This includes Unified MCP callers whose host/connector layer has materialized a chat attachment to a local path. On submit, uAgents copies a source attachment into `.uagents/inputs/` under the declared workspace using a content-addressed filename, then stores and dispatches only the normalized `{type,path}` form. Existing `{type:"file",path}` and `{type:"image",path}` requests remain valid without changes. `source` is ingestion convenience only; target adapters never receive or interpret it directly, and uAgents does not resolve opaque connector file IDs by itself.
+
+Generic files are capped at 32 MiB. Image inputs use the same attachment contract with `type:"image"`; the current image whitelist is PNG, JPEG, GIF and WebP, verified from file headers rather than filename, with a 20 MiB limit, maximum width/height of 16,384 px, and maximum canvas area of 64 Mi pixels. If `inputs` are declared, `workspace` is required and their normalized identity is snapshotted before dispatch. Snapshots record attachment kind, path, media type, byte size and SHA-256; image snapshots also record verified width/height. Attachment bytes are not stored in SQLite. If no workspace is supplied and there are no attachment inputs, uAgents creates one under the task directory.
+
+WorkBuddy and OpenCode support an explicit new-turn continuation contract:
+
+```json
+"session": { "continue_from_task_id": "<previous-uagents-task-uuid>" }
+```
+
+The continuation request uses a **new** `request_id`; `continue_from_task_id` identifies a finished previous Task whose persisted native session should receive the new prompt. The source Task must use the same target and workspace and must have a persisted native `session_id`. uAgents does not copy old responses into the prompt: WorkBuddy receives native `--resume <session-id>` and OpenCode receives native `run --session <session-id>`. `status` / `result` expose the requested `session.continue_from_task_id`. This is different from CLI/MCP `resume`, which recovers or observes the same existing Task/Attempt and never sends a new prompt. Targets with top-level capability `resume=false` reject this request field.
 
 `fallback` must remain `none`. Non-null `max_cost_usd` and unsupported execution timeouts are rejected rather than estimated. On Windows OpenCode, a non-null `execution_timeout_ms` is supported by the durable process path; other targets/platforms still reject it. `analysis` is task intent, not a hard read-only sandbox. `execution.permission` remains accepted and persisted for Schema 1.0 compatibility but is not a uAgents admission gate; target-native permission behavior belongs in `execution.native_args`.
 
-`execution.native_args` is an optional ordered list of target CLI arguments. This release exposes it for OpenCode only; other targets reject a non-empty list until they have their own protocol-argument mapping. For OpenCode, uAgents appends declared verified file inputs as `--file <absolute-path>` and rejects native args that try to replace the dispatcher-owned `run`, `--model`, `--format`, `--dir`, or `--title` arguments. Other non-conflicting OpenCode options, including `--pure`, `--auto`, `--agent`, and `--variant`, pass through unchanged. `expected_outputs` is optional; when declared, the shared artifact capture pipeline verifies and records the files.
+`execution.native_args` is an optional ordered list of target CLI arguments. This release exposes it for OpenCode only; other targets reject a non-empty list until they have their own protocol-argument mapping. For OpenCode, uAgents appends declared verified file and image inputs as `--file <absolute-path>` and rejects native args that try to replace the dispatcher-owned `run`, `--model`, `--format`, `--dir`, or `--title` arguments. When structured session continuation is requested, caller-supplied `--session`, `--continue`, or `--fork` selection also conflicts with the dispatcher-owned continuation. Other non-conflicting OpenCode options, including `--pure`, `--auto`, `--agent`, and `--variant`, pass through unchanged. `expected_outputs` is optional; when declared, the shared artifact capture pipeline verifies and records the files.
+
+Input capability is intentionally about **native attachment mapping**, not mere filesystem visibility. `inputs.workspace_readable` reports whether a target can access the task workspace through its normal tools. `inputs.files` / `inputs.images` are true only when uAgents has an explicit target-specific attachment mapping. Current agy 1.1.27 exposes no verified native attachment flag/message field, so its file/image attachment flags remain false even though its workspace is readable. WorkBuddy's installed `codebuddy.js` stream-json parser is locally verifiable: uAgents now sends file inputs as native base64 `document` blocks (which WorkBuddy converts to `input_file`) and image inputs as native base64 `image` blocks. OpenCode maps both kinds through its native repeated `--file` arguments. uAgents does not fall back to putting unsupported attachment paths into prompt text.
 
 `advisory-read-only` adds an explicit instruction to inspect and explain without changing files or running mutating commands. WorkBuddy does not receive automatic edit acceptance for this permission, even in implementation mode. This is a prompt-level instruction, not an enforced sandbox; native permissions still apply. The stored request and its idempotency hashes retain the caller's original prompt.
 
@@ -67,7 +82,7 @@ Resource contention keeps the worker queued with a task lease and bounded backof
 
 Managed desktop reconciliation uses the original instance and profile generation saved at acceptance. The Supervisor verifies that exact instance and supplies the original connection to the adapter; it never starts, repairs or replaces an instance during reconciliation. An unavailable or changed instance produces a structured error without falling back to the default port. Gateway capabilities remain in memory and are not written to task records.
 
-Windows OpenCode reconciliation is process/transcript observation, not native session continuation. It reuses the persisted Attempt, process identity, transcript and accepted session evidence; it does not automatically call `opencode run --session`, `opencode run --continue`, or resend the stored prompt. Platforms without an equivalent process ownership inspector retain the legacy uninterrupted OpenCode transport for now.
+Windows OpenCode reconciliation is process/transcript observation, not a new session turn. It reuses the persisted Attempt, process identity, transcript and accepted session evidence; it does not automatically call `opencode run --session`, `opencode run --continue`, or resend the stored prompt. A caller that intentionally wants a new message in the same native conversation creates a new Task with `session.continue_from_task_id`. Platforms without an equivalent process ownership inspector retain the legacy uninterrupted OpenCode transport for now.
 
 For durable OpenCode, `observation_timeout_ms` bounds how long the current observer waits; expiry does not kill the native process. `cancel` likewise records cancellation intent and stops current observation without claiming provider/native cancellation. A still-running or uncertain process remains workspace-guarded.
 

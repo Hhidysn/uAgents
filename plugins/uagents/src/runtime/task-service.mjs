@@ -9,6 +9,8 @@ import { STORE_SCHEMA_VERSION } from '../store/schema.mjs';
 import { materializeEffectiveRequest } from './effective-request.mjs';
 import { assertFencing } from './leases.mjs';
 import { transitionState } from './state-machine.mjs';
+import { ingestAttachmentSources } from '../artifacts/attachments.mjs';
+import { canonicalWorkspace } from './workspace-key.mjs';
 
 export class TaskService {
   constructor(control, { registry, health = null, coreVersion = '0.2.0-alpha.1', clock = () => Date.now() } = {}) {
@@ -21,10 +23,16 @@ export class TaskService {
 
   submit(input, { adapterVersion = null } = {}) {
     const evaluated = evaluateRequest(input, { registry: this.registry, health: this.health });
-    const materialized = materializeEffectiveRequest(input, evaluated, { adapter_version: adapterVersion });
+    const continuation = this.#resolveContinuation(evaluated.request);
+    const normalizedInputs = ingestAttachmentSources(evaluated.request.workspace, evaluated.request.inputs);
+    const normalized = normalizedInputs === evaluated.request.inputs ? evaluated : {
+      ...evaluated,
+      request: { ...evaluated.request, inputs: normalizedInputs },
+    };
+    const materialized = materializeEffectiveRequest(input, normalized, { adapter_version: adapterVersion });
     const now = this.clock();
     return this.control.transaction(database => {
-      const existing = database.prepare('SELECT * FROM idempotency WHERE request_id = ?').get(evaluated.request.request_id);
+      const existing = database.prepare('SELECT * FROM idempotency WHERE request_id = ?').get(normalized.request.request_id);
       if (existing) {
         if (existing.raw_hash !== materialized.raw_request_hash || existing.effective_hash !== materialized.effective_request_hash) {
           fail('request_conflict', 'request_id is already registered with different effective content.', { category: 'conflict', submission: 'not_sent' });
@@ -33,32 +41,39 @@ export class TaskService {
         return { ...this.#statusWith(database, existing.task_id), duplicate: true, ...(resumed ? { resumed: true } : {}) };
       }
 
-      const taskId = evaluated.request.request_id;
+      const taskId = normalized.request.request_id;
       const attemptId = randomUUID();
       let directory;
       try {
         directory = taskDirectory(this.control.root, taskId, { create: true });
-        const runtimeWorkspace = evaluated.request.workspace ?? path.join(directory, 'workspace');
+        const runtimeWorkspace = normalized.request.workspace ?? path.join(directory, 'workspace');
         fs.mkdirSync(runtimeWorkspace, { recursive: true });
-        atomicWriteJson(path.join(directory, 'request.json'), { ...evaluated.request, workspace: runtimeWorkspace, prompt: null });
-        atomicWriteJson(path.join(directory, 'payload.json'), { prompt: evaluated.request.prompt, input_snapshots: materialized.input_snapshots });
-        atomicWriteJson(path.join(directory, 'decision.json'), evaluated.decision);
+        atomicWriteJson(path.join(directory, 'request.json'), { ...normalized.request, workspace: runtimeWorkspace, prompt: null });
+        atomicWriteJson(path.join(directory, 'payload.json'), {
+          prompt: normalized.request.prompt,
+          input_snapshots: materialized.input_snapshots,
+          continuation,
+        });
+        atomicWriteJson(path.join(directory, 'decision.json'), normalized.decision);
 
         database.prepare(`INSERT INTO tasks(
           task_id, request_id, raw_hash, effective_hash, target, status, model_requested, model_resolved,
           model_reported, model_verified, provider, route_id, resolution_json, verification_json,
           decision_json, store_schema_version, core_version, created_at_ms, updated_at_ms
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(taskId, taskId, materialized.raw_request_hash, materialized.effective_request_hash, evaluated.request.target, 'registered',
-            evaluated.request.model_requested, evaluated.request.model_resolved, evaluated.request.model_reported, evaluated.request.model_verified ? 1 : 0,
-            evaluated.request.provider, evaluated.request.route_id, JSON.stringify(evaluated.request.model_resolution), JSON.stringify(evaluated.request.model_verification),
-            JSON.stringify(evaluated.decision), STORE_SCHEMA_VERSION, this.coreVersion, now, now);
+          .run(taskId, taskId, materialized.raw_request_hash, materialized.effective_request_hash, normalized.request.target, 'registered',
+            normalized.request.model_requested, normalized.request.model_resolved, normalized.request.model_reported, normalized.request.model_verified ? 1 : 0,
+            normalized.request.provider, normalized.request.route_id, JSON.stringify(normalized.request.model_resolution), JSON.stringify(normalized.request.model_verification),
+            JSON.stringify(normalized.decision), STORE_SCHEMA_VERSION, this.coreVersion, now, now);
         database.prepare(`INSERT INTO attempts(attempt_id, task_id, ordinal, status, submission, adapter_version, created_at_ms)
           VALUES (?, ?, 1, 'registered', 'not_sent', ?, ?)`)
           .run(attemptId, taskId, adapterVersion, now);
         database.prepare('INSERT INTO idempotency(request_id, raw_hash, effective_hash, task_id) VALUES (?, ?, ?, ?)')
           .run(taskId, materialized.raw_request_hash, materialized.effective_request_hash, taskId);
-        appendEvent(database, { taskId, attemptId, type: 'task.registered', payload: { route_id: evaluated.request.route_id }, now });
+        appendEvent(database, { taskId, attemptId, type: 'task.registered', payload: {
+          route_id: normalized.request.route_id,
+          ...(continuation ? { continued_from_task_id: continuation.from_task_id } : {}),
+        }, now });
         return { ...this.#statusWith(database, taskId), duplicate: false };
       } catch (error) {
         if (directory) try { fs.rmSync(directory, { recursive: true, force: true }); } catch {}
@@ -359,6 +374,26 @@ export class TaskService {
     });
   }
 
+  #resolveContinuation(request) {
+    const sourceTaskId = request.session?.continue_from_task_id ?? null;
+    if (!sourceTaskId) return null;
+    const source = this.status(sourceTaskId);
+    if (source.target !== request.target) {
+      fail('unsupported_capability', 'A native session can only continue on the same target.', { category: 'policy', submission: 'not_sent' });
+    }
+    if (!['succeeded', 'failed'].includes(source.status)) {
+      fail('invalid_request', `Continuation source task must be finished; current status is ${source.status}.`, { category: 'user', submission: 'not_sent' });
+    }
+    if (!source.native?.session_id) {
+      fail('invalid_request', 'Continuation source task has no persisted native session ID.', { category: 'user', submission: 'not_sent' });
+    }
+    const sourceRequest = this.payload(sourceTaskId).request;
+    if (canonicalWorkspace(sourceRequest.workspace) !== canonicalWorkspace(request.workspace)) {
+      fail('invalid_workspace', 'Native session continuation must use the same workspace as the source task.', { category: 'user', submission: 'not_sent' });
+    }
+    return { from_task_id: sourceTaskId, native_session_id: source.native.session_id };
+  }
+
   #statusWith(database, taskId) {
     const task = database.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId);
     if (!task) fail('task_not_found', `Unknown task: ${taskId}`);
@@ -367,6 +402,7 @@ export class TaskService {
     const statusEvent = database.prepare('SELECT payload_json FROM events WHERE task_id = ? AND type = ? ORDER BY sequence DESC LIMIT 1')
       .get(taskId, `task.${task.status}`);
     const persistedError = statusEvent ? JSON.parse(statusEvent.payload_json).error : null;
+    const decision = task.decision_json ? JSON.parse(task.decision_json) : null;
     return {
       schema_version: '1.0', task_id: task.task_id, request_id: task.request_id, target: task.target, status: task.status,
       native_outcome: task.native_outcome, objective_verdict: task.objective_verdict,
@@ -379,6 +415,7 @@ export class TaskService {
         fencing_token: attempt.fencing_token, heartbeat_at_ms: attempt.heartbeat_at_ms === null ? null : Number(attempt.heartbeat_at_ms),
       } : null,
       native: native ? { session_id: native.native_session_id, task_id: native.native_task_id, status: native.native_status, evidence_ref: native.evidence_ref } : null,
+      session: decision?.session ?? null,
       error: taskErrorRecord(persistedError, attempt?.submission ?? 'not_sent'),
       lifecycle: this.#latestLifecycle(database, taskId),
       created_at_ms: Number(task.created_at_ms), updated_at_ms: Number(task.updated_at_ms),

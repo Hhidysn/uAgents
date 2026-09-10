@@ -45,6 +45,7 @@ test('execution native args preserve caller order and validate bounds', () => {
 
 test('workspace and file paths are validated before execution', () => {
   const workspace = path.resolve('.local', '协议 workspace');
+  const source = path.resolve('.local', 'incoming', 'brief.pdf');
   const parsed = parseRequest(request({
     workspace,
     inputs: [{ type: 'file', path: 'requirements/spec.md' }],
@@ -54,6 +55,23 @@ test('workspace and file paths are validated before execution', () => {
   assert.throws(() => parseRequest(request({ workspace: 'relative' })), { code: 'invalid_workspace' });
   assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'file', path: '../secret' }] })), { code: 'invalid_request' });
   assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'file', path: 'same' }, { type: 'file', path: 'SAME' }] })), { code: 'invalid_request' });
+  assert.deepEqual(parseRequest(request({ workspace, inputs: [{ type: 'image', path: 'assets/screenshot.png' }] })).inputs,
+    [{ type: 'image', path: 'assets/screenshot.png' }]);
+  assert.deepEqual(parseRequest(request({ workspace, inputs: [{ type: 'file', source }] })).inputs,
+    [{ type: 'file', source }]);
+  assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'file', source: 'relative.pdf' }] })), { code: 'invalid_input' });
+  assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'file', path: 'brief.pdf', source }] })), { code: 'invalid_input' });
+  assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'file' }] })), { code: 'invalid_input' });
+  assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'blob', path: 'assets/raw.bin' }] })), { code: 'invalid_input' });
+});
+
+test('session continuation is explicit and UUID-based', () => {
+  const parent = randomUUID();
+  const parsed = parseRequest(request({ session: { continue_from_task_id: parent } }));
+  assert.deepEqual(parsed.session, { continue_from_task_id: parent.toLowerCase() });
+  assert.throws(() => parseRequest(request({ session: { continue_from_task_id: 'not-a-uuid' } })), { code: 'invalid_request' });
+  const id = randomUUID();
+  assert.throws(() => parseRequest(request({ request_id: id, session: { continue_from_task_id: id } })), { code: 'invalid_request' });
 });
 
 test('canonical JSON is independent of object insertion order', () => {

@@ -73,12 +73,12 @@ export class CliAdapter {
   }
 
   async prepare(request, context = {}) {
-    const legacy = this.#legacyRequest(request, 'run');
+    const legacy = this.#legacyRequest(request, 'run', context.continuation ?? null);
     const installation = await this.#verifiedInstallation(context);
     const entry = installation?.canonical_path ?? null;
     let driver = this.target === 'agy'
       ? this.testDriver
-      : this.testDriver ?? nativeDriver(legacy, request.workspace, entry);
+      : this.testDriver ?? nativeDriver(legacy, request.workspace, entry, context.inputSnapshots ?? []);
     if (this.target === 'opencode' && this.testDriver) {
       driver = decorateOpenCodeDriver(driver, legacy, request.workspace);
     }
@@ -260,16 +260,18 @@ export class CliAdapter {
     return event;
   }
 
-  #legacyRequest(request, kind) {
+  #legacyRequest(request, kind, continuation = null) {
     return {
       request_id: request.request_id,
       target: this.target,
       model: this.target === 'opencode' ? request.route_id : this.target === 'workbuddy' ? 'workbuddy-default' : request.model_resolved,
       mode: request.mode,
       permission_policy: request.execution.permission,
-      inputs: (request.inputs ?? []).map(input => ({ type: input.type, path: input.path })),
+      inputs: (request.inputs ?? []).map(input => ({ type: input.type, path: input.path, media_type: input.media_type ?? null })),
       expected_outputs: (request.expected_outputs ?? []).map(output => output.path),
       native_args: [...(request.execution?.native_args ?? [])],
+      continue_session_id: continuation?.native_session_id ?? null,
+      continue_from_task_id: continuation?.from_task_id ?? null,
       kind,
       ...(kind === 'run' ? { prompt: request.prompt } : {}),
       timeout_ms: request.execution.observation_timeout_ms,

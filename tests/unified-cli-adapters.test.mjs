@@ -97,6 +97,86 @@ test('OpenCode implementation reuses verified file inputs and captures declared 
   } finally { control.close(); }
 });
 
+test('external file and image sources are ingested into workspace before registration', () => {
+  const control = new ControlDatabase(path.join(root, `source-inputs-${randomUUID()}`));
+  const workspace = path.join(root, `source-workspace-${randomUUID()}`);
+  const incoming = path.join(root, `incoming-${randomUUID()}`);
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.mkdirSync(incoming, { recursive: true });
+  const fileSource = path.join(incoming, 'brief.pdf');
+  const imageSource = path.join(incoming, 'screen.png');
+  fs.writeFileSync(fileSource, '%PDF-1.7\nexternal attachment');
+  fs.writeFileSync(imageSource, pngFixture(3, 2));
+  try {
+    const service = new TaskService(control);
+    const input = baseRequest({
+      target: 'workbuddy', model: 'default', workspace,
+      inputs: [{ type: 'file', source: fileSource }, { type: 'image', source: imageSource }],
+    });
+    const registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
+    const stored = service.payload(registered.task_id);
+    assert.equal(stored.request.inputs.length, 2);
+    assert.equal(stored.request.inputs.every(item => item.source === undefined), true);
+    assert.equal(stored.request.inputs.every(item => item.path.startsWith('.uagents/inputs/')), true);
+    assert.equal(fs.readFileSync(path.join(workspace, ...stored.request.inputs[0].path.split('/')), 'utf8'), '%PDF-1.7\nexternal attachment');
+    assert.deepEqual(fs.readFileSync(path.join(workspace, ...stored.request.inputs[1].path.split('/'))), pngFixture(3, 2));
+    assert.equal(stored.payload.input_snapshots[0].media_type, 'application/pdf');
+    assert.equal(stored.payload.input_snapshots[1].media_type, 'image/png');
+    assert.equal(stored.payload.input_snapshots[1].width_px, 3);
+    assert.equal(stored.payload.input_snapshots[1].height_px, 2);
+  } finally { control.close(); }
+});
+
+test('WorkBuddy follow-up task continues the persisted native session', async () => {
+  const control = new ControlDatabase(path.join(root, `workbuddy-continuation-${randomUUID()}`));
+  const workspace = path.join(root, `workbuddy-continuation-workspace-${randomUUID()}`);
+  fs.mkdirSync(workspace, { recursive: true });
+  try {
+    const service = new TaskService(control);
+    const first = baseRequest({ target: 'workbuddy', model: 'default', workspace, prompt: 'first turn' });
+    const firstAdapter = new WorkBuddyAdapter({ testDriver: {
+      command: process.execPath, args: [fakeCli, 'workbuddy', first.request_id, 'success'],
+    } });
+    const firstRegistered = service.submit(first, { adapterVersion: 'unified-fixture-1' });
+    const firstResult = await runTask({ service, taskId: firstRegistered.task_id, adapter: firstAdapter });
+    assert.equal(firstResult.status, 'succeeded');
+    assert.equal(firstResult.native.session_id, first.request_id);
+
+    const otherWorkspace = path.join(root, `workbuddy-continuation-other-${randomUUID()}`);
+    fs.mkdirSync(otherWorkspace, { recursive: true });
+    assert.throws(() => service.submit(baseRequest({
+      target: 'workbuddy', model: 'default', workspace: otherWorkspace,
+      session: { continue_from_task_id: first.request_id },
+    })), { code: 'invalid_workspace' });
+    assert.throws(() => service.submit(baseRequest({
+      target: 'opencode', workspace,
+      session: { continue_from_task_id: first.request_id },
+    })), { code: 'unsupported_capability' });
+    const pending = baseRequest({ target: 'workbuddy', model: 'default', workspace, prompt: 'still pending' });
+    service.submit(pending, { adapterVersion: 'unified-fixture-1' });
+    assert.throws(() => service.submit(baseRequest({
+      target: 'workbuddy', model: 'default', workspace,
+      session: { continue_from_task_id: pending.request_id },
+    })), { code: 'invalid_request' });
+
+    const followUp = baseRequest({
+      target: 'workbuddy', model: 'default', workspace, prompt: 'second turn',
+      session: { continue_from_task_id: first.request_id },
+    });
+    const followUpRegistered = service.submit(followUp, { adapterVersion: 'unified-fixture-1' });
+    const stored = service.payload(followUpRegistered.task_id);
+    assert.deepEqual(stored.payload.continuation, { from_task_id: first.request_id, native_session_id: first.request_id });
+    assert.deepEqual(service.status(followUpRegistered.task_id).session, { continue_from_task_id: first.request_id });
+
+    const followUpAdapter = new WorkBuddyAdapter({ testDriver: {
+      command: process.execPath, args: [fakeCli, 'workbuddy', first.request_id, 'success'],
+    } });
+    const followUpResult = await runTask({ service, taskId: followUpRegistered.task_id, adapter: followUpAdapter });
+    assert.equal(followUpResult.status, 'succeeded');
+    assert.equal(followUpResult.native.session_id, first.request_id);
+  } finally { control.close(); }
+});
+
 test('OpenCode persists a structured native failure and updates the native session status', async () => {
   const control = new ControlDatabase(path.join(root, `opencode-auth-${randomUUID()}`));
   try {
@@ -253,3 +333,13 @@ test('CLI adapters preserve advisory permission and WorkBuddy does not auto-acce
   const native = nativeDriver(nativePrepared.legacy, root, entry);
   assert.deepEqual(native.args.slice(-2), ['--permission-mode', 'acceptEdits']);
 });
+
+function pngFixture(width, height) {
+  const bytes = Buffer.alloc(33);
+  Buffer.from('89504e470d0a1a0a', 'hex').copy(bytes, 0);
+  bytes.writeUInt32BE(13, 8);
+  bytes.write('IHDR', 12, 'ascii');
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return bytes;
+}

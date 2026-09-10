@@ -5,6 +5,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { fail } from '../protocol/errors.mjs';
 import { childEnvironment } from '../runtime/child-environment.mjs';
 import { createOpenCodeDriver, createOpenCodeParser } from './opencode-driver.mjs';
+import { buildWorkBuddyArgs, buildWorkBuddyInput } from './workbuddy-driver.mjs';
 
 // Only launch installed native entrypoints. No shell, installation, auth reads or config edits.
 // `entryOverride` is a supervisor-verified absolute entry (host cache); when
@@ -43,14 +44,13 @@ export function nativeCliCandidates(target, env = process.env) {
       ...(process.platform === 'win32' ? [path.join(dir, 'node_modules/opencode-ai/bin/opencode.exe')] : [])]);
 }
 
-export function nativeDriver(request, workspace, entryOverride = null) {
+export function nativeDriver(request, workspace, entryOverride = null, inputSnapshots = []) {
   const entry = locateCli(request.target, process.env, entryOverride);
   const advisoryReadOnly = isAdvisoryReadOnly(request);
   if (request.target === 'opencode') return createOpenCodeDriver(request, workspace, entry);
-  return { command: process.execPath, args: [entry, ...(request.kind === 'probe' ? ['--version'] : [
-    '-p', '--output-format', 'stream-json', '--verbose', '--session-id', request.request_id, '--max-turns', '6',
-    ...(request.mode === 'implementation' && !advisoryReadOnly ? ['--permission-mode', 'acceptEdits'] : []),
-  ])], env: childEnvironment(process.env, { CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS: '1' }),
+  return { command: process.execPath, args: [entry, ...buildWorkBuddyArgs(request)],
+    ...(request.kind === 'probe' ? {} : { stdinPayload: buildWorkBuddyInput(request, workspace, inputSnapshots) }),
+    env: childEnvironment(process.env, { CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS: '1' }),
     initialObservation: { native_edit_mode: request.mode === 'implementation' && !advisoryReadOnly ? 'acceptEdits' : 'inherited' },
   };
 }
@@ -66,9 +66,10 @@ export function createParser(request, workspace, publish) {
   if (request.target === 'opencode') return createOpenCodeParser(request, workspace, publish);
   let session, init, final, approval = false, nativeError;
   const active = new Set();
+  const expectedSession = request.target === 'workbuddy' ? (request.continue_session_id ?? request.request_id) : null;
   function identity(id) {
     if (typeof id !== 'string' || !id || (session && id !== session) ||
-        (request.target === 'workbuddy' && id !== request.request_id)) identityError();
+        (expectedSession && id !== expectedSession)) identityError();
     if (!session) { session = id; publish({ native_session_id: id }); }
   }
   return {
@@ -153,7 +154,7 @@ export function invokeCli(directory, workspace, request, publish, testDriver, en
             native_edit_mode: request.target === 'workbuddy' && request.mode === 'implementation' && !advisoryReadOnly ? 'acceptEdits' : 'inherited',
           }) });
         sent = true;
-        child.stdin.end(`uAgents task workspace: ${workspace}\nMode: ${request.mode}. Expected files: ${JSON.stringify(request.expected_outputs)}\nWork only on this task. Do not delegate or start background work. You are not alone; do not revert others' edits.\n\n${request.prompt}`);
+        child.stdin.end(driver.stdinPayload ?? `uAgents task workspace: ${workspace}\nMode: ${request.mode}. Expected files: ${JSON.stringify(request.expected_outputs)}\nWork only on this task. Do not delegate or start background work. You are not alone; do not revert others' edits.\n\n${request.prompt}`);
       } catch { stop(sent ? 'unknown' : 'failed', 'submission_failed'); }
     });
     child.stdin.on('error', () => stop(sent ? 'unknown' : 'failed', 'stdin_failed'));

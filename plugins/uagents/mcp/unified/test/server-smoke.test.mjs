@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { execute } from '../../../src/cli/main.mjs';
 import { UnifiedRuntime } from '../../../src/runtime/api.mjs';
-import { createToolHandlers } from '../src/server.mjs';
+import { createToolHandlers, requestSchema } from '../src/server.mjs';
 
 const base = path.resolve('../../../../.local/test-runs');
 
@@ -41,6 +41,11 @@ test('bundled stdio server initializes and lists the unified tool surface', asyn
       'uagents_cancel', 'uagents_ensure', 'uagents_get_capabilities', 'uagents_list_models', 'uagents_list_targets', 'uagents_list_tasks',
       'uagents_probe', 'uagents_reconcile', 'uagents_result', 'uagents_resume', 'uagents_status', 'uagents_stop', 'uagents_submit',
     ]);
+    const submitTool = listed.result.tools.find(tool => tool.name === 'uagents_submit');
+    const submitSchema = JSON.stringify(submitTool.inputSchema);
+    assert.match(submitSchema, /"source"/);
+    assert.match(submitSchema, /"image"/);
+    assert.match(submitSchema, /"continue_from_task_id"/);
   } finally {
     child.stdin.end();
     await new Promise(resolve => { child.once('close', resolve); setTimeout(() => { child.kill(); resolve(); }, 2_000).unref(); });
@@ -70,4 +75,61 @@ test('MCP and CLI share UUID idempotency and the same persisted model fields', a
     for (const field of ['model_requested', 'model_resolved', 'model_reported', 'model_verified']) assert.equal(fromCli.data[field], fromMcp[field]);
     assert.equal((await handlers.uagents_status({ task_id: request.request_id })).status, 'registered');
   } finally { runtime.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('MCP submit accepts host-materialized file and image sources and normalizes them before storage', async () => {
+  fs.mkdirSync(base, { recursive: true });
+  const root = fs.mkdtempSync(path.join(base, 'unified-attachments-'));
+  const workspace = path.join(root, 'workspace');
+  const hostFiles = path.join(root, 'host-files');
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.mkdirSync(hostFiles, { recursive: true });
+  const fileSource = path.join(hostFiles, 'brief.txt');
+  const imageSource = path.join(hostFiles, 'screen.png');
+  fs.writeFileSync(fileSource, 'host materialized attachment');
+  const png = Buffer.alloc(33);
+  Buffer.from('89504e470d0a1a0a', 'hex').copy(png, 0);
+  png.writeUInt32BE(13, 8); png.write('IHDR', 12, 'ascii'); png.writeUInt32BE(2, 16); png.writeUInt32BE(3, 20);
+  fs.writeFileSync(imageSource, png);
+
+  const request = requestSchema.parse({
+    schema_version: '1.0', request_id: randomUUID(), target: 'opencode', model: 'commandcode-goat/deepseek/deepseek-v4-flash',
+    mode: 'analysis', prompt: 'inspect the attached host files', workspace,
+    inputs: [{ type: 'file', source: fileSource }, { type: 'image', source: imageSource }],
+    execution: { observation_timeout_ms: 5_000, effort: 'medium', permission: 'native' },
+    policy: { fallback: 'none', max_cost_usd: null },
+  });
+  const runtime = new UnifiedRuntime({ stateRoot: root, spawnWorker: () => {} });
+  try {
+    const submitted = await createToolHandlers(runtime).uagents_submit(request);
+    const stored = runtime.service.payload(submitted.task_id);
+    assert.deepEqual(stored.request.inputs.map(input => input.type), ['file', 'image']);
+    assert.equal(stored.request.inputs.every(input => input.path.startsWith('.uagents/inputs/')), true);
+    assert.equal(stored.request.inputs.some(input => Object.hasOwn(input, 'source')), false);
+    assert.equal(stored.payload.input_snapshots[1].media_type, 'image/png');
+    assert.equal(stored.payload.input_snapshots[1].width_px, 2);
+    assert.equal(stored.payload.input_snapshots[1].height_px, 3);
+  } finally { runtime.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('MCP attachment schema requires exactly one of path or source', () => {
+  const baseInput = {
+    schema_version: '1.0', request_id: randomUUID(), target: 'opencode', model: 'commandcode-goat/deepseek/deepseek-v4-flash',
+    mode: 'analysis', prompt: 'bounded', workspace: path.resolve('.'),
+  };
+  assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'image', path: 'screen.png' }] }).success, true);
+  assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file', source: path.resolve('brief.txt') }] }).success, true);
+  assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file' }] }).success, false);
+  assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file', path: 'brief.txt', source: path.resolve('brief.txt') }] }).success, false);
+});
+
+test('MCP request schema exposes explicit task-based session continuation', () => {
+  const input = {
+    schema_version: '1.0', request_id: randomUUID(), target: 'workbuddy', model: 'default',
+    mode: 'analysis', prompt: 'follow up', workspace: path.resolve('.'),
+    session: { continue_from_task_id: randomUUID() },
+  };
+  assert.equal(requestSchema.safeParse(input).success, true);
+  assert.equal(requestSchema.safeParse({ ...input, session: { continue_from_task_id: 'latest' } }).success, false);
+  assert.equal(requestSchema.safeParse({ ...input, session: { continue_from_task_id: randomUUID(), fork: true } }).success, false);
 });

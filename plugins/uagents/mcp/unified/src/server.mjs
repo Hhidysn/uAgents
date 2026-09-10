@@ -10,7 +10,14 @@ import { runRegisteredTask } from '../../../src/runtime/worker-factory.mjs';
 import { childEnvironment } from '../../../src/runtime/child-environment.mjs';
 
 const taskIdSchema = z.object({ task_id: z.uuid() }).strict();
-const requestSchema = z.object({
+const attachmentInputSchema = z.object({
+  type: z.enum(['file', 'image']),
+  path: z.string().optional(),
+  source: z.string().optional(),
+}).strict().refine(input => Boolean(input.path) !== Boolean(input.source), {
+  message: 'Attachment input must contain exactly one of path or source.',
+});
+export const requestSchema = z.object({
   schema_version: z.literal('1.0'),
   request_id: z.uuid(),
   target: z.string().min(1).max(64),
@@ -18,7 +25,8 @@ const requestSchema = z.object({
   mode: z.enum(['analysis', 'implementation']),
   prompt: z.string().min(1).max(65_536),
   workspace: z.string().optional(),
-  inputs: z.array(z.object({ type: z.literal('file'), path: z.string() }).strict()).max(64).optional(),
+  session: z.object({ continue_from_task_id: z.uuid() }).strict().optional(),
+  inputs: z.array(attachmentInputSchema).max(64).optional(),
   expected_outputs: z.array(z.object({
     path: z.string(), type: z.literal('file'), required: z.boolean().optional(), max_bytes: z.number().int().positive().optional(),
   }).strict()).max(64).optional(),

@@ -27,9 +27,17 @@ export function validateOpenCodeNativeArgs(nativeArgs = []) {
 export function buildOpenCodeArgs(request, workspace) {
   if (request.kind === 'probe') return ['--version'];
   const nativeArgs = validateOpenCodeNativeArgs(request.native_args ?? []);
+  if (request.continue_session_id && nativeArgs.some(isSessionSelectionArg)) {
+    fail('invalid_request', 'execution.native_args cannot override structured OpenCode session continuation.', {
+      category: 'user', submission: 'not_sent',
+    });
+  }
   const files = (request.inputs ?? []).flatMap(input => ['--file', path.resolve(workspace, input.path)]);
   return [
-    'run', '--model', request.model, '--format', 'json', '--dir', workspace, '--title', `uAgents ${request.request_id}`,
+    'run',
+    ...(request.continue_session_id ? ['--session', request.continue_session_id] : []),
+    '--model', request.model, '--format', 'json', '--dir', workspace,
+    ...(request.continue_session_id ? [] : ['--title', `uAgents ${request.request_id}`]),
     ...files,
     ...nativeArgs,
   ];
@@ -52,9 +60,10 @@ export function createOpenCodeDriver(request, workspace, entry) {
 export function createOpenCodeParser(request, workspace, publish) {
   let session, finalStep, stepMessage, approval = false, nativeError;
   const textParts = new Map();
+  const expectedSession = request.continue_session_id ?? null;
 
   function identity(id) {
-    if (typeof id !== 'string' || !id || (session && id !== session)) identityError();
+    if (typeof id !== 'string' || !id || (session && id !== session) || (expectedSession && id !== expectedSession)) identityError();
     if (!session) {
       session = id;
       publish({ native_session_id: id });
@@ -133,6 +142,8 @@ export function createOpenCodeParser(request, workspace, publish) {
 }
 
 const identityError = () => fail('native_session_mismatch', 'Native event identity does not match this task.');
+const isSessionSelectionArg = argument => argument === '--session' || argument.startsWith('--session=') || argument === '-s' ||
+  argument === '--continue' || argument === '-c' || argument === '--fork';
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const denied = value => typeof value === 'string' && /permission.*(denied|requested|requires|approval)|auto.reject|soft.denied|not allowed/i.test(value);
 

@@ -194,7 +194,7 @@ test('changed input fails before possibly-sent checkpoint', async () => {
     const workspace = path.join(base, 'input workspace');
     fs.mkdirSync(workspace, { recursive: true });
     fs.writeFileSync(path.join(workspace, 'input.txt'), 'one');
-    const input = request({ target: 'agy', model: 'gemini-fixture-low', workspace, inputs: [{ type: 'file', path: 'input.txt' }] });
+    const input = request({ workspace, inputs: [{ type: 'file', path: 'input.txt' }] });
     const registered = service.submit(input, { adapterVersion: 'fake-1' });
     fs.writeFileSync(path.join(workspace, 'input.txt'), 'two');
     await assert.rejects(runTask({ service, taskId: registered.task_id, adapter: new FakeAdapter() }), { code: 'input_changed' });

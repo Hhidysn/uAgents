@@ -18,8 +18,13 @@ test('registry exposes static capability without dynamic availability', () => {
   const registry = createRegistry();
   assert.equal('available' in registry.targets.opencode, false);
   assert.deepEqual(registry.targets.opencode.modes, ['analysis', 'implementation']);
-  assert.deepEqual(registry.targets.opencode.inputs, { text: true, files: true, images: false });
+  assert.deepEqual(registry.targets.opencode.inputs, { text: true, files: true, images: true, workspace_readable: true });
+  assert.deepEqual(registry.targets.agy.inputs, { text: true, files: false, images: false, workspace_readable: true });
+  assert.deepEqual(registry.targets.workbuddy.inputs, { text: true, files: true, images: true, workspace_readable: true });
   assert.deepEqual(registry.targets.opencode.outputs, { text: true, files: true, images: false });
+  assert.equal(registry.targets.workbuddy.resume, true);
+  assert.equal(registry.targets.opencode.resume, true);
+  assert.equal(registry.targets.agy.resume, false);
   assert.deepEqual(Object.keys(registry.models).filter(key => key.startsWith('commandcode-goat/')).sort(), [
     'commandcode-goat/deepseek/deepseek-v4-flash', 'commandcode-goat/z-ai/glm-5.3-flash',
   ]);
@@ -75,6 +80,28 @@ test('policy fails closed before worker launch', () => {
     target: 'workbuddy', model: 'default',
     execution: { observation_timeout_ms: 10_000, execution_timeout_ms: 20_000, effort: 'medium', permission: 'native' },
   })), { code: 'unsupported_capability' });
+});
+
+test('attachment capability distinguishes native mapping from workspace readability', () => {
+  const workspace = process.cwd();
+  assert.equal(evaluateRequest(request({ workspace, inputs: [{ type: 'image', path: 'image.png' }] })).allowed, true);
+  assert.equal(evaluateRequest(request({ target: 'workbuddy', model: 'default', workspace,
+    inputs: [{ type: 'file', path: 'input.txt' }, { type: 'image', path: 'image.png' }] })).allowed, true);
+  assert.throws(() => evaluateRequest(request({ target: 'agy', model: 'gemini-fixture-low', workspace,
+    inputs: [{ type: 'file', path: 'input.txt' }] })), error => (
+    error.code === 'unsupported_capability' && /native file attachments/.test(error.message)
+  ));
+});
+
+test('session continuation is admitted only for targets with a native continuation mapping', () => {
+  const workspace = process.cwd();
+  const parent = randomUUID();
+  assert.equal(evaluateRequest(request({ workspace, session: { continue_from_task_id: parent } })).allowed, true);
+  assert.equal(evaluateRequest(request({ target: 'workbuddy', model: 'default', workspace,
+    session: { continue_from_task_id: parent } })).allowed, true);
+  assert.throws(() => evaluateRequest(request({ target: 'agy', model: 'gemini-fixture-low', workspace,
+    session: { continue_from_task_id: parent } })), { code: 'unsupported_capability' });
+  assert.throws(() => evaluateRequest(request({ session: { continue_from_task_id: parent } })), { code: 'invalid_workspace' });
 });
 
 test('OpenCode native args cannot replace dispatcher-owned protocol arguments', () => {

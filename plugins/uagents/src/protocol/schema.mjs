@@ -4,10 +4,11 @@ import { fail } from './errors.mjs';
 export const SCHEMA_VERSION = '1.0';
 export const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const REQUEST_FIELDS = new Set(['schema_version', 'request_id', 'target', 'model', 'mode', 'prompt', 'workspace', 'inputs', 'expected_outputs', 'execution', 'policy']);
+const REQUEST_FIELDS = new Set(['schema_version', 'request_id', 'target', 'model', 'mode', 'prompt', 'workspace', 'inputs', 'expected_outputs', 'execution', 'policy', 'session']);
 const EXECUTION_FIELDS = new Set(['observation_timeout_ms', 'execution_timeout_ms', 'effort', 'permission', 'native_args']);
 const POLICY_FIELDS = new Set(['fallback', 'max_cost_usd']);
-const INPUT_FIELDS = new Set(['type', 'path']);
+const SESSION_FIELDS = new Set(['continue_from_task_id']);
+const INPUT_FIELDS = new Set(['type', 'path', 'source']);
 const OUTPUT_FIELDS = new Set(['path', 'type', 'required', 'max_bytes']);
 const MODES = new Set(['analysis', 'implementation']);
 const PERMISSIONS = new Set(['native', 'advisory-read-only', 'enforced-read-only', 'workspace-write', 'full-access']);
@@ -32,11 +33,12 @@ export function parseRequest(input) {
 
   const inputs = arrayOf(value.inputs ?? [], 'inputs', 64, parseInput);
   const expectedOutputs = arrayOf(value.expected_outputs ?? [], 'expected_outputs', 64, parseOutput);
-  ensureUniquePaths(inputs, 'inputs');
+  ensureUniqueInputLocations(inputs);
   ensureUniquePaths(expectedOutputs, 'expected_outputs');
 
   const execution = parseExecution(value.execution ?? {});
   const policy = parsePolicy(value.policy ?? {});
+  const session = parseSession(value.session ?? null, value.request_id);
   return {
     schema_version: SCHEMA_VERSION,
     request_id: value.request_id.toLowerCase(),
@@ -49,6 +51,7 @@ export function parseRequest(input) {
     expected_outputs: expectedOutputs,
     execution,
     policy,
+    session,
   };
 }
 
@@ -105,11 +108,29 @@ function parsePolicy(input) {
   return { fallback, max_cost_usd: value.max_cost_usd ?? null };
 }
 
+function parseSession(input, requestId) {
+  if (input === null) return null;
+  const value = plainObject(input, 'session');
+  exactFields(value, SESSION_FIELDS, 'session');
+  if (!uuidPattern.test(value.continue_from_task_id ?? '')) {
+    fail('invalid_request', 'session.continue_from_task_id must be a canonical UUID.');
+  }
+  const source = value.continue_from_task_id.toLowerCase();
+  if (source === String(requestId).toLowerCase()) fail('invalid_request', 'A task cannot continue from itself.');
+  return { continue_from_task_id: source };
+}
+
 function parseInput(item, index) {
   const value = plainObject(item, `inputs[${index}]`);
   exactFields(value, INPUT_FIELDS, `inputs[${index}]`);
-  if (value.type !== 'file') fail('invalid_input', 'Only file inputs are supported.');
-  return { type: 'file', path: relativePath(value.path, `inputs[${index}].path`) };
+  if (value.type !== 'file' && value.type !== 'image') fail('invalid_input', 'Input type must be file or image.');
+  const hasPath = value.path !== undefined;
+  const hasSource = value.source !== undefined;
+  if (hasPath === hasSource) fail('invalid_input', `inputs[${index}] must contain exactly one of path or source.`);
+  if (hasPath) return { type: value.type, path: relativePath(value.path, `inputs[${index}].path`) };
+  requiredString(value.source, `inputs[${index}].source`, 32_767);
+  if (!path.isAbsolute(value.source)) fail('invalid_input', `inputs[${index}].source must be an absolute local path.`);
+  return { type: value.type, source: path.resolve(value.source) };
 }
 
 function parseOutput(item, index) {
@@ -131,6 +152,13 @@ function relativePath(value, label) {
 function ensureUniquePaths(items, label) {
   const keys = items.map(item => item.path.toLocaleLowerCase('en-US'));
   if (new Set(keys).size !== keys.length) fail('invalid_request', `${label} contains duplicate paths.`);
+}
+
+function ensureUniqueInputLocations(inputs) {
+  const keys = inputs.map(input => input.path !== undefined
+    ? `path:${input.path.toLocaleLowerCase('en-US')}`
+    : `source:${input.source.normalize('NFC').toLocaleLowerCase('en-US')}`);
+  if (new Set(keys).size !== keys.length) fail('invalid_request', 'inputs contains duplicate paths or sources.');
 }
 
 function arrayOf(value, label, maximum, parser) {

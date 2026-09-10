@@ -37,6 +37,7 @@ export function evaluateRequest(input, options = {}) {
       registry_version: registry.version,
       permission: request.execution.permission,
       fallback: request.policy.fallback,
+      session: request.session,
       warnings,
     },
   };
@@ -45,8 +46,10 @@ export function evaluateRequest(input, options = {}) {
 function validateTargetCapabilities(request, descriptor) {
   if (!descriptor.modes.includes(request.mode)) fail('unsupported_capability', `Target ${request.target} does not support mode ${request.mode}.`, { category: 'policy', submission: 'not_sent' });
   if (!descriptor.inputs.text) fail('unsupported_capability', 'Target does not support text input.', { category: 'policy', submission: 'not_sent' });
-  if (request.inputs.length && !descriptor.inputs.files) fail('unsupported_capability', 'Target does not support file inputs.', { category: 'policy', submission: 'not_sent' });
+  if (request.inputs.some(input => input.type === 'file') && !descriptor.inputs.files) fail('unsupported_capability', 'Target does not support native file attachments.', { category: 'policy', submission: 'not_sent' });
+  if (request.inputs.some(input => input.type === 'image') && !descriptor.inputs.images) fail('unsupported_capability', 'Target does not support native image attachments.', { category: 'policy', submission: 'not_sent' });
   if (request.expected_outputs.length && !descriptor.outputs.files) fail('unsupported_capability', 'Target does not support file outputs.', { category: 'policy', submission: 'not_sent' });
+  if (request.session && descriptor.resume !== true) fail('unsupported_capability', `Target ${request.target} does not support native session continuation.`, { category: 'policy', submission: 'not_sent' });
 }
 
 function validateRouteHealth(model, source) {
@@ -72,6 +75,9 @@ function validatePolicy(request, descriptor) {
 
 function validateWorkspace(request) {
   if (request.inputs.length && !request.workspace) {
-    fail('invalid_workspace', 'workspace is required for file inputs.', { category: 'user', submission: 'not_sent' });
+    fail('invalid_workspace', 'workspace is required for attachment inputs.', { category: 'user', submission: 'not_sent' });
+  }
+  if (request.session && !request.workspace) {
+    fail('invalid_workspace', 'workspace is required for native session continuation.', { category: 'user', submission: 'not_sent' });
   }
 }
