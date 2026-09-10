@@ -4,7 +4,7 @@
 
 ## 验证内容
 
-- Council Schema 1.0：2–16 members、`strategy=fanout`、analysis-only metadata。
+- Council Schema 1.0：2–16 members、`strategy=fanout`；兼容默认 `analysis + shared`，后续 Worktree Isolation 扩展支持 `implementation + git-worktree`。
 - `schema council` 和 `describe council-submit` machine-readable discovery。
 - `council_id + member_id` 确定性成员 Task UUID。
 - 两成员 fan-out 会立即注册两个普通 Task，而不会等待前一成员完成。

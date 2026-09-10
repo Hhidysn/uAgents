@@ -73,7 +73,9 @@ test('request schema discovery mirrors the Core request contract', async () => {
 test('council schema discovery and CLI fanout expose deterministic member tasks', async () => {
   const schema = (await execute(['schema', 'council'], { env: {} })).data;
   assert.equal(schema.$id, 'uagents://schema/council/1.0');
-  assert.equal(schema['x-uagents-mode'], 'analysis');
+  assert.match(schema['x-uagents-mode'], /implementation/);
+  assert.deepEqual(schema.properties.mode.enum, ['analysis', 'implementation']);
+  assert.deepEqual(schema.properties.workspace_strategy.enum, ['shared', 'git-worktree']);
   assert.equal(schema.properties.members.minItems, 2);
   const input = {
     schema_version: '1.0', council_id: randomUUID(), prompt: 'Review this change.',

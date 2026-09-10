@@ -162,6 +162,15 @@ test('MCP Council schema and handlers expose first-class fanout aggregation', as
   assert.deepEqual(Object.keys(mcp.properties), Object.keys(core.properties));
   assert.equal(mcp.properties.members.minItems, 2);
   assert.equal(mcp.properties.members.maxItems, 16);
+  assert.deepEqual(mcp.properties.mode.enum, core.properties.mode.enum);
+  assert.deepEqual(mcp.properties.workspace_strategy.enum, core.properties.workspace_strategy.enum);
+  assert.equal(councilRequestSchema.safeParse({
+    schema_version: '1.0', council_id: randomUUID(), mode: 'implementation', prompt: 'x',
+    members: [
+      { member_id: 'a', target: 'workbuddy', model: 'default' },
+      { member_id: 'b', target: 'opencode', model: 'commandcode-goat/deepseek/deepseek-v4-flash' },
+    ],
+  }).success, false);
 
   fs.mkdirSync(base, { recursive: true });
   const root = fs.mkdtempSync(path.join(base, 'unified-council-'));

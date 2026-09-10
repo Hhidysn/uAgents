@@ -5,7 +5,7 @@ import { fail } from './errors.mjs';
 
 export const COUNCIL_LIMITS = Object.freeze({ members: 16, member_id_bytes: 64 });
 
-const COUNCIL_FIELDS = new Set(['schema_version', 'council_id', 'strategy', 'prompt', 'workspace', 'inputs', 'execution', 'members']);
+const COUNCIL_FIELDS = new Set(['schema_version', 'council_id', 'strategy', 'mode', 'workspace_strategy', 'prompt', 'workspace', 'inputs', 'execution', 'members']);
 const MEMBER_FIELDS = new Set(['member_id', 'target', 'model', 'instruction', 'session']);
 const EXECUTION_FIELDS = new Set(['observation_timeout_ms', 'effort', 'permission']);
 
@@ -15,6 +15,12 @@ export function parseCouncilRequest(input) {
   if (value.schema_version !== SCHEMA_VERSION) fail('unsupported_schema_version', `schema_version must be ${SCHEMA_VERSION}.`);
   if (!uuidPattern.test(value.council_id ?? '')) fail('invalid_request_id', 'council_id must be a canonical UUID.');
   if ((value.strategy ?? 'fanout') !== 'fanout') fail('invalid_request', 'council.strategy must be fanout.');
+  const mode = value.mode ?? 'analysis';
+  if (!['analysis', 'implementation'].includes(mode)) fail('invalid_request', 'council.mode must be analysis or implementation.');
+  const workspaceStrategy = value.workspace_strategy ?? 'shared';
+  if (!['shared', 'git-worktree'].includes(workspaceStrategy)) fail('invalid_request', 'council.workspace_strategy must be shared or git-worktree.');
+  if (mode === 'implementation' && workspaceStrategy !== 'git-worktree') fail('invalid_request', 'implementation Council requires workspace_strategy=git-worktree.');
+  if (workspaceStrategy === 'git-worktree' && value.workspace === undefined) fail('invalid_workspace', 'git-worktree Council requires workspace.');
   if (!Array.isArray(value.members) || value.members.length < 2 || value.members.length > COUNCIL_LIMITS.members) {
     fail('invalid_request', `council.members must contain 2–${COUNCIL_LIMITS.members} members.`);
   }
@@ -40,14 +46,14 @@ export function parseCouncilRequest(input) {
         request_id: councilMemberTaskId(councilId, member.member_id),
         target: member.target,
         model: member.model,
-        mode: 'analysis',
+        mode,
         prompt: memberPrompt(value.prompt, instruction),
         ...(value.workspace === undefined ? {} : { workspace: value.workspace }),
         ...(value.inputs === undefined ? {} : { inputs: value.inputs }),
         execution: {
           ...(execution.observation_timeout_ms === undefined ? {} : { observation_timeout_ms: execution.observation_timeout_ms }),
           ...(execution.effort === undefined ? {} : { effort: execution.effort }),
-          permission: execution.permission ?? 'advisory-read-only',
+          permission: execution.permission ?? (mode === 'analysis' ? 'advisory-read-only' : 'native'),
         },
         policy: { fallback: 'none', max_cost_usd: null },
         ...(member.session === undefined ? {} : { session: member.session }),
@@ -59,6 +65,8 @@ export function parseCouncilRequest(input) {
     schema_version: SCHEMA_VERSION,
     council_id: councilId,
     strategy: 'fanout',
+    mode,
+    workspace_strategy: workspaceStrategy,
     prompt: value.prompt,
     workspace: first.workspace,
     inputs: first.inputs,
@@ -78,15 +86,15 @@ export function parseCouncilRequest(input) {
   };
 }
 
-export function buildCouncilMemberRequests(council) {
+export function buildCouncilMemberRequests(council, workspaces = null) {
   return council.members.map(member => parseRequest({
     schema_version: council.schema_version,
     request_id: member.task_id,
     target: member.target,
     model: member.model,
-    mode: 'analysis',
+    mode: council.mode,
     prompt: memberPrompt(council.prompt, member.instruction),
-    ...(council.workspace === null ? {} : { workspace: council.workspace }),
+    ...((workspaces?.[member.member_id] ?? council.workspace) === null ? {} : { workspace: workspaces?.[member.member_id] ?? council.workspace }),
     inputs: council.inputs,
     execution: council.execution,
     policy: { fallback: 'none', max_cost_usd: null },
@@ -97,6 +105,9 @@ export function buildCouncilMemberRequests(council) {
 export function councilJsonSchema() {
   const task = requestJsonSchema();
   const session = task.properties.session.anyOf[0];
+  const permission = { ...task.properties.execution.properties.permission };
+  delete permission.default;
+  permission.description = 'Defaults to advisory-read-only for analysis and native for implementation.';
   return {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     $id: `uagents://schema/council/${SCHEMA_VERSION}`,
@@ -108,6 +119,8 @@ export function councilJsonSchema() {
       schema_version: { const: SCHEMA_VERSION },
       council_id: { ...task.properties.request_id, description: 'Canonical UUID for this intentionally new Council.' },
       strategy: { const: 'fanout', default: 'fanout' },
+      mode: { type: 'string', enum: ['analysis', 'implementation'], default: 'analysis' },
+      workspace_strategy: { type: 'string', enum: ['shared', 'git-worktree'], default: 'shared' },
       prompt: task.properties.prompt,
       workspace: task.properties.workspace,
       inputs: task.properties.inputs,
@@ -116,7 +129,7 @@ export function councilJsonSchema() {
         properties: {
           observation_timeout_ms: task.properties.execution.properties.observation_timeout_ms,
           effort: task.properties.execution.properties.effort,
-          permission: { ...task.properties.execution.properties.permission, default: 'advisory-read-only' },
+          permission,
         },
       },
       members: {
@@ -133,9 +146,19 @@ export function councilJsonSchema() {
         },
       },
     },
-    'x-uagents-mode': 'analysis',
+    allOf: [
+      {
+        if: { required: ['mode'], properties: { mode: { const: 'implementation' } } },
+        then: { required: ['workspace', 'workspace_strategy'], properties: { workspace_strategy: { const: 'git-worktree' } } },
+      },
+      {
+        if: { required: ['workspace_strategy'], properties: { workspace_strategy: { const: 'git-worktree' } } },
+        then: { required: ['workspace'] },
+      },
+    ],
+    'x-uagents-mode': 'analysis or implementation; implementation requires git-worktree',
     'x-uagents-member-task-id': 'deterministic UUIDv8 derived from council_id and member_id',
-    'x-uagents-note': 'fanout registers member Tasks without waiting; existing workspace leases may serialize overlapping workspace execution.',
+    'x-uagents-note': 'shared preserves the original workspace behavior; git-worktree creates one persistent branch/worktree per member from the source workspace HEAD.',
   };
 }
 

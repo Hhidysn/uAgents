@@ -25,11 +25,11 @@ uagents_council_result
 
 ## 第一版 contract
 
-- Council 固定 `analysis`，不接受 implementation。
+- Council 默认 `analysis + shared`；现在也支持 `implementation + git-worktree`。
 - `strategy` 当前只有 `fanout`。
 - 成员数 2–16。
 - 顶层共享 prompt / workspace / inputs / observation timeout / effort / permission。
-- permission 默认 `advisory-read-only`。
+- analysis permission 默认 `advisory-read-only`；implementation 默认 `native`。
 - 每个成员声明稳定 `member_id`、target、model，可选 focus instruction 和现有 session selector。
 - `council_id + member_id` 确定性派生 UUIDv8 作为成员 Task request ID。
 - 完全相同的 Council 重提复用同一组成员 Task；同 `council_id` 内容改变返回 `request_conflict`。
@@ -58,11 +58,11 @@ Native session 不能跨 target 共享。例如 WorkBuddy session 不能直接 f
 
 ## 并发边界
 
-`fanout` 表示 Council 不等待一个成员完成才注册下一个成员。它不是“所有 provider 必须同时执行”的承诺。
+`fanout` 表示 Council 不等待一个成员完成才注册下一个成员。
 
-当前 runtime 的重叠 workspace lease 仍然适用于 Council 成员，所以多个成员读取同一个 project workspace 时可能串行执行。这一版没有为 Council 放松 workspace ownership，也没有新增写入并发语义。
+`workspace_strategy=shared` 保持原行为：重叠 workspace lease 仍可能把成员串行化。
 
-真正的 implementation Council / 并行写入应在后续用独立 worktree 设计，而不是复用同一个 workspace。
+`workspace_strategy=git-worktree` 会为每个 member 从 source committed HEAD 创建不同 Git worktree，因此 workspace lease 不再互相 overlap；global / target concurrency limit 仍保留。implementation Council 必须使用这一策略。详见 [Council Worktree Isolation 当前状态](2026-09-11-council-worktree-isolation-current.md)。
 
 ## Provider 调用边界
 
@@ -73,14 +73,14 @@ Council 本身是会触发成员 Agent 的 provider-billable 调度入口。自�
 ## 当前验证
 
 ```text
-Council + CLI targeted   19/19
+Council + CLI targeted   22/22
 Unified MCP targeted      7/7
 
-Core                    290/290
+Core                    293/293
 Doubao MCP               11/11
 TRAE MCP                  9/9
 Unified MCP               7/7
-Total                   317/317
+Total                   320/320
 ```
 
 真实 E2E 没有修改 runtime 源码；上面的 317/317 是本次实机验证所使用提交的完整自动化门禁结果。

@@ -26,7 +26,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 - workspace 重叠租约、fencing token、统一附件快照（类型/MIME/尺寸/字节数/SHA-256）、不可变产物捕获与 SHA-256 验证。
 - 附件既可继续用 workspace 相对 `{type,path}`，也可用绝对本地 `{type,source}`；submit 会把外部文件归一化到 workspace 的 `.uagents/inputs/` 后复用同一附件链路。
 - WorkBuddy/OpenCode 支持 `session.continue_from_task_id` 和 `session.fork_from_task_id`：新 Task 可以继续上一 native session，或从它派生独立 native branch；uAgents 不重放历史 prompt。
-- First-class Council 把 2–16 个 analysis 成员组织成一个持久化 fan-out/fan-in 单元；成员仍然是普通 Task，使用确定性 Task UUID，结果不自动投票或再调用模型总结。
+- First-class Council 把 2–16 个成员组织成一个持久化 fan-out/fan-in 单元；默认 `analysis + shared`。使用 `implementation + git-worktree` 时，每个成员从 source HEAD 获得独立持久 branch/worktree，可并行修改而不共享写工作区。成员仍是普通 Task，结果不自动投票、merge 或再调用模型总结。
 - `status`/`list` 只读本地状态；只有显式 `reconcile`（或针对已有 durable process 的 `resume`）才恢复已有原生执行观察，绝不重发原 prompt。
 - 受管生命周期：`submit` 自动发现、验证并缓存本机入口；豆包/TRAE 在专用隔离 Profile 中自动启动并跨 Task DB 用 Host lease 防双开；首次登录后同 UUID `submit` 或 `resume` 在原 Attempt 上恢复；`stop` 只停止所有权证据完整的实例。
 - 资源冲突时有界排队；未发送任务可用同 UUID 恢复，任务租约和原子 Attempt claim 防止重复发送。受管桌面恢复绑定原实例，`advisory-read-only` 会传递只读提示并关闭 WorkBuddy 隐式编辑自动接受。
@@ -91,7 +91,7 @@ WorkBuddy/OpenCode 的下一轮对话仍然 submit 一个新的请求和新的 U
 
 两个 selector 严格二选一。source Task 必须已经结束，并与新 Task 使用同一个 target 和 workspace。uAgents 只读取上一 Task 已持久化的 native session id；不会把旧 response/history 拼回 prompt。`continue_from_task_id` 保持相同 native session，`fork_from_task_id` 必须得到新的 native session；`resume <task-id>` 仍然只是恢复/观察同一个已有 Task，不会发送新 prompt。
 
-Council v1 用于独立多 Agent analysis。示例：
+Council 默认用于独立多 Agent analysis。示例：
 
 ```json
 {
@@ -107,7 +107,7 @@ Council v1 用于独立多 Agent analysis。示例：
 }
 ```
 
-Council 固定生成 `analysis` Task，默认 `advisory-read-only`。`council_id + member_id` 确定性派生成员 Task UUID，所以同一个 Council 重提不会创建第二组成员。`council-result` 原样聚合每个成员的 response / usage / artifacts，不自动投票、合并或额外调用一个 synthesis 模型。`fanout` 表示成员 Task 会连续注册/启动而不等待前一成员完成；当前重叠 workspace 的已有 lease 仍可能把实际 native execution 串行化。Native session 仍然不能跨 target fork；跨 target Council 共享背景应使用公共 prompt / attachments。
+兼容默认仍是 `analysis + shared`，analysis 默认 `advisory-read-only`。需要多个 Agent 并行改代码时，使用 `mode:"implementation"`、`workspace_strategy:"git-worktree"` 和显式 Git workspace；implementation 默认 `native`。uAgents 从 source committed HEAD 为每个 member 创建独立持久 branch/worktree，主 workspace 的 dirty tracked/untracked 内容不会隐式复制。`council_id + member_id` 继续确定性派生成员 Task UUID，所以相同 Council 重提复用原 Task/worktree，不 reset 修改。`council-result` 除 response / usage / artifacts 外，还返回 branch、base/current HEAD、dirty、changes、diff stat；不自动 commit、投票、merge、删除 worktree 或调用 synthesis 模型。shared workspace 仍可能被 workspace lease 串行化；git-worktree member 不再互相 overlap，但 target/global concurrency limit 仍生效。
 
 受管生命周期命令（Host 状态固定在 `%LOCALAPPDATA%\uAgents\host-v1`，不受 `--state-dir` 影响）：
 
@@ -160,6 +160,8 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 - [Native Session Continuation 设计](docs/superpowers/specs/2026-09-10-native-session-continuation-design.md)
 - [Native Session Fork / Branch 设计](docs/superpowers/specs/2026-09-10-native-session-fork-design.md)
 - [First-class Council 设计](docs/superpowers/specs/2026-09-10-first-class-council-design.md)
+- [Council Worktree Isolation 设计](docs/superpowers/specs/2026-09-11-council-worktree-isolation-design.md)
+- [Council Worktree Isolation provider-free 验证](docs/verification/2026-09-11-council-worktree-isolation.md)
 - [First-class Council 实机 E2E](docs/verification/2026-09-11-real-first-class-council-e2e.md)
 - [First-class Council provider-free 验证](docs/verification/2026-09-10-first-class-council.md)
 - [Native Session Fork provider-free 验证](docs/verification/2026-09-10-session-fork.md)

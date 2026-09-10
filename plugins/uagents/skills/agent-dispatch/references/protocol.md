@@ -20,7 +20,7 @@ Exactly one of `--request FILE` and `--request-stdin` is required. Do not inline
 
 ## Council
 
-For an independent multi-Agent review, Council v1 is a thin fan-out/fan-in layer over ordinary Tasks:
+For independent multi-Agent work, Council is a thin fan-out/fan-in layer over ordinary Tasks:
 
 ```json
 {
@@ -36,7 +36,7 @@ For an independent multi-Agent review, Council v1 is a thin fan-out/fan-in layer
 }
 ```
 
-Use CLI `council-submit`, `council-status`, `council-result`, or MCP `uagents_council_submit`, `uagents_council_status`, `uagents_council_result`. Council v1 always creates `analysis` Tasks, defaults to `advisory-read-only`, accepts 2–16 members, and supports common `inputs`. A member may carry the existing `session` selector, but native sessions remain same-target only; a WorkBuddy native session cannot be forked into OpenCode. `council_id + member_id` deterministically derives the member Task UUID, so exact resubmission reuses the same Tasks. `council-result` returns each member's normal Task result without voting, merging, or a synthesis model call. `fanout` means member Tasks are registered/launched without waiting for prior members; existing overlapping-workspace leases can still serialize native execution.
+Use CLI `council-submit`, `council-status`, `council-result`, or MCP `uagents_council_submit`, `uagents_council_status`, `uagents_council_result`. The compatibility default is `mode:"analysis"` + `workspace_strategy:"shared"`, with `advisory-read-only` permission. `mode:"implementation"` requires `workspace_strategy:"git-worktree"` and an explicit Git workspace; implementation defaults to native permission. uAgents creates one persistent branch/worktree per member from the source committed HEAD. Dirty tracked changes and untracked source files are not copied automatically; pass extra material through attachment `source` or commit it first. A member may carry the existing `session` selector, but normal same-target/same-workspace session rules still apply. `council_id + member_id` deterministically derives the member Task UUID, so exact resubmission reuses the same Tasks/worktrees without reset. `council-result` returns each member's normal Task result plus worktree branch/base HEAD/current HEAD/dirty/change/diff-stat evidence. It never auto-commits, votes, merges, deletes worktrees, selects a winner, or adds a synthesis model call.
 
 ```json
 {

@@ -38,6 +38,14 @@ process.stdin.on('end',()=>{
   }
   initialize();
   if(scenario==='hang'){setTimeout(()=>{},15000);return;}
+  if(scenario==='gated-success'){
+    const timer=setInterval(()=>{
+      if(!fs.existsSync('release-success'))return;
+      clearInterval(timer);
+      complete();
+    },20);
+    return;
+  }
   if(scenario==='slow-success'){setTimeout(complete, 1200);return;}
   complete();
 });

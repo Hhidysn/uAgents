@@ -49,6 +49,8 @@ export const councilRequestSchema = z.object({
   schema_version: z.literal('1.0'),
   council_id: z.uuid(),
   strategy: z.literal('fanout').optional(),
+  mode: z.enum(['analysis', 'implementation']).optional(),
+  workspace_strategy: z.enum(['shared', 'git-worktree']).optional(),
   prompt: z.string().min(1).max(65_536),
   workspace: z.string().optional(),
   inputs: z.array(attachmentInputSchema).max(64).optional(),
@@ -69,7 +71,11 @@ export const councilRequestSchema = z.object({
       message: 'Session must contain exactly one of continue_from_task_id or fork_from_task_id.',
     }).optional(),
   }).strict()).min(2).max(16),
-}).strict();
+}).strict().refine(value => value.mode !== 'implementation' || value.workspace_strategy === 'git-worktree', {
+  message: 'implementation Council requires workspace_strategy=git-worktree.',
+}).refine(value => value.workspace_strategy !== 'git-worktree' || Boolean(value.workspace), {
+  message: 'git-worktree Council requires workspace.',
+});
 
 export function createToolHandlers(runtime) {
   return {
@@ -105,7 +111,7 @@ export function createServer({ runtime = createRuntime(), supervisor = null } = 
   register('uagents_list_models', 'List approved model routes for one target. Does not validate provider availability.', z.object({ target: z.string().min(1).max(64), refresh: z.boolean().optional() }).strict());
   register('uagents_probe', 'Check one target connection without submitting a task, launching an app, logging in, or approving anything.', z.object({ target: z.string().min(1).max(64), model: z.string().min(1).max(256).optional() }).strict());
   register('uagents_submit', 'Register one idempotent task and return quickly with a task ID and polling interval. Execution continues in a detached worker.', requestSchema);
-  register('uagents_council_submit', 'Register a fan-out analysis council. Each member remains a normal tracked uAgents Task; no automatic vote or synthesis is performed.', councilRequestSchema);
+  register('uagents_council_submit', 'Register a fan-out Council. Shared mode preserves the original workspace; git-worktree creates one persistent branch/worktree per member and enables implementation Council. No automatic merge, vote or synthesis is performed.', councilRequestSchema);
   register('uagents_council_status', 'Aggregate persisted member Task status for one Council. Never contacts native Agents.', councilIdSchema);
   register('uagents_council_result', 'Aggregate member Task results, usage and artifacts for one Council without model synthesis.', councilIdSchema);
   register('uagents_status', 'Read the persisted task status only. This tool never contacts the native Agent.', taskIdSchema);

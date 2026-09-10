@@ -97,7 +97,7 @@ test('accepted OpenCode survives Worker death and keeps a second workspace write
     const service = new TaskService(control);
     const first = request({ workspace });
     const registered = service.submit(first, { adapterVersion: 'opencode-durable-fixture-1' });
-    runner = spawn(process.execPath, [workerRunner, root, registered.task_id, fakeCli, 'slow-success'], {
+    runner = spawn(process.execPath, [workerRunner, root, registered.task_id, fakeCli, 'gated-success'], {
       cwd: path.resolve('.'), windowsHide: true, stdio: 'ignore',
     });
     await waitFor(() => {
@@ -128,12 +128,14 @@ test('accepted OpenCode survives Worker death and keeps a second workspace write
     assert.equal(getNativeProcess(control, blocked.attempt.attempt_id), null);
     assert.equal(lines(path.join(workspace, 'received.txt')), 1);
 
+    fs.writeFileSync(path.join(workspace, 'release-success'), 'go');
+
     const resumed = service.resume(registered.task_id);
     assert.equal(resumed.mode, 'reconcile');
     const spawnCalls = [];
     const recoveryAdapter = new OpenCodeAdapter({ testDriver: {
       command: process.execPath,
-      args: [fakeCli, 'opencode', registered.task_id, 'slow-success'],
+      args: [fakeCli, 'opencode', registered.task_id, 'gated-success'],
       spawn() { spawnCalls.push(true); throw new Error('reconcile must not spawn'); },
     } });
     const reconciled = await reconcileTask({
@@ -285,7 +287,7 @@ function lines(file) {
   return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).length : 0;
 }
 
-async function waitFor(predicate, timeoutMs = 6_000) {
+async function waitFor(predicate, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await predicate()) return;

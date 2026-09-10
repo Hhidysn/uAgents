@@ -35,7 +35,7 @@ export const CLI_COMMANDS = Object.freeze({
     request_schema: { command: 'schema request', id: `uagents://schema/request/${SCHEMA_VERSION}` },
   },
   'council-submit': {
-    ...command('council-submit', 'council-submit (--request <file> | --request-stdin) [--state-dir <dir>]', 'Register a fan-out analysis council; each member remains a normal Task.', [], [
+    ...command('council-submit', 'council-submit (--request <file> | --request-stdin) [--state-dir <dir>]', 'Register a fan-out Council; implementation members can use isolated Git worktrees.', [], [
       option('--request', 'file', 'Read the council request JSON from a file.', { exclusive_group: 'request_source' }),
       option('--request-stdin', 'boolean', 'Read the council request JSON from stdin.', { exclusive_group: 'request_source' }),
       stateDir,
