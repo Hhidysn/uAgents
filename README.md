@@ -160,6 +160,7 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 - [Native Session Continuation 设计](docs/superpowers/specs/2026-09-10-native-session-continuation-design.md)
 - [Native Session Fork / Branch 设计](docs/superpowers/specs/2026-09-10-native-session-fork-design.md)
 - [First-class Council 设计](docs/superpowers/specs/2026-09-10-first-class-council-design.md)
+- [First-class Council 实机 E2E](docs/verification/2026-09-11-real-first-class-council-e2e.md)
 - [First-class Council provider-free 验证](docs/verification/2026-09-10-first-class-council.md)
 - [Native Session Fork provider-free 验证](docs/verification/2026-09-10-session-fork.md)
 - [Runtime 可靠性修复验证](docs/verification/2026-09-06-runtime-reliability-fixes.md)

@@ -21,6 +21,8 @@
 
 由于现有 overlapping-workspace lease 未改变，共享同一 workspace 的 Council 成员在真实 runtime 中仍可能被串行化；`fanout` 仅表示注册/调度不等待前一成员完成。
 
+真实 WorkBuddy + OpenCode 验证已在后续用户明确授权后单独执行，见 [First-class Council 实机 E2E（2026-09-11）](2026-09-11-real-first-class-council-e2e.md)。
+
 ## 测试结果
 
 ```text

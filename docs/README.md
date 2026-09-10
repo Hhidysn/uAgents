@@ -33,6 +33,7 @@
 
 ## 验证证据
 
+- [First-class Council 实机 E2E（2026-09-11）](verification/2026-09-11-real-first-class-council-e2e.md)
 - [First-class Council provider-free 验证（2026-09-10）](verification/2026-09-10-first-class-council.md)
 - [CLI Schema Discovery provider-free 验证（2026-09-10）](verification/2026-09-10-cli-schema-discovery.md)
 - [Native Session Fork 实机 E2E（2026-09-10）](verification/2026-09-10-real-session-fork-e2e.md)

@@ -66,7 +66,9 @@ Native session 不能跨 target 共享。例如 WorkBuddy session 不能直接 f
 
 ## Provider 调用边界
 
-Council 本身是会触发成员 Agent 的 provider-billable 调度入口。当前实现和自动化测试只使用 stub/fixture，没有因为实现 Council 自动执行真实 provider E2E。真实 Council E2E 仍需用户明确授权。
+Council 本身是会触发成员 Agent 的 provider-billable 调度入口。自动化测试继续只使用 stub/fixture；真实 Council E2E 只有在用户明确授权后执行。
+
+2026-09-11 已完成一次最小真实 WorkBuddy + OpenCode Council E2E，详见 [First-class Council 实机 E2E](../verification/2026-09-11-real-first-class-council-e2e.md)。一次 Council submit 注册两个成员 Task，两者最终均 `succeeded`，Council 聚合为 `complete`，`council-result` 原样返回两个真实 response/usage，没有额外 synthesis provider call。共享测试 workspace 下也真实观察到 WorkBuddy 完成时 OpenCode 仍在 queued，随后才执行，符合“fanout 注册不等于 provider 并发”的设计边界。
 
 ## 当前验证
 
@@ -80,3 +82,5 @@ TRAE MCP                  9/9
 Unified MCP               7/7
 Total                   317/317
 ```
+
+真实 E2E 没有修改 runtime 源码；上面的 317/317 是本次实机验证所使用提交的完整自动化门禁结果。
