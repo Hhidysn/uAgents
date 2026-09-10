@@ -4,6 +4,8 @@
 
 Local Codex should normally use the CLI. `uagents_submit` is the MCP fallback and takes the same request fields directly. CLI file input is:
 
+For machine-readable discovery, use `node "<plugin-root>/bin/uagents.mjs" describe submit` for the CLI call contract and `node "<plugin-root>/bin/uagents.mjs" schema request` for the current unified request JSON Schema. This document explains semantics and examples; the Core parser remains authoritative.
+
 ```powershell
 node "<plugin-root>/bin/uagents.mjs" submit --request "<request-json>" --state-dir "<absolute-state-dir>"
 ```

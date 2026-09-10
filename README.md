@@ -54,6 +54,9 @@ uAgents 自身强制工作区写入边界。`execution.permission` 为 Schema 1.
 
 ```powershell
 node "<plugin-root>\bin\uagents.mjs" targets
+node "<plugin-root>\bin\uagents.mjs" describe
+node "<plugin-root>\bin\uagents.mjs" describe submit
+node "<plugin-root>\bin\uagents.mjs" schema request
 node "<plugin-root>\bin\uagents.mjs" capabilities opencode
 node "<plugin-root>\bin\uagents.mjs" models opencode
 node "<plugin-root>\bin\uagents.mjs" submit --request "F:\path\request.json"
@@ -63,6 +66,8 @@ node "<plugin-root>\bin\uagents.mjs" result <task-id>
 ```
 
 `submit` 必须且只能选择 `--request FILE` 或 `--request-stdin`。stdin 适用于调用方可以把输入与命令文本分离的场景；不要把 prompt 或完整 JSON 放入进程参数。
+
+CLI-first 调用不再需要只靠 Skill prose 猜参数：`describe [command]` 返回 machine-readable 的 CLI command contract，`schema request` 返回统一 request 的 Draft 2020-12 JSON Schema；两者都是纯本地只读 discovery，不创建 Runtime/Task，也不联系 Provider。MCP 入口继续通过 `tools/list` 暴露自己的 input schema。
 
 附件输入有两种等价入口：已有的 `{"type":"file","path":"requirements.md"}` / `{"type":"image","path":"assets/screenshot.png"}` 直接引用 workspace 内文件；新的 `{"type":"file","source":"F:\\Downloads\\brief.pdf"}` / `{"type":"image","source":"F:\\Downloads\\screen.png"}` 可直接引用 workspace 外的绝对本地路径。`source` 会在注册前复制为 `.uagents/inputs/...` 下的 workspace-relative attachment；后续 snapshot 和 target mapping 与 `path` 输入完全共用。
 

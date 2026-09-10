@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import * as z from 'zod/v4';
 import { execute } from '../../../src/cli/main.mjs';
+import { requestJsonSchema } from '../../../src/protocol/request-json-schema.mjs';
 import { UnifiedRuntime } from '../../../src/runtime/api.mjs';
 import { createToolHandlers, requestSchema } from '../src/server.mjs';
 
@@ -132,4 +134,16 @@ test('MCP request schema exposes explicit task-based session continuation', () =
   assert.equal(requestSchema.safeParse(input).success, true);
   assert.equal(requestSchema.safeParse({ ...input, session: { continue_from_task_id: 'latest' } }).success, false);
   assert.equal(requestSchema.safeParse({ ...input, session: { continue_from_task_id: randomUUID(), fork: true } }).success, false);
+});
+
+test('CLI request schema discovery stays structurally aligned with MCP submit schema', () => {
+  const core = requestJsonSchema();
+  const mcp = z.toJSONSchema(requestSchema);
+  assert.deepEqual(mcp.required, core.required);
+  assert.deepEqual(Object.keys(mcp.properties), Object.keys(core.properties));
+  assert.deepEqual(mcp.properties.mode.enum, core.properties.mode.enum);
+  assert.deepEqual(mcp.properties.execution.properties.effort.enum, core.properties.execution.properties.effort.enum);
+  assert.deepEqual(mcp.properties.execution.properties.permission.enum, core.properties.execution.properties.permission.enum);
+  assert.deepEqual(mcp.properties.inputs.items.properties.type.enum, core.properties.inputs.items.properties.type.enum);
+  assert.deepEqual(Object.keys(mcp.properties.session.properties), ['continue_from_task_id']);
 });

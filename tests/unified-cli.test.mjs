@@ -5,6 +5,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { execute, main } from '../plugins/uagents/src/cli/main.mjs';
+import { CLI_PARSE_OPTIONS } from '../plugins/uagents/src/cli/discovery.mjs';
 import { UnifiedRuntime } from '../plugins/uagents/src/runtime/api.mjs';
 
 const root = path.resolve('.local', 'test-runs', randomUUID(), 'unified CLI');
@@ -26,6 +27,40 @@ test('discovery commands expose the approved static registry', async () => {
   assert.deepEqual(models.data.map(model => model.route_id).sort(), [
     'commandcode-goat/deepseek/deepseek-v4-flash', 'commandcode-goat/z-ai/glm-5.3-flash',
   ]);
+});
+
+test('CLI discovery exposes commands and submit arguments without opening runtime state', async () => {
+  const described = await execute(['describe'], { env: {} });
+  assert.equal(described.ok, true);
+  assert.equal(described.data.interface, 'uagents-cli');
+  assert.equal(described.data.default_format, 'json');
+  assert.equal(described.data.commands.some(command => command.name === 'submit'), true);
+  assert.equal(described.data.commands.some(command => command.name === 'schema'), true);
+
+  const submit = await execute(['describe', 'submit'], { env: {} });
+  assert.equal(submit.data.name, 'submit');
+  assert.deepEqual(submit.data.constraints, [{ type: 'exactly_one', options: ['--request', '--request-stdin'] }]);
+  assert.equal(submit.data.options.find(option => option.name === '--request').type, 'file');
+  assert.equal(submit.data.options.find(option => option.name === '--request-stdin').type, 'boolean');
+  assert.equal(submit.data.request_schema.command, 'schema request');
+  for (const option of submit.data.options) assert.equal(Object.hasOwn(CLI_PARSE_OPTIONS, option.name.slice(2)), true);
+  await assert.rejects(() => execute(['describe', 'unknown'], { env: {} }), { code: 'usage' });
+});
+
+test('request schema discovery mirrors the Core request contract', async () => {
+  const discovered = await execute(['schema', 'request'], { env: {} });
+  const schema = discovered.data;
+  assert.equal(schema.$id, 'uagents://schema/request/1.0');
+  assert.equal(schema.additionalProperties, false);
+  assert.deepEqual(schema.required, ['schema_version', 'request_id', 'target', 'model', 'mode', 'prompt']);
+  assert.deepEqual(schema.properties.mode.enum, ['analysis', 'implementation']);
+  assert.deepEqual(schema.properties.execution.properties.effort.enum, ['low', 'medium', 'high', 'max']);
+  assert.deepEqual(schema.properties.inputs.items.properties.type.enum, ['file', 'image']);
+  assert.deepEqual(schema.properties.inputs.items.oneOf, [{ required: ['path'] }, { required: ['source'] }]);
+  assert.equal(schema.properties.session.anyOf[0].properties.continue_from_task_id.type, 'string');
+  assert.equal(schema['x-uagents-authoritative-validator'], 'src/protocol/schema.mjs');
+  await assert.rejects(() => execute(['schema', 'other'], { env: {} }), { code: 'usage' });
+  await assert.rejects(() => execute(['schema', 'request', '--format', 'table'], { env: {} }), { code: 'usage' });
 });
 
 test('probe does not hide managed snapshot failures', async () => {

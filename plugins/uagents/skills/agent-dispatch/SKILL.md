@@ -7,9 +7,9 @@ description: Delegate tracked tasks to agy/Gemini, WorkBuddy, OpenCode, Doubao W
 
 Use the local `bin/uagents.mjs` CLI as the primary entrypoint when Codex has a local shell. This preserves the caller's environment for installed Agent CLIs. Derive `<plugin-root>` from this loaded Skill's location (`skills/agent-dispatch` is two levels below the plugin root); never hard-code a cache version. Use the unified `uagents_*` MCP tools only when a local shell is unavailable or the user explicitly requests MCP. Both entrypoints call the same Core and can share the same state root.
 
-Run CLI commands as `node "<plugin-root>/bin/uagents.mjs" <command>`. JSON is the default output. Omit `--state-dir` to use the normal local state, or keep one explicit absolute state directory unchanged across submit and every later query. For submit, use `--request FILE`; use `--request-stdin` only when the caller can provide stdin separately from the command text. Never place prompt text, credentials, or serialized requests in process arguments.
+Run CLI commands as `node "<plugin-root>/bin/uagents.mjs" <command>`. JSON is the default output. The CLI self-describes without touching runtime state: use `describe` or `describe <command>` for machine-readable command syntax, and `schema request` for the unified request JSON Schema. Prefer these discovery commands over inferring parameter names from prose. Omit `--state-dir` to use the normal local state, or keep one explicit absolute state directory unchanged across submit and every later query. For submit, use `--request FILE`; use `--request-stdin` only when the caller can provide stdin separately from the command text. Never place prompt text, credentials, or serialized requests in process arguments.
 
-Before submitting, read [references/protocol.md](references/protocol.md) and only the selected target reference:
+Before submitting, use `schema request` when constructing the request, then read [references/protocol.md](references/protocol.md) for semantics and only the selected target reference:
 
 - [agy / Gemini](references/agy.md): explicit Gemini model, text or file work.
 - [WorkBuddy](references/workbuddy.md): backend-default model, text, file, or image work through verified stream-json attachment blocks.

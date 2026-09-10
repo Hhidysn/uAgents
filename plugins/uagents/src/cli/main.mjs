@@ -3,17 +3,16 @@ import { parseArgs } from 'node:util';
 import { notOk, ok } from '../protocol/envelope.mjs';
 import { fail } from '../protocol/errors.mjs';
 import { createRegistry, targetDescriptor } from '../registry/registry.mjs';
-import { resolveStateRoot, UnifiedRuntime } from '../runtime/api.mjs';
+import { CLI_PARSE_OPTIONS, describeCli, isKnownCliCommand } from './discovery.mjs';
+import { requestJsonSchema } from '../protocol/request-json-schema.mjs';
 
 export async function execute(argv, options = {}) {
   const registry = options.registry ?? createRegistry();
-  const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, strict: true, options: {
-    request: { type: 'string' }, 'request-stdin': { type: 'boolean' }, 'state-dir': { type: 'string' }, model: { type: 'string' }, refresh: { type: 'boolean' },
-    limit: { type: 'string' }, cursor: { type: 'string' }, config: { type: 'string' }, format: { type: 'string' },
-  } });
+  const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, strict: true, options: CLI_PARSE_OPTIONS });
   if (values.format && !['json', 'table'].includes(values.format)) fail('invalid_request', 'format must be json or table.');
   const [command, subject, ...extra] = positionals;
   if (!command || extra.length) fail('usage', 'Invalid uagents command arguments.');
+  if (!isKnownCliCommand(command)) fail('usage', `Unknown command: ${command}`);
 
   if (command === 'targets') return ok(Object.entries(registry.targets).filter(([, value]) => value.enabled).map(([id]) => id));
   if (command === 'capabilities') return ok({ target: subject, ...targetDescriptor(registry, required(subject, 'target')) });
@@ -21,11 +20,21 @@ export async function execute(argv, options = {}) {
     const target = required(subject, 'target'); targetDescriptor(registry, target);
     return ok(Object.values(registry.models).filter(model => model.target === target && model.enabled));
   }
+  if (command === 'describe') {
+    if (values.format === 'table') fail('usage', 'describe is machine-readable JSON only.');
+    return ok(describeCli(subject ?? null));
+  }
+  if (command === 'schema') {
+    if (values.format === 'table') fail('usage', 'schema is machine-readable JSON only.');
+    if (subject !== 'request') fail('usage', 'schema requires subject request.');
+    return ok(requestJsonSchema());
+  }
   if (command === 'config' && subject === 'validate') {
     const config = values.config ? JSON.parse(fs.readFileSync(values.config, 'utf8')) : {};
     return ok({ valid: true, registry_version: createRegistry(config).version });
   }
 
+  const { resolveStateRoot, UnifiedRuntime } = await import('../runtime/api.mjs');
   const stateRoot = resolveStateRoot(values['state-dir'], options.env ?? process.env);
   // The supervisor is constructed only for commands that need it. An explicit
   // options.supervisor key (including null) is honored verbatim so tests and
