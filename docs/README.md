@@ -5,7 +5,7 @@
 ## 当前先读
 
 - [CLI Schema Discovery 当前状态](status/2026-09-10-cli-schema-discovery-current.md)：CLI `describe` / `schema request` 的 machine-readable contract、source of truth 与验证边界。
-- [Native Session Continuation 当前状态](status/2026-09-10-session-continuation-current.md)：WorkBuddy/OpenCode 显式多轮续聊的当前源码能力、边界和 provider-free 验证。
+- [Native Session Continuation / Fork 当前状态](status/2026-09-10-session-continuation-current.md)：WorkBuddy/OpenCode 显式续聊与 native branch 的当前源码能力、边界和验证状态。
 - [Universal Attachment 当前状态](status/2026-09-09-universal-attachment-current.md)：本轮源码中的统一附件 contract、WorkBuddy/OpenCode mapping、agy fail-closed 能力和剩余缺口。
 - [下一阶段功能交接：Universal Attachment Input](status/2026-09-09-next-feature-handoff.md)：本轮实现开始前的附件能力快照与实施交接；保留为历史输入，不代表当前工作树能力。
 - [2026-09-06 当前状态与能力矩阵](status/2026-09-06-current-status.md)：Durable Runtime 阶段的历史状态快照。
@@ -19,6 +19,7 @@
 - [Runtime 可靠性修复设计](superpowers/specs/2026-09-05-runtime-reliability-fixes-design.md)
 - [Verified Execution Timeout 设计](superpowers/specs/2026-09-06-verified-execution-timeout-design.md)
 - [Native Session Continuation 设计](superpowers/specs/2026-09-10-native-session-continuation-design.md)
+- [Native Session Fork / Branch 设计](superpowers/specs/2026-09-10-native-session-fork-design.md)
 - [统一 Runtime 实施计划](superpowers/plans/2026-09-04-uagents-unified-agent-runtime-implementation.md)
 - [受管生命周期实施计划](superpowers/plans/2026-09-05-uagents-managed-agent-lifecycle-implementation.md)
 - [Runtime 可靠性修复计划](superpowers/plans/2026-09-05-runtime-reliability-fixes.md)
@@ -31,6 +32,8 @@
 ## 验证证据
 
 - [CLI Schema Discovery provider-free 验证（2026-09-10）](verification/2026-09-10-cli-schema-discovery.md)
+- [Native Session Fork 实机 E2E（2026-09-10）](verification/2026-09-10-real-session-fork-e2e.md)
+- [Native Session Fork provider-free 验证（2026-09-10）](verification/2026-09-10-session-fork.md)
 - [Native Session Continuation 实机 E2E（2026-09-10）](verification/2026-09-10-real-session-continuation-e2e.md)
 - [Native Session Continuation provider-free 验证（2026-09-10）](verification/2026-09-10-session-continuation.md)
 - [Universal Attachment Input provider-free 验证（2026-09-09）](verification/2026-09-09-universal-attachment-input.md)

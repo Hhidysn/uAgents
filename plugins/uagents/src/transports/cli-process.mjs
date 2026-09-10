@@ -66,10 +66,13 @@ export function createParser(request, workspace, publish) {
   if (request.target === 'opencode') return createOpenCodeParser(request, workspace, publish);
   let session, init, final, approval = false, nativeError;
   const active = new Set();
-  const expectedSession = request.target === 'workbuddy' ? (request.continue_session_id ?? request.request_id) : null;
+  const expectedSession = request.target === 'workbuddy' && !request.fork_session_id
+    ? (request.continue_session_id ?? request.request_id)
+    : null;
+  const forbiddenSession = request.target === 'workbuddy' ? request.fork_session_id ?? null : null;
   function identity(id) {
     if (typeof id !== 'string' || !id || (session && id !== session) ||
-        (expectedSession && id !== expectedSession)) identityError();
+        (expectedSession && id !== expectedSession) || (forbiddenSession && id === forbiddenSession)) identityError();
     if (!session) { session = id; publish({ native_session_id: id }); }
   }
   return {

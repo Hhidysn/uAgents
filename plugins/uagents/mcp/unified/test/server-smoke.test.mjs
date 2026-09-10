@@ -48,6 +48,7 @@ test('bundled stdio server initializes and lists the unified tool surface', asyn
     assert.match(submitSchema, /"source"/);
     assert.match(submitSchema, /"image"/);
     assert.match(submitSchema, /"continue_from_task_id"/);
+    assert.match(submitSchema, /"fork_from_task_id"/);
   } finally {
     child.stdin.end();
     await new Promise(resolve => { child.once('close', resolve); setTimeout(() => { child.kill(); resolve(); }, 2_000).unref(); });
@@ -125,15 +126,17 @@ test('MCP attachment schema requires exactly one of path or source', () => {
   assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file', path: 'brief.txt', source: path.resolve('brief.txt') }] }).success, false);
 });
 
-test('MCP request schema exposes explicit task-based session continuation', () => {
+test('MCP request schema exposes explicit task-based session continuation and fork', () => {
   const input = {
     schema_version: '1.0', request_id: randomUUID(), target: 'workbuddy', model: 'default',
     mode: 'analysis', prompt: 'follow up', workspace: path.resolve('.'),
     session: { continue_from_task_id: randomUUID() },
   };
   assert.equal(requestSchema.safeParse(input).success, true);
+  assert.equal(requestSchema.safeParse({ ...input, session: { fork_from_task_id: randomUUID() } }).success, true);
   assert.equal(requestSchema.safeParse({ ...input, session: { continue_from_task_id: 'latest' } }).success, false);
-  assert.equal(requestSchema.safeParse({ ...input, session: { continue_from_task_id: randomUUID(), fork: true } }).success, false);
+  assert.equal(requestSchema.safeParse({ ...input, session: {} }).success, false);
+  assert.equal(requestSchema.safeParse({ ...input, session: { continue_from_task_id: randomUUID(), fork_from_task_id: randomUUID() } }).success, false);
 });
 
 test('CLI request schema discovery stays structurally aligned with MCP submit schema', () => {
@@ -145,5 +148,5 @@ test('CLI request schema discovery stays structurally aligned with MCP submit sc
   assert.deepEqual(mcp.properties.execution.properties.effort.enum, core.properties.execution.properties.effort.enum);
   assert.deepEqual(mcp.properties.execution.properties.permission.enum, core.properties.execution.properties.permission.enum);
   assert.deepEqual(mcp.properties.inputs.items.properties.type.enum, core.properties.inputs.items.properties.type.enum);
-  assert.deepEqual(Object.keys(mcp.properties.session.properties), ['continue_from_task_id']);
+  assert.deepEqual(Object.keys(mcp.properties.session.properties), ['continue_from_task_id', 'fork_from_task_id']);
 });

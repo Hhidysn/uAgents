@@ -25,6 +25,9 @@ test('registry exposes static capability without dynamic availability', () => {
   assert.equal(registry.targets.workbuddy.resume, true);
   assert.equal(registry.targets.opencode.resume, true);
   assert.equal(registry.targets.agy.resume, false);
+  assert.equal(registry.targets.workbuddy.fork, true);
+  assert.equal(registry.targets.opencode.fork, true);
+  assert.equal(registry.targets.agy.fork, false);
   assert.deepEqual(Object.keys(registry.models).filter(key => key.startsWith('commandcode-goat/')).sort(), [
     'commandcode-goat/deepseek/deepseek-v4-flash', 'commandcode-goat/z-ai/glm-5.3-flash',
   ]);
@@ -102,6 +105,17 @@ test('session continuation is admitted only for targets with a native continuati
   assert.throws(() => evaluateRequest(request({ target: 'agy', model: 'gemini-fixture-low', workspace,
     session: { continue_from_task_id: parent } })), { code: 'unsupported_capability' });
   assert.throws(() => evaluateRequest(request({ session: { continue_from_task_id: parent } })), { code: 'invalid_workspace' });
+});
+
+test('session fork is admitted only for targets with a native fork mapping', () => {
+  const workspace = process.cwd();
+  const parent = randomUUID();
+  assert.equal(evaluateRequest(request({ workspace, session: { fork_from_task_id: parent } })).allowed, true);
+  assert.equal(evaluateRequest(request({ target: 'workbuddy', model: 'default', workspace,
+    session: { fork_from_task_id: parent } })).allowed, true);
+  assert.throws(() => evaluateRequest(request({ target: 'agy', model: 'gemini-fixture-low', workspace,
+    session: { fork_from_task_id: parent } })), { code: 'unsupported_capability' });
+  assert.throws(() => evaluateRequest(request({ session: { fork_from_task_id: parent } })), { code: 'invalid_workspace' });
 });
 
 test('OpenCode native args cannot replace dispatcher-owned protocol arguments', () => {

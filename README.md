@@ -5,11 +5,11 @@ uAgents 是供 Codex 使用的本地统一 Agent 调度插件。当前发行标�
 TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时明确保留各目标不同的
 模型、文件、权限、取消和桌面连接能力。
 
-先看：[Session Continuation 当前状态](docs/status/2026-09-10-session-continuation-current.md) · [Universal Attachment 当前状态](docs/status/2026-09-09-universal-attachment-current.md) · [文档索引](docs/README.md)
+先看：[Session Continuation / Fork 当前状态](docs/status/2026-09-10-session-continuation-current.md) · [Universal Attachment 当前状态](docs/status/2026-09-09-universal-attachment-current.md) · [文档索引](docs/README.md)
 
 > 重要边界：OpenCode 现在支持文本 `analysis` 和 `implementation`，并把声明式文件/图片输入映射为原生附件；
 > WorkBuddy 也通过其已核实的 stream-json `document` / `image` block 接入文件和图片。WorkBuddy 与 OpenCode
-> 现在都支持显式多轮 continuation：每一轮仍是新 Task，但可以引用上一 Task 的 native session。agy 当前只有 workspace
+> 现在都支持显式多轮 continuation 和 fork：每一轮仍是新 Task，可以继续上一 native session，也可以从上一轮上下文派生独立 native branch。agy 当前只有 workspace
 > 可读性，没有可验证的 native attachment mapping，也没有已映射的 session continuation。
 > uAgents 负责请求、工作区、生命周期和产物验收，不提供执行沙箱；OpenCode 的原生行为通过
 > `execution.native_args` 控制。
@@ -25,7 +25,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 - 外部发送前持久化 `possibly_sent`；发送后不确定状态不自动换 UUID、模型或 Provider 重放。
 - workspace 重叠租约、fencing token、统一附件快照（类型/MIME/尺寸/字节数/SHA-256）、不可变产物捕获与 SHA-256 验证。
 - 附件既可继续用 workspace 相对 `{type,path}`，也可用绝对本地 `{type,source}`；submit 会把外部文件归一化到 workspace 的 `.uagents/inputs/` 后复用同一附件链路。
-- WorkBuddy/OpenCode 支持 `session.continue_from_task_id`：新 Task 可以把新 prompt 发送到上一轮已持久化的 native session，而不是重放历史 prompt。
+- WorkBuddy/OpenCode 支持 `session.continue_from_task_id` 和 `session.fork_from_task_id`：新 Task 可以继续上一 native session，或从它派生独立 native branch；uAgents 不重放历史 prompt。
 - `status`/`list` 只读本地状态；只有显式 `reconcile`（或针对已有 durable process 的 `resume`）才恢复已有原生执行观察，绝不重发原 prompt。
 - 受管生命周期：`submit` 自动发现、验证并缓存本机入口；豆包/TRAE 在专用隔离 Profile 中自动启动并跨 Task DB 用 Host lease 防双开；首次登录后同 UUID `submit` 或 `resume` 在原 Attempt 上恢复；`stop` 只停止所有权证据完整的实例。
 - 资源冲突时有界排队；未发送任务可用同 UUID 恢复，任务租约和原子 Attempt claim 防止重复发送。受管桌面恢复绑定原实例，`advisory-read-only` 会传递只读提示并关闭 WorkBuddy 隐式编辑自动接受。
@@ -77,7 +77,13 @@ WorkBuddy/OpenCode 的下一轮对话仍然 submit 一个新的请求和新的 U
 "session": { "continue_from_task_id": "上一轮-uAgents-task-uuid" }
 ```
 
-source Task 必须已经结束，并与新 Task 使用同一个 target 和 workspace。uAgents 只读取上一 Task 已持久化的 native session id；不会把旧 response/history 拼回 prompt。这里的 `session.continue_from_task_id` 是“发送下一条消息”，而 `resume <task-id>` 仍然只是恢复/观察同一个已有 Task，不会发送新 prompt。
+如果要从上一轮上下文分叉一条独立会话，则使用：
+
+```json
+"session": { "fork_from_task_id": "上一轮-uAgents-task-uuid" }
+```
+
+两个 selector 严格二选一。source Task 必须已经结束，并与新 Task 使用同一个 target 和 workspace。uAgents 只读取上一 Task 已持久化的 native session id；不会把旧 response/history 拼回 prompt。`continue_from_task_id` 保持相同 native session，`fork_from_task_id` 必须得到新的 native session；`resume <task-id>` 仍然只是恢复/观察同一个已有 Task，不会发送新 prompt。
 
 受管生命周期命令（Host 状态固定在 `%LOCALAPPDATA%\uAgents\host-v1`，不受 `--state-dir` 影响）：
 
@@ -126,6 +132,8 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 - [Runtime 可靠性修复设计](docs/superpowers/specs/2026-09-05-runtime-reliability-fixes-design.md)
 - [Verified Execution Timeout 设计](docs/superpowers/specs/2026-09-06-verified-execution-timeout-design.md)
 - [Native Session Continuation 设计](docs/superpowers/specs/2026-09-10-native-session-continuation-design.md)
+- [Native Session Fork / Branch 设计](docs/superpowers/specs/2026-09-10-native-session-fork-design.md)
+- [Native Session Fork provider-free 验证](docs/verification/2026-09-10-session-fork.md)
 - [Runtime 可靠性修复验证](docs/verification/2026-09-06-runtime-reliability-fixes.md)
 - [Universal Attachment Input 验证](docs/verification/2026-09-09-universal-attachment-input.md)
 - [统一 Runtime 实施计划](docs/superpowers/plans/2026-09-04-uagents-unified-agent-runtime-implementation.md)

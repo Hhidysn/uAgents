@@ -128,6 +128,7 @@ export async function reconcileTask({ service, taskId, adapter, leaseOptions = {
       lease: leases[0],
       taskDirectory: taskDirectory(service.control.root, taskId),
       request,
+      session: stored.payload.session ?? stored.payload.continuation ?? null,
       checkpoint: dispatchCheckpoint,
       nativeProcess: durableProcess,
       processInspector: leaseOptions.processInspector ?? null,

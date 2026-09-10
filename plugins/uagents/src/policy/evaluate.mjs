@@ -49,7 +49,8 @@ function validateTargetCapabilities(request, descriptor) {
   if (request.inputs.some(input => input.type === 'file') && !descriptor.inputs.files) fail('unsupported_capability', 'Target does not support native file attachments.', { category: 'policy', submission: 'not_sent' });
   if (request.inputs.some(input => input.type === 'image') && !descriptor.inputs.images) fail('unsupported_capability', 'Target does not support native image attachments.', { category: 'policy', submission: 'not_sent' });
   if (request.expected_outputs.length && !descriptor.outputs.files) fail('unsupported_capability', 'Target does not support file outputs.', { category: 'policy', submission: 'not_sent' });
-  if (request.session && descriptor.resume !== true) fail('unsupported_capability', `Target ${request.target} does not support native session continuation.`, { category: 'policy', submission: 'not_sent' });
+  if (request.session?.continue_from_task_id && descriptor.resume !== true) fail('unsupported_capability', `Target ${request.target} does not support native session continuation.`, { category: 'policy', submission: 'not_sent' });
+  if (request.session?.fork_from_task_id && descriptor.fork !== true) fail('unsupported_capability', `Target ${request.target} does not support native session fork.`, { category: 'policy', submission: 'not_sent' });
 }
 
 function validateRouteHealth(model, source) {
@@ -78,6 +79,6 @@ function validateWorkspace(request) {
     fail('invalid_workspace', 'workspace is required for attachment inputs.', { category: 'user', submission: 'not_sent' });
   }
   if (request.session && !request.workspace) {
-    fail('invalid_workspace', 'workspace is required for native session continuation.', { category: 'user', submission: 'not_sent' });
+    fail('invalid_workspace', 'workspace is required for native session continuation or fork.', { category: 'user', submission: 'not_sent' });
   }
 }

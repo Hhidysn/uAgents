@@ -25,7 +25,12 @@ export const requestSchema = z.object({
   mode: z.enum(['analysis', 'implementation']),
   prompt: z.string().min(1).max(65_536),
   workspace: z.string().optional(),
-  session: z.object({ continue_from_task_id: z.uuid() }).strict().optional(),
+  session: z.object({
+    continue_from_task_id: z.uuid().optional(),
+    fork_from_task_id: z.uuid().optional(),
+  }).strict().refine(value => Boolean(value.continue_from_task_id) !== Boolean(value.fork_from_task_id), {
+    message: 'Session must contain exactly one of continue_from_task_id or fork_from_task_id.',
+  }).optional(),
   inputs: z.array(attachmentInputSchema).max(64).optional(),
   expected_outputs: z.array(z.object({
     path: z.string(), type: z.literal('file'), required: z.boolean().optional(), max_bytes: z.number().int().positive().optional(),

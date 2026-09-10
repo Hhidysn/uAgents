@@ -165,7 +165,7 @@ test('WorkBuddy follow-up task continues the persisted native session', async ()
     });
     const followUpRegistered = service.submit(followUp, { adapterVersion: 'unified-fixture-1' });
     const stored = service.payload(followUpRegistered.task_id);
-    assert.deepEqual(stored.payload.continuation, { from_task_id: first.request_id, native_session_id: first.request_id });
+    assert.deepEqual(stored.payload.session, { action: 'continue', from_task_id: first.request_id, native_session_id: first.request_id });
     assert.deepEqual(service.status(followUpRegistered.task_id).session, { continue_from_task_id: first.request_id });
 
     const followUpAdapter = new WorkBuddyAdapter({ testDriver: {
@@ -174,6 +174,58 @@ test('WorkBuddy follow-up task continues the persisted native session', async ()
     const followUpResult = await runTask({ service, taskId: followUpRegistered.task_id, adapter: followUpAdapter });
     assert.equal(followUpResult.status, 'succeeded');
     assert.equal(followUpResult.native.session_id, first.request_id);
+  } finally { control.close(); }
+});
+
+for (const target of ['workbuddy', 'opencode']) test(`${target} fork creates a new native branch that can be continued`, async () => {
+  const control = new ControlDatabase(path.join(root, `${target}-fork-${randomUUID()}`));
+  const workspace = path.join(root, `${target}-fork-workspace-${randomUUID()}`);
+  fs.mkdirSync(workspace, { recursive: true });
+  try {
+    const service = new TaskService(control);
+    const source = baseRequest({ target, model: target === 'workbuddy' ? 'default' : 'commandcode-goat/deepseek/deepseek-v4-flash', workspace, prompt: 'source turn' });
+    const sourceNativeSession = target === 'workbuddy' ? source.request_id : `ses_source_${randomUUID().replaceAll('-', '')}`;
+    const sourceAdapter = target === 'workbuddy'
+      ? new WorkBuddyAdapter({ testDriver: { command: process.execPath, args: [fakeCli, target, source.request_id, 'success'] } })
+      : new OpenCodeAdapter({ testDriver: { command: process.execPath, args: [fakeCli, target, source.request_id, 'success', sourceNativeSession] } });
+    const sourceRegistered = service.submit(source, { adapterVersion: 'unified-fixture-1' });
+    const sourceResult = await runTask({ service, taskId: sourceRegistered.task_id, adapter: sourceAdapter });
+    assert.equal(sourceResult.status, 'succeeded');
+    assert.equal(sourceResult.native.session_id, sourceNativeSession);
+
+    const fork = baseRequest({
+      target, model: target === 'workbuddy' ? 'default' : 'commandcode-goat/deepseek/deepseek-v4-flash', workspace, prompt: 'branch turn',
+      session: { fork_from_task_id: source.request_id },
+    });
+    const branchSession = `ses_branch_${randomUUID().replaceAll('-', '')}`;
+    const forkRegistered = service.submit(fork, { adapterVersion: 'unified-fixture-1' });
+    assert.deepEqual(service.payload(forkRegistered.task_id).payload.session, {
+      action: 'fork', from_task_id: source.request_id, native_session_id: sourceNativeSession,
+    });
+    assert.deepEqual(service.status(forkRegistered.task_id).session, { fork_from_task_id: source.request_id });
+    const ForkAdapter = target === 'workbuddy' ? WorkBuddyAdapter : OpenCodeAdapter;
+    const forkAdapter = new ForkAdapter({ testDriver: {
+      command: process.execPath, args: [fakeCli, target, fork.request_id, 'success', branchSession],
+    } });
+    const forkResult = await runTask({ service, taskId: forkRegistered.task_id, adapter: forkAdapter });
+    assert.equal(forkResult.status, 'succeeded');
+    assert.equal(forkResult.native.session_id, branchSession);
+    assert.notEqual(forkResult.native.session_id, sourceNativeSession);
+
+    const followUp = baseRequest({
+      target, model: target === 'workbuddy' ? 'default' : 'commandcode-goat/deepseek/deepseek-v4-flash', workspace, prompt: 'continue branch',
+      session: { continue_from_task_id: fork.request_id },
+    });
+    const followUpRegistered = service.submit(followUp, { adapterVersion: 'unified-fixture-1' });
+    assert.deepEqual(service.payload(followUpRegistered.task_id).payload.session, {
+      action: 'continue', from_task_id: fork.request_id, native_session_id: branchSession,
+    });
+    const followUpAdapter = new ForkAdapter({ testDriver: {
+      command: process.execPath, args: [fakeCli, target, followUp.request_id, 'success', branchSession],
+    } });
+    const followUpResult = await runTask({ service, taskId: followUpRegistered.task_id, adapter: followUpAdapter });
+    assert.equal(followUpResult.status, 'succeeded');
+    assert.equal(followUpResult.native.session_id, branchSession);
   } finally { control.close(); }
 });
 

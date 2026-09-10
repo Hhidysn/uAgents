@@ -244,7 +244,7 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
       verifiedEntry,
       managed,
       inputSnapshots: stored.payload.input_snapshots,
-      continuation: stored.payload.continuation ?? null,
+      session: stored.payload.session ?? stored.payload.continuation ?? null,
     };
     const checkpoint = (kind, payload = {}) => persistCheckpoint(service.control, {
       taskId, attemptId, lease: fencingLease, kind, payload: { target: request.target, ...(managedLifecycle ? { lifecycle: managedLifecycle } : {}), ...payload },

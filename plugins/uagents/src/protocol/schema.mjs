@@ -7,7 +7,7 @@ export const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9
 export const REQUEST_FIELD_NAMES = Object.freeze(['schema_version', 'request_id', 'target', 'model', 'mode', 'prompt', 'workspace', 'inputs', 'expected_outputs', 'execution', 'policy', 'session']);
 export const EXECUTION_FIELD_NAMES = Object.freeze(['observation_timeout_ms', 'execution_timeout_ms', 'effort', 'permission', 'native_args']);
 export const POLICY_FIELD_NAMES = Object.freeze(['fallback', 'max_cost_usd']);
-export const SESSION_FIELD_NAMES = Object.freeze(['continue_from_task_id']);
+export const SESSION_FIELD_NAMES = Object.freeze(['continue_from_task_id', 'fork_from_task_id']);
 export const INPUT_FIELD_NAMES = Object.freeze(['type', 'path', 'source']);
 export const OUTPUT_FIELD_NAMES = Object.freeze(['path', 'type', 'required', 'max_bytes']);
 export const REQUEST_MODES = Object.freeze(['analysis', 'implementation']);
@@ -140,12 +140,17 @@ function parseSession(input, requestId) {
   if (input === null) return null;
   const value = plainObject(input, 'session');
   exactFields(value, SESSION_FIELDS, 'session');
-  if (!uuidPattern.test(value.continue_from_task_id ?? '')) {
-    fail('invalid_request', 'session.continue_from_task_id must be a canonical UUID.');
+  const continueFrom = value.continue_from_task_id ?? null;
+  const forkFrom = value.fork_from_task_id ?? null;
+  if (Boolean(continueFrom) === Boolean(forkFrom)) {
+    fail('invalid_request', 'session must contain exactly one of continue_from_task_id or fork_from_task_id.');
   }
-  const source = value.continue_from_task_id.toLowerCase();
-  if (source === String(requestId).toLowerCase()) fail('invalid_request', 'A task cannot continue from itself.');
-  return { continue_from_task_id: source };
+  const field = continueFrom ? 'continue_from_task_id' : 'fork_from_task_id';
+  const source = continueFrom ?? forkFrom;
+  if (!uuidPattern.test(source)) fail('invalid_request', `session.${field} must be a canonical UUID.`);
+  const normalized = source.toLowerCase();
+  if (normalized === String(requestId).toLowerCase()) fail('invalid_request', 'A task cannot continue or fork from itself.');
+  return { [field]: normalized };
 }
 
 function parseInput(item, index) {

@@ -23,7 +23,7 @@ export class TaskService {
 
   submit(input, { adapterVersion = null } = {}) {
     const evaluated = evaluateRequest(input, { registry: this.registry, health: this.health });
-    const continuation = this.#resolveContinuation(evaluated.request);
+    const session = this.#resolveSession(evaluated.request);
     const normalizedInputs = ingestAttachmentSources(evaluated.request.workspace, evaluated.request.inputs);
     const normalized = normalizedInputs === evaluated.request.inputs ? evaluated : {
       ...evaluated,
@@ -52,7 +52,7 @@ export class TaskService {
         atomicWriteJson(path.join(directory, 'payload.json'), {
           prompt: normalized.request.prompt,
           input_snapshots: materialized.input_snapshots,
-          continuation,
+          session,
         });
         atomicWriteJson(path.join(directory, 'decision.json'), normalized.decision);
 
@@ -72,7 +72,8 @@ export class TaskService {
           .run(taskId, materialized.raw_request_hash, materialized.effective_request_hash, taskId);
         appendEvent(database, { taskId, attemptId, type: 'task.registered', payload: {
           route_id: normalized.request.route_id,
-          ...(continuation ? { continued_from_task_id: continuation.from_task_id } : {}),
+          ...(session?.action === 'continue' ? { continued_from_task_id: session.from_task_id } : {}),
+          ...(session?.action === 'fork' ? { forked_from_task_id: session.from_task_id } : {}),
         }, now });
         return { ...this.#statusWith(database, taskId), duplicate: false };
       } catch (error) {
@@ -374,24 +375,25 @@ export class TaskService {
     });
   }
 
-  #resolveContinuation(request) {
-    const sourceTaskId = request.session?.continue_from_task_id ?? null;
+  #resolveSession(request) {
+    const sourceTaskId = request.session?.continue_from_task_id ?? request.session?.fork_from_task_id ?? null;
     if (!sourceTaskId) return null;
+    const action = request.session?.fork_from_task_id ? 'fork' : 'continue';
     const source = this.status(sourceTaskId);
     if (source.target !== request.target) {
-      fail('unsupported_capability', 'A native session can only continue on the same target.', { category: 'policy', submission: 'not_sent' });
+      fail('unsupported_capability', 'A native session can only continue or fork on the same target.', { category: 'policy', submission: 'not_sent' });
     }
     if (!['succeeded', 'failed'].includes(source.status)) {
-      fail('invalid_request', `Continuation source task must be finished; current status is ${source.status}.`, { category: 'user', submission: 'not_sent' });
+      fail('invalid_request', `Session source task must be finished; current status is ${source.status}.`, { category: 'user', submission: 'not_sent' });
     }
     if (!source.native?.session_id) {
-      fail('invalid_request', 'Continuation source task has no persisted native session ID.', { category: 'user', submission: 'not_sent' });
+      fail('invalid_request', 'Session source task has no persisted native session ID.', { category: 'user', submission: 'not_sent' });
     }
     const sourceRequest = this.payload(sourceTaskId).request;
     if (canonicalWorkspace(sourceRequest.workspace) !== canonicalWorkspace(request.workspace)) {
-      fail('invalid_workspace', 'Native session continuation must use the same workspace as the source task.', { category: 'user', submission: 'not_sent' });
+      fail('invalid_workspace', 'Native session continuation or fork must use the same workspace as the source task.', { category: 'user', submission: 'not_sent' });
     }
-    return { from_task_id: sourceTaskId, native_session_id: source.native.session_id };
+    return { action, from_task_id: sourceTaskId, native_session_id: source.native.session_id };
   }
 
   #statusWith(database, taskId) {

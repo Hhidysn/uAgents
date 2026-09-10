@@ -27,17 +27,19 @@ export function validateOpenCodeNativeArgs(nativeArgs = []) {
 export function buildOpenCodeArgs(request, workspace) {
   if (request.kind === 'probe') return ['--version'];
   const nativeArgs = validateOpenCodeNativeArgs(request.native_args ?? []);
-  if (request.continue_session_id && nativeArgs.some(isSessionSelectionArg)) {
-    fail('invalid_request', 'execution.native_args cannot override structured OpenCode session continuation.', {
+  const sourceSession = request.continue_session_id ?? request.fork_session_id ?? null;
+  if (sourceSession && nativeArgs.some(isSessionSelectionArg)) {
+    fail('invalid_request', 'execution.native_args cannot override structured OpenCode session selection.', {
       category: 'user', submission: 'not_sent',
     });
   }
   const files = (request.inputs ?? []).flatMap(input => ['--file', path.resolve(workspace, input.path)]);
   return [
     'run',
-    ...(request.continue_session_id ? ['--session', request.continue_session_id] : []),
+    ...(sourceSession ? ['--session', sourceSession] : []),
+    ...(request.fork_session_id ? ['--fork'] : []),
     '--model', request.model, '--format', 'json', '--dir', workspace,
-    ...(request.continue_session_id ? [] : ['--title', `uAgents ${request.request_id}`]),
+    ...(sourceSession ? [] : ['--title', `uAgents ${request.request_id}`]),
     ...files,
     ...nativeArgs,
   ];
@@ -61,9 +63,11 @@ export function createOpenCodeParser(request, workspace, publish) {
   let session, finalStep, stepMessage, approval = false, nativeError;
   const textParts = new Map();
   const expectedSession = request.continue_session_id ?? null;
+  const forbiddenSession = request.fork_session_id ?? null;
 
   function identity(id) {
-    if (typeof id !== 'string' || !id || (session && id !== session) || (expectedSession && id !== expectedSession)) identityError();
+    if (typeof id !== 'string' || !id || (session && id !== session) || (expectedSession && id !== expectedSession) ||
+        (forbiddenSession && id === forbiddenSession)) identityError();
     if (!session) {
       session = id;
       publish({ native_session_id: id });

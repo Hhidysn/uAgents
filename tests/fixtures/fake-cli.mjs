@@ -1,12 +1,12 @@
 import fs from 'node:fs';
-const [target, id, scenario] = process.argv.slice(2);
+const [target, id, scenario, sessionOverride] = process.argv.slice(2);
 const emit = event => process.stdout.write(JSON.stringify(event) + '\n');
 if (scenario === 'probe') { console.log('1.2.3'); process.exit(0); }
 let input='';
 process.stdin.setEncoding('utf8');process.stdin.on('data',chunk=>input+=chunk);
 process.stdin.on('end',()=>{
   fs.appendFileSync('received.txt', 'submitted\n');
-  const session = target === 'workbuddy' ? id : 'ses_fixture';
+  const session = sessionOverride ?? (target === 'workbuddy' ? id : 'ses_fixture');
   const initialize = () => {
     if (target === 'workbuddy') emit({type:'system',subtype:'init',session_id:session,cwd:process.cwd(),model:'fixture-default',permissionMode:'acceptEdits'});
     else emit({type:'step_start',sessionID:session,part:{id:'start',messageID:'answer',sessionID:session,type:'step-start'}});

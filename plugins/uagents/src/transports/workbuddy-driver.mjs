@@ -7,7 +7,11 @@ export function buildWorkBuddyArgs(request) {
   const advisoryReadOnly = request.permission_policy === 'advisory-read-only';
   return [
     '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-    ...(request.continue_session_id ? ['--resume', request.continue_session_id] : ['--session-id', request.request_id]),
+    ...(request.fork_session_id
+      ? ['--resume', request.fork_session_id, '--fork-session']
+      : request.continue_session_id
+        ? ['--resume', request.continue_session_id]
+        : ['--session-id', request.request_id]),
     '--max-turns', '6',
     ...(request.mode === 'implementation' && !advisoryReadOnly ? ['--permission-mode', 'acceptEdits'] : []),
   ];

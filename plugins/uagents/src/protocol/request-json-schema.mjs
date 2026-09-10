@@ -28,8 +28,12 @@ export function requestJsonSchema() {
       prompt: byteString(REQUEST_LIMITS.prompt_bytes),
       workspace: nullable({ type: 'string', 'x-uagents-path': 'absolute-local', 'x-uagents-max-bytes': REQUEST_LIMITS.workspace_bytes }),
       session: nullable({
-        type: 'object', additionalProperties: false, required: ['continue_from_task_id'],
-        properties: { continue_from_task_id: { type: 'string', pattern: uuidPatternSource } },
+        type: 'object', additionalProperties: false,
+        properties: {
+          continue_from_task_id: { type: 'string', pattern: uuidPatternSource },
+          fork_from_task_id: { type: 'string', pattern: uuidPatternSource },
+        },
+        oneOf: [{ required: ['continue_from_task_id'] }, { required: ['fork_from_task_id'] }],
       }),
       inputs: {
         type: 'array', maxItems: REQUEST_LIMITS.inputs, default: [],

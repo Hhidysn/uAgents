@@ -71,6 +71,22 @@ test('WorkBuddy continuation resumes the persisted native session instead of cre
   }), { code: 'native_session_mismatch' });
 });
 
+test('WorkBuddy fork resumes the source session but requires a new native session identity', () => {
+  const sourceSession = 'session_parent_123';
+  const input = request('workbuddy', { fork_session_id: sourceSession });
+  const args = buildWorkBuddyArgs(input);
+  assert.equal(args.includes('--session-id'), false);
+  const resumeIndex = args.indexOf('--resume');
+  assert.deepEqual(args.slice(resumeIndex, resumeIndex + 3), ['--resume', sourceSession, '--fork-session']);
+  const parser = createParser(input, root, () => {});
+  parser.event({ type: 'system', subtype: 'init', session_id: 'session_branch_456', cwd: root, model: 'native-default' });
+  parser.event(wbResult('session_branch_456'));
+  assert.equal(parser.finish(0).result.native_session_id, 'session_branch_456');
+  assert.throws(() => createParser(input, root, () => {}).event({
+    type: 'system', subtype: 'init', session_id: sourceSession, cwd: root, model: 'native-default',
+  }), { code: 'native_session_mismatch' });
+});
+
 test('OpenCode returns only the final completed message and rejects mixed identity', () => {
   const parser = createParser(request('opencode'), root, () => {});
   parser.event(ocEvent('step_start', 'old-start', 'previous'));
@@ -116,6 +132,23 @@ test('OpenCode continuation selects the persisted session explicitly', () => {
   assert.throws(() => parser.event({ type: 'text', sessionID: 'ses_other', part: {
     id: 'text', messageID: 'answer', sessionID: 'ses_other', text: 'wrong session',
   } }), { code: 'native_session_mismatch' });
+});
+
+test('OpenCode fork selects the source session, requests --fork, and binds a new session identity', () => {
+  const input = request('opencode', { fork_session_id: 'ses_parent' });
+  assert.deepEqual(buildOpenCodeArgs(input, root), [
+    'run', '--session', 'ses_parent', '--fork', '--model', input.model, '--format', 'json', '--dir', root,
+  ]);
+  assert.throws(() => buildOpenCodeArgs({ ...input, native_args: ['--session', 'other'] }, root), { code: 'invalid_request' });
+  assert.throws(() => buildOpenCodeArgs({ ...input, native_args: ['--fork'] }, root), { code: 'invalid_request' });
+  const parser = createParser(input, root, () => {});
+  parser.event({ type: 'step_start', sessionID: 'ses_branch', part: { id: 'start', messageID: 'answer', sessionID: 'ses_branch' } });
+  parser.event({ type: 'text', sessionID: 'ses_branch', part: { id: 'text', messageID: 'answer', sessionID: 'ses_branch', text: 'branch' } });
+  parser.event({ type: 'step_finish', sessionID: 'ses_branch', part: { id: 'finish', messageID: 'answer', sessionID: 'ses_branch', reason: 'stop' } });
+  assert.equal(parser.finish(0).result.native_session_id, 'ses_branch');
+  assert.throws(() => createParser(input, root, () => {}).event({
+    type: 'step_start', sessionID: 'ses_parent', part: { id: 'start', messageID: 'answer', sessionID: 'ses_parent' },
+  }), { code: 'native_session_mismatch' });
 });
 
 test('WorkBuddy maps declared files and images into native stream-json attachment blocks', () => {

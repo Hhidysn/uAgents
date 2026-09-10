@@ -58,6 +58,10 @@ test('request schema discovery mirrors the Core request contract', async () => {
   assert.deepEqual(schema.properties.inputs.items.properties.type.enum, ['file', 'image']);
   assert.deepEqual(schema.properties.inputs.items.oneOf, [{ required: ['path'] }, { required: ['source'] }]);
   assert.equal(schema.properties.session.anyOf[0].properties.continue_from_task_id.type, 'string');
+  assert.equal(schema.properties.session.anyOf[0].properties.fork_from_task_id.type, 'string');
+  assert.deepEqual(schema.properties.session.anyOf[0].oneOf, [
+    { required: ['continue_from_task_id'] }, { required: ['fork_from_task_id'] },
+  ]);
   assert.equal(schema['x-uagents-authoritative-validator'], 'src/protocol/schema.mjs');
   await assert.rejects(() => execute(['schema', 'other'], { env: {} }), { code: 'usage' });
   await assert.rejects(() => execute(['schema', 'request', '--format', 'table'], { env: {} }), { code: 'usage' });

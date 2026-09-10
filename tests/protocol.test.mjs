@@ -65,13 +65,19 @@ test('workspace and file paths are validated before execution', () => {
   assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'blob', path: 'assets/raw.bin' }] })), { code: 'invalid_input' });
 });
 
-test('session continuation is explicit and UUID-based', () => {
+test('session continuation and fork are explicit, exclusive and UUID-based', () => {
   const parent = randomUUID();
   const parsed = parseRequest(request({ session: { continue_from_task_id: parent } }));
   assert.deepEqual(parsed.session, { continue_from_task_id: parent.toLowerCase() });
+  const forked = parseRequest(request({ session: { fork_from_task_id: parent } }));
+  assert.deepEqual(forked.session, { fork_from_task_id: parent.toLowerCase() });
   assert.throws(() => parseRequest(request({ session: { continue_from_task_id: 'not-a-uuid' } })), { code: 'invalid_request' });
+  assert.throws(() => parseRequest(request({ session: { fork_from_task_id: 'not-a-uuid' } })), { code: 'invalid_request' });
+  assert.throws(() => parseRequest(request({ session: {} })), { code: 'invalid_request' });
+  assert.throws(() => parseRequest(request({ session: { continue_from_task_id: parent, fork_from_task_id: randomUUID() } })), { code: 'invalid_request' });
   const id = randomUUID();
   assert.throws(() => parseRequest(request({ request_id: id, session: { continue_from_task_id: id } })), { code: 'invalid_request' });
+  assert.throws(() => parseRequest(request({ request_id: id, session: { fork_from_task_id: id } })), { code: 'invalid_request' });
 });
 
 test('canonical JSON is independent of object insertion order', () => {

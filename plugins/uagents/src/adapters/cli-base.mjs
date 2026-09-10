@@ -73,7 +73,7 @@ export class CliAdapter {
   }
 
   async prepare(request, context = {}) {
-    const legacy = this.#legacyRequest(request, 'run', context.continuation ?? null);
+    const legacy = this.#legacyRequest(request, 'run', context.session ?? context.continuation ?? null);
     const installation = await this.#verifiedInstallation(context);
     const entry = installation?.canonical_path ?? null;
     let driver = this.target === 'agy'
@@ -210,7 +210,7 @@ export class CliAdapter {
         category: 'runtime', submission: context.submission ?? 'may_have_been_sent',
       });
     }
-    const legacy = this.#legacyRequest(context.request, 'run');
+    const legacy = this.#legacyRequest(context.request, 'run', context.session ?? context.continuation ?? null);
     if (context.nativeProcess?.target !== 'opencode') {
       fail('native_process_identity_mismatch', 'Persisted durable process target does not match OpenCode.', {
         category: 'transport', submission: context.submission ?? 'may_have_been_sent',
@@ -260,7 +260,8 @@ export class CliAdapter {
     return event;
   }
 
-  #legacyRequest(request, kind, continuation = null) {
+  #legacyRequest(request, kind, session = null) {
+    const sessionAction = session?.action ?? (session?.native_session_id ? 'continue' : null);
     return {
       request_id: request.request_id,
       target: this.target,
@@ -270,8 +271,10 @@ export class CliAdapter {
       inputs: (request.inputs ?? []).map(input => ({ type: input.type, path: input.path, media_type: input.media_type ?? null })),
       expected_outputs: (request.expected_outputs ?? []).map(output => output.path),
       native_args: [...(request.execution?.native_args ?? [])],
-      continue_session_id: continuation?.native_session_id ?? null,
-      continue_from_task_id: continuation?.from_task_id ?? null,
+      continue_session_id: sessionAction === 'continue' ? session.native_session_id : null,
+      continue_from_task_id: sessionAction === 'continue' ? session.from_task_id : null,
+      fork_session_id: sessionAction === 'fork' ? session.native_session_id : null,
+      fork_from_task_id: sessionAction === 'fork' ? session.from_task_id : null,
       kind,
       ...(kind === 'run' ? { prompt: request.prompt } : {}),
       timeout_ms: request.execution.observation_timeout_ms,
