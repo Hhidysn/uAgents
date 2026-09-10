@@ -11,6 +11,7 @@ import { ControlDatabase } from '../store/database.mjs';
 import { reconcileTask } from './reconcile.mjs';
 import { TaskService } from './task-service.mjs';
 import { childEnvironment } from './child-environment.mjs';
+import { CouncilService } from './council-service.mjs';
 
 const sourceWorkerFile = fileURLToPath(new URL('./worker-factory.mjs', import.meta.url));
 
@@ -25,6 +26,13 @@ export class UnifiedRuntime {
     this.supervisor = supervisor;
     this.control = new ControlDatabase(this.stateRoot);
     this.service = new TaskService(this.control, { registry });
+    this.councils = new CouncilService({
+      stateRoot: this.stateRoot,
+      registry,
+      submitTask: input => this.submit(input),
+      statusTask: taskId => this.status(taskId),
+      resultTask: taskId => this.result(taskId),
+    });
   }
 
   close() { this.control.close(); }
@@ -123,6 +131,9 @@ export class UnifiedRuntime {
   result(taskId) { return this.service.result(taskId); }
   cancel(taskId) { return this.service.requestCancel(taskId); }
   listTasks(options = {}) { return this.service.list(options); }
+  submitCouncil(input) { return this.councils.submit(input); }
+  councilStatus(councilId) { return this.councils.status(councilId); }
+  councilResult(councilId) { return this.councils.result(councilId); }
 
   async resume(taskId) {
     const result = this.service.resume(taskId);

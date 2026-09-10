@@ -5,7 +5,7 @@ uAgents 是供 Codex 使用的本地统一 Agent 调度插件。当前发行标�
 TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时明确保留各目标不同的
 模型、文件、权限、取消和桌面连接能力。
 
-先看：[Session Continuation / Fork 当前状态](docs/status/2026-09-10-session-continuation-current.md) · [Universal Attachment 当前状态](docs/status/2026-09-09-universal-attachment-current.md) · [文档索引](docs/README.md)
+先看：[First-class Council 当前状态](docs/status/2026-09-10-first-class-council-current.md) · [Session Continuation / Fork 当前状态](docs/status/2026-09-10-session-continuation-current.md) · [Universal Attachment 当前状态](docs/status/2026-09-09-universal-attachment-current.md) · [文档索引](docs/README.md)
 
 > 重要边界：OpenCode 现在支持文本 `analysis` 和 `implementation`，并把声明式文件/图片输入映射为原生附件；
 > WorkBuddy 也通过其已核实的 stream-json `document` / `image` block 接入文件和图片。WorkBuddy 与 OpenCode
@@ -26,6 +26,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 - workspace 重叠租约、fencing token、统一附件快照（类型/MIME/尺寸/字节数/SHA-256）、不可变产物捕获与 SHA-256 验证。
 - 附件既可继续用 workspace 相对 `{type,path}`，也可用绝对本地 `{type,source}`；submit 会把外部文件归一化到 workspace 的 `.uagents/inputs/` 后复用同一附件链路。
 - WorkBuddy/OpenCode 支持 `session.continue_from_task_id` 和 `session.fork_from_task_id`：新 Task 可以继续上一 native session，或从它派生独立 native branch；uAgents 不重放历史 prompt。
+- First-class Council 把 2–16 个 analysis 成员组织成一个持久化 fan-out/fan-in 单元；成员仍然是普通 Task，使用确定性 Task UUID，结果不自动投票或再调用模型总结。
 - `status`/`list` 只读本地状态；只有显式 `reconcile`（或针对已有 durable process 的 `resume`）才恢复已有原生执行观察，绝不重发原 prompt。
 - 受管生命周期：`submit` 自动发现、验证并缓存本机入口；豆包/TRAE 在专用隔离 Profile 中自动启动并跨 Task DB 用 Host lease 防双开；首次登录后同 UUID `submit` 或 `resume` 在原 Attempt 上恢复；`stop` 只停止所有权证据完整的实例。
 - 资源冲突时有界排队；未发送任务可用同 UUID 恢复，任务租约和原子 Attempt claim 防止重复发送。受管桌面恢复绑定原实例，`advisory-read-only` 会传递只读提示并关闭 WorkBuddy 隐式编辑自动接受。
@@ -57,17 +58,22 @@ node "<plugin-root>\bin\uagents.mjs" targets
 node "<plugin-root>\bin\uagents.mjs" describe
 node "<plugin-root>\bin\uagents.mjs" describe submit
 node "<plugin-root>\bin\uagents.mjs" schema request
+node "<plugin-root>\bin\uagents.mjs" describe council-submit
+node "<plugin-root>\bin\uagents.mjs" schema council
 node "<plugin-root>\bin\uagents.mjs" capabilities opencode
 node "<plugin-root>\bin\uagents.mjs" models opencode
 node "<plugin-root>\bin\uagents.mjs" submit --request "F:\path\request.json"
 node "<plugin-root>\bin\uagents.mjs" submit --request-stdin
 node "<plugin-root>\bin\uagents.mjs" status <task-id>
 node "<plugin-root>\bin\uagents.mjs" result <task-id>
+node "<plugin-root>\bin\uagents.mjs" council-submit --request "F:\path\council.json"
+node "<plugin-root>\bin\uagents.mjs" council-status <council-id>
+node "<plugin-root>\bin\uagents.mjs" council-result <council-id>
 ```
 
 `submit` 必须且只能选择 `--request FILE` 或 `--request-stdin`。stdin 适用于调用方可以把输入与命令文本分离的场景；不要把 prompt 或完整 JSON 放入进程参数。
 
-CLI-first 调用不再需要只靠 Skill prose 猜参数：`describe [command]` 返回 machine-readable 的 CLI command contract，`schema request` 返回统一 request 的 Draft 2020-12 JSON Schema；两者都是纯本地只读 discovery，不创建 Runtime/Task，也不联系 Provider。MCP 入口继续通过 `tools/list` 暴露自己的 input schema。
+CLI-first 调用不再需要只靠 Skill prose 猜参数：`describe [command]` 返回 machine-readable 的 CLI command contract，`schema request` / `schema council` 返回 Task/Council 的 Draft 2020-12 JSON Schema；这些 discovery 都是纯本地只读，不创建 Runtime/Task，也不联系 Provider。MCP 入口继续通过 `tools/list` 暴露自己的 input schema。
 
 附件输入有两种等价入口：已有的 `{"type":"file","path":"requirements.md"}` / `{"type":"image","path":"assets/screenshot.png"}` 直接引用 workspace 内文件；新的 `{"type":"file","source":"F:\\Downloads\\brief.pdf"}` / `{"type":"image","source":"F:\\Downloads\\screen.png"}` 可直接引用 workspace 外的绝对本地路径。`source` 会在注册前复制为 `.uagents/inputs/...` 下的 workspace-relative attachment；后续 snapshot 和 target mapping 与 `path` 输入完全共用。
 
@@ -84,6 +90,24 @@ WorkBuddy/OpenCode 的下一轮对话仍然 submit 一个新的请求和新的 U
 ```
 
 两个 selector 严格二选一。source Task 必须已经结束，并与新 Task 使用同一个 target 和 workspace。uAgents 只读取上一 Task 已持久化的 native session id；不会把旧 response/history 拼回 prompt。`continue_from_task_id` 保持相同 native session，`fork_from_task_id` 必须得到新的 native session；`resume <task-id>` 仍然只是恢复/观察同一个已有 Task，不会发送新 prompt。
+
+Council v1 用于独立多 Agent analysis。示例：
+
+```json
+{
+  "schema_version": "1.0",
+  "council_id": "<uuid>",
+  "strategy": "fanout",
+  "prompt": "Review this change.",
+  "workspace": "F:\\project",
+  "members": [
+    { "member_id": "architecture", "target": "workbuddy", "model": "default", "instruction": "Focus on architecture." },
+    { "member_id": "feasibility", "target": "opencode", "model": "commandcode-goat/deepseek/deepseek-v4-flash", "instruction": "Focus on implementation feasibility." }
+  ]
+}
+```
+
+Council 固定生成 `analysis` Task，默认 `advisory-read-only`。`council_id + member_id` 确定性派生成员 Task UUID，所以同一个 Council 重提不会创建第二组成员。`council-result` 原样聚合每个成员的 response / usage / artifacts，不自动投票、合并或额外调用一个 synthesis 模型。`fanout` 表示成员 Task 会连续注册/启动而不等待前一成员完成；当前重叠 workspace 的已有 lease 仍可能把实际 native execution 串行化。Native session 仍然不能跨 target fork；跨 target Council 共享背景应使用公共 prompt / attachments。
 
 受管生命周期命令（Host 状态固定在 `%LOCALAPPDATA%\uAgents\host-v1`，不受 `--state-dir` 影响）：
 
@@ -102,6 +126,8 @@ uagents_list_targets       uagents_get_capabilities
 uagents_list_models        uagents_probe
 uagents_submit             uagents_status
 uagents_result             uagents_cancel
+uagents_council_submit     uagents_council_status
+uagents_council_result
 uagents_list_tasks         uagents_reconcile
 uagents_ensure             uagents_resume
 uagents_stop
@@ -133,6 +159,8 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 - [Verified Execution Timeout 设计](docs/superpowers/specs/2026-09-06-verified-execution-timeout-design.md)
 - [Native Session Continuation 设计](docs/superpowers/specs/2026-09-10-native-session-continuation-design.md)
 - [Native Session Fork / Branch 设计](docs/superpowers/specs/2026-09-10-native-session-fork-design.md)
+- [First-class Council 设计](docs/superpowers/specs/2026-09-10-first-class-council-design.md)
+- [First-class Council provider-free 验证](docs/verification/2026-09-10-first-class-council.md)
 - [Native Session Fork provider-free 验证](docs/verification/2026-09-10-session-fork.md)
 - [Runtime 可靠性修复验证](docs/verification/2026-09-06-runtime-reliability-fixes.md)
 - [Universal Attachment Input 验证](docs/verification/2026-09-09-universal-attachment-input.md)

@@ -4,7 +4,7 @@
 
 Local Codex should normally use the CLI. `uagents_submit` is the MCP fallback and takes the same request fields directly. CLI file input is:
 
-For machine-readable discovery, use `node "<plugin-root>/bin/uagents.mjs" describe submit` for the CLI call contract and `node "<plugin-root>/bin/uagents.mjs" schema request` for the current unified request JSON Schema. This document explains semantics and examples; the Core parser remains authoritative.
+For machine-readable discovery, use `node "<plugin-root>/bin/uagents.mjs" describe submit` / `describe council-submit` for CLI contracts and `schema request` / `schema council` for the current Task and Council JSON Schemas. This document explains semantics and examples; the Core parsers remain authoritative.
 
 ```powershell
 node "<plugin-root>/bin/uagents.mjs" submit --request "<request-json>" --state-dir "<absolute-state-dir>"
@@ -17,6 +17,26 @@ node "<plugin-root>/bin/uagents.mjs" submit --request-stdin --state-dir "<absolu
 ```
 
 Exactly one of `--request FILE` and `--request-stdin` is required. Do not inline the JSON or prompt in a shell command. The stdin request is capped at 1 MiB and is still validated by Schema 1.0.
+
+## Council
+
+For an independent multi-Agent review, Council v1 is a thin fan-out/fan-in layer over ordinary Tasks:
+
+```json
+{
+  "schema_version": "1.0",
+  "council_id": "<uuid>",
+  "strategy": "fanout",
+  "prompt": "Review this bounded change.",
+  "workspace": "F:\\project",
+  "members": [
+    { "member_id": "architecture", "target": "workbuddy", "model": "default", "instruction": "Focus on architecture." },
+    { "member_id": "implementation", "target": "opencode", "model": "commandcode-goat/deepseek/deepseek-v4-flash", "instruction": "Focus on feasibility." }
+  ]
+}
+```
+
+Use CLI `council-submit`, `council-status`, `council-result`, or MCP `uagents_council_submit`, `uagents_council_status`, `uagents_council_result`. Council v1 always creates `analysis` Tasks, defaults to `advisory-read-only`, accepts 2–16 members, and supports common `inputs`. A member may carry the existing `session` selector, but native sessions remain same-target only; a WorkBuddy native session cannot be forked into OpenCode. `council_id + member_id` deterministically derives the member Task UUID, so exact resubmission reuses the same Tasks. `council-result` returns each member's normal Task result without voting, merging, or a synthesis model call. `fanout` means member Tasks are registered/launched without waiting for prior members; existing overlapping-workspace leases can still serialize native execution.
 
 ```json
 {

@@ -36,6 +36,7 @@ test('CLI discovery exposes commands and submit arguments without opening runtim
   assert.equal(described.data.default_format, 'json');
   assert.equal(described.data.commands.some(command => command.name === 'submit'), true);
   assert.equal(described.data.commands.some(command => command.name === 'schema'), true);
+  assert.equal(described.data.commands.some(command => command.name === 'council-submit'), true);
 
   const submit = await execute(['describe', 'submit'], { env: {} });
   assert.equal(submit.data.name, 'submit');
@@ -44,6 +45,8 @@ test('CLI discovery exposes commands and submit arguments without opening runtim
   assert.equal(submit.data.options.find(option => option.name === '--request-stdin').type, 'boolean');
   assert.equal(submit.data.request_schema.command, 'schema request');
   for (const option of submit.data.options) assert.equal(Object.hasOwn(CLI_PARSE_OPTIONS, option.name.slice(2)), true);
+  const councilSubmit = await execute(['describe', 'council-submit'], { env: {} });
+  assert.equal(councilSubmit.data.request_schema.command, 'schema council');
   await assert.rejects(() => execute(['describe', 'unknown'], { env: {} }), { code: 'usage' });
 });
 
@@ -65,6 +68,31 @@ test('request schema discovery mirrors the Core request contract', async () => {
   assert.equal(schema['x-uagents-authoritative-validator'], 'src/protocol/schema.mjs');
   await assert.rejects(() => execute(['schema', 'other'], { env: {} }), { code: 'usage' });
   await assert.rejects(() => execute(['schema', 'request', '--format', 'table'], { env: {} }), { code: 'usage' });
+});
+
+test('council schema discovery and CLI fanout expose deterministic member tasks', async () => {
+  const schema = (await execute(['schema', 'council'], { env: {} })).data;
+  assert.equal(schema.$id, 'uagents://schema/council/1.0');
+  assert.equal(schema['x-uagents-mode'], 'analysis');
+  assert.equal(schema.properties.members.minItems, 2);
+  const input = {
+    schema_version: '1.0', council_id: randomUUID(), prompt: 'Review this change.',
+    members: [
+      { member_id: 'wb', target: 'workbuddy', model: 'default' },
+      { member_id: 'oc', target: 'opencode', model: 'commandcode-goat/deepseek/deepseek-v4-flash' },
+    ],
+  };
+  const requestFile = path.join(root, `${input.council_id}.council.json`);
+  fs.writeFileSync(requestFile, JSON.stringify(input));
+  const spawns = [];
+  const submitted = await execute(['council-submit', '--request', requestFile, '--state-dir', root], { spawnWorker: (...args) => spawns.push(args) });
+  assert.equal(submitted.data.status, 'running');
+  assert.equal(submitted.data.members.length, 2);
+  assert.equal(spawns.length, 2);
+  const status = await execute(['council-status', input.council_id, '--state-dir', root]);
+  assert.deepEqual(status.data.members.map(member => member.task_id), submitted.data.members.map(member => member.task_id));
+  const result = await execute(['council-result', input.council_id, '--state-dir', root]);
+  assert.equal(result.data.members.length, 2);
 });
 
 test('probe does not hide managed snapshot failures', async () => {

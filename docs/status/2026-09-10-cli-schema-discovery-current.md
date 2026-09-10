@@ -10,10 +10,11 @@ uAgents CLI 已提供 provider-free、machine-readable discovery：
 node <plugin-root>/bin/uagents.mjs describe
 node <plugin-root>/bin/uagents.mjs describe <command>
 node <plugin-root>/bin/uagents.mjs schema request
+node <plugin-root>/bin/uagents.mjs schema council
 ```
 
 `describe` 返回 CLI command contract，包括 usage、positionals、options、互斥约束和 effect。
-`schema request` 返回统一请求的 Draft 2020-12 JSON Schema。
+`schema request` 返回普通 Task 请求的 Draft 2020-12 JSON Schema；`schema council` 返回 First-class Council 请求 Schema。
 
 这两个命令在 Runtime 模块加载前处理，因此不会打开 Task DB，也不会因为 `node:sqlite` 加载产生 discovery-only warning；
 不会启动 Agent 或联系 Provider。
@@ -61,14 +62,16 @@ Unified MCP 本来就通过 `tools/list` 暴露 `uagents_submit` input schema，
 当前测试比较 CLI/Core discovery schema 与 MCP submit schema 的顶层 required/properties、mode、effort、permission、
 attachment type 和 session field，降低两条入口的明显 schema drift。
 
+Council 同样不增加 discovery-only MCP tool；`uagents_council_submit` 的 input schema 直接通过 `tools/list` 暴露，测试会与 Core `schema council` 比较顶层结构。
+
 ## 验证
 
 ```text
-Core            280/280
+Core            290/290
 Doubao MCP       11/11
 TRAE MCP          9/9
-Unified MCP       6/6
-Total           306/306
+Unified MCP       7/7
+Total           317/317
 ```
 
 本功能不发送 provider prompt，不修改 target-native CLI mapping，也不增加权限、sandbox 或 fallback 行为。

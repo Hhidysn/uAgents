@@ -5,6 +5,7 @@ import { fail } from '../protocol/errors.mjs';
 import { createRegistry, targetDescriptor } from '../registry/registry.mjs';
 import { CLI_PARSE_OPTIONS, describeCli, isKnownCliCommand } from './discovery.mjs';
 import { requestJsonSchema } from '../protocol/request-json-schema.mjs';
+import { councilJsonSchema } from '../protocol/council-schema.mjs';
 
 export async function execute(argv, options = {}) {
   const registry = options.registry ?? createRegistry();
@@ -26,8 +27,9 @@ export async function execute(argv, options = {}) {
   }
   if (command === 'schema') {
     if (values.format === 'table') fail('usage', 'schema is machine-readable JSON only.');
-    if (subject !== 'request') fail('usage', 'schema requires subject request.');
-    return ok(requestJsonSchema());
+    if (subject === 'request') return ok(requestJsonSchema());
+    if (subject === 'council') return ok(councilJsonSchema());
+    fail('usage', 'schema requires subject request or council.');
   }
   if (command === 'config' && subject === 'validate') {
     const config = values.config ? JSON.parse(fs.readFileSync(values.config, 'utf8')) : {};
@@ -57,6 +59,15 @@ export async function execute(argv, options = {}) {
       const input = parseJson(serialized, 'Request');
       return ok(runtime.submit(input));
     }
+    if (command === 'council-submit') {
+      if (subject || Boolean(values.request) === Boolean(values['request-stdin'])) fail('usage', 'council-submit requires exactly one of --request FILE or --request-stdin.');
+      const serialized = values.request
+        ? fs.readFileSync(values.request, 'utf8')
+        : await readStdin(options.stdin ?? process.stdin);
+      return ok(runtime.submitCouncil(parseJson(serialized, 'Council request')));
+    }
+    if (command === 'council-status') return ok(runtime.councilStatus(required(subject, 'council id')));
+    if (command === 'council-result') return ok(runtime.councilResult(required(subject, 'council id')));
     if (command === 'status') return ok(runtime.status(required(subject, 'task id')));
     if (command === 'result') return ok(runtime.result(required(subject, 'task id')));
     if (command === 'cancel') return ok(runtime.cancel(required(subject, 'task id')));

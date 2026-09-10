@@ -105,11 +105,11 @@ structured continuation/fork 与 caller 在 `execution.native_args` 中自己选
 provider-free 全量门禁：
 
 ```text
-Core            285/285
+Core            290/290
 Doubao MCP       11/11
 TRAE MCP           9/9
-Unified MCP        6/6
-Total           311/311
+Unified MCP        7/7
+Total           317/317
 ```
 
 Fork 的 provider-free runtime fixture 已覆盖 WorkBuddy 和 OpenCode：`source S1 -> fork S2 -> continue S2`，并验证 S2 必须不同于 S1。详见 [Native Session Fork provider-free 验证](../verification/2026-09-10-session-fork.md)。

@@ -10,6 +10,7 @@ import { runRegisteredTask } from '../../../src/runtime/worker-factory.mjs';
 import { childEnvironment } from '../../../src/runtime/child-environment.mjs';
 
 const taskIdSchema = z.object({ task_id: z.uuid() }).strict();
+const councilIdSchema = z.object({ council_id: z.uuid() }).strict();
 const attachmentInputSchema = z.object({
   type: z.enum(['file', 'image']),
   path: z.string().optional(),
@@ -44,6 +45,32 @@ export const requestSchema = z.object({
   policy: z.object({ fallback: z.string().optional(), max_cost_usd: z.number().nonnegative().nullable().optional() }).strict().optional(),
 }).strict();
 
+export const councilRequestSchema = z.object({
+  schema_version: z.literal('1.0'),
+  council_id: z.uuid(),
+  strategy: z.literal('fanout').optional(),
+  prompt: z.string().min(1).max(65_536),
+  workspace: z.string().optional(),
+  inputs: z.array(attachmentInputSchema).max(64).optional(),
+  execution: z.object({
+    observation_timeout_ms: z.number().int().optional(),
+    effort: z.enum(['low', 'medium', 'high', 'max']).optional(),
+    permission: z.enum(['native', 'advisory-read-only', 'enforced-read-only', 'workspace-write', 'full-access']).optional(),
+  }).strict().optional(),
+  members: z.array(z.object({
+    member_id: z.string().min(1).max(64),
+    target: z.string().min(1).max(64),
+    model: z.string().min(1).max(256),
+    instruction: z.string().min(1).max(65_536).optional(),
+    session: z.object({
+      continue_from_task_id: z.uuid().optional(),
+      fork_from_task_id: z.uuid().optional(),
+    }).strict().refine(value => Boolean(value.continue_from_task_id) !== Boolean(value.fork_from_task_id), {
+      message: 'Session must contain exactly one of continue_from_task_id or fork_from_task_id.',
+    }).optional(),
+  }).strict()).min(2).max(16),
+}).strict();
+
 export function createToolHandlers(runtime) {
   return {
     uagents_list_targets: async () => runtime.listTargets(),
@@ -51,6 +78,9 @@ export function createToolHandlers(runtime) {
     uagents_list_models: async input => runtime.listModels(input.target),
     uagents_probe: async input => runtime.probe(input.target, { model: input.model ?? 'default' }),
     uagents_submit: async input => runtime.submit(input),
+    uagents_council_submit: async input => runtime.submitCouncil(input),
+    uagents_council_status: async input => runtime.councilStatus(input.council_id),
+    uagents_council_result: async input => runtime.councilResult(input.council_id),
     uagents_status: async input => runtime.status(input.task_id),
     uagents_result: async input => runtime.result(input.task_id),
     uagents_cancel: async input => runtime.cancel(input.task_id),
@@ -75,6 +105,9 @@ export function createServer({ runtime = createRuntime(), supervisor = null } = 
   register('uagents_list_models', 'List approved model routes for one target. Does not validate provider availability.', z.object({ target: z.string().min(1).max(64), refresh: z.boolean().optional() }).strict());
   register('uagents_probe', 'Check one target connection without submitting a task, launching an app, logging in, or approving anything.', z.object({ target: z.string().min(1).max(64), model: z.string().min(1).max(256).optional() }).strict());
   register('uagents_submit', 'Register one idempotent task and return quickly with a task ID and polling interval. Execution continues in a detached worker.', requestSchema);
+  register('uagents_council_submit', 'Register a fan-out analysis council. Each member remains a normal tracked uAgents Task; no automatic vote or synthesis is performed.', councilRequestSchema);
+  register('uagents_council_status', 'Aggregate persisted member Task status for one Council. Never contacts native Agents.', councilIdSchema);
+  register('uagents_council_result', 'Aggregate member Task results, usage and artifacts for one Council without model synthesis.', councilIdSchema);
   register('uagents_status', 'Read the persisted task status only. This tool never contacts the native Agent.', taskIdSchema);
   register('uagents_result', 'Read the persisted result, model identity, usage and captured artifact summary.', taskIdSchema);
   register('uagents_cancel', 'Persist a cancellation request. Remote cancellation is confirmed only when the target can prove it.', taskIdSchema);

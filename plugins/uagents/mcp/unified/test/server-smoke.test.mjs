@@ -7,8 +7,9 @@ import { spawn } from 'node:child_process';
 import * as z from 'zod/v4';
 import { execute } from '../../../src/cli/main.mjs';
 import { requestJsonSchema } from '../../../src/protocol/request-json-schema.mjs';
+import { councilJsonSchema } from '../../../src/protocol/council-schema.mjs';
 import { UnifiedRuntime } from '../../../src/runtime/api.mjs';
-import { createToolHandlers, requestSchema } from '../src/server.mjs';
+import { councilRequestSchema, createToolHandlers, requestSchema } from '../src/server.mjs';
 
 const base = path.resolve('../../../../.local/test-runs');
 
@@ -40,7 +41,7 @@ test('bundled stdio server initializes and lists the unified tool surface', asyn
     send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const listed = await wait(2);
     assert.deepEqual(listed.result.tools.map(tool => tool.name).sort(), [
-      'uagents_cancel', 'uagents_ensure', 'uagents_get_capabilities', 'uagents_list_models', 'uagents_list_targets', 'uagents_list_tasks',
+      'uagents_cancel', 'uagents_council_result', 'uagents_council_status', 'uagents_council_submit', 'uagents_ensure', 'uagents_get_capabilities', 'uagents_list_models', 'uagents_list_targets', 'uagents_list_tasks',
       'uagents_probe', 'uagents_reconcile', 'uagents_result', 'uagents_resume', 'uagents_status', 'uagents_stop', 'uagents_submit',
     ]);
     const submitTool = listed.result.tools.find(tool => tool.name === 'uagents_submit');
@@ -49,6 +50,9 @@ test('bundled stdio server initializes and lists the unified tool surface', asyn
     assert.match(submitSchema, /"image"/);
     assert.match(submitSchema, /"continue_from_task_id"/);
     assert.match(submitSchema, /"fork_from_task_id"/);
+    const councilTool = listed.result.tools.find(tool => tool.name === 'uagents_council_submit');
+    assert.match(JSON.stringify(councilTool.inputSchema), /"member_id"/);
+    assert.match(JSON.stringify(councilTool.inputSchema), /"fanout"/);
   } finally {
     child.stdin.end();
     await new Promise(resolve => { child.once('close', resolve); setTimeout(() => { child.kill(); resolve(); }, 2_000).unref(); });
@@ -149,4 +153,32 @@ test('CLI request schema discovery stays structurally aligned with MCP submit sc
   assert.deepEqual(mcp.properties.execution.properties.permission.enum, core.properties.execution.properties.permission.enum);
   assert.deepEqual(mcp.properties.inputs.items.properties.type.enum, core.properties.inputs.items.properties.type.enum);
   assert.deepEqual(Object.keys(mcp.properties.session.properties), ['continue_from_task_id', 'fork_from_task_id']);
+});
+
+test('MCP Council schema and handlers expose first-class fanout aggregation', async () => {
+  const core = councilJsonSchema();
+  const mcp = z.toJSONSchema(councilRequestSchema);
+  assert.deepEqual(mcp.required, core.required);
+  assert.deepEqual(Object.keys(mcp.properties), Object.keys(core.properties));
+  assert.equal(mcp.properties.members.minItems, 2);
+  assert.equal(mcp.properties.members.maxItems, 16);
+
+  fs.mkdirSync(base, { recursive: true });
+  const root = fs.mkdtempSync(path.join(base, 'unified-council-'));
+  const runtime = new UnifiedRuntime({ stateRoot: root, spawnWorker: () => {} });
+  try {
+    const handlers = createToolHandlers(runtime);
+    const input = {
+      schema_version: '1.0', council_id: randomUUID(), strategy: 'fanout', prompt: 'Review the bounded change.',
+      members: [
+        { member_id: 'wb', target: 'workbuddy', model: 'default' },
+        { member_id: 'oc', target: 'opencode', model: 'commandcode-goat/deepseek/deepseek-v4-flash' },
+      ],
+    };
+    const submitted = await handlers.uagents_council_submit(input);
+    assert.equal(submitted.status, 'running');
+    assert.equal(submitted.members.length, 2);
+    assert.equal((await handlers.uagents_council_status({ council_id: input.council_id })).members.length, 2);
+    assert.equal((await handlers.uagents_council_result({ council_id: input.council_id })).members.length, 2);
+  } finally { runtime.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
