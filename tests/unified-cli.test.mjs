@@ -38,6 +38,7 @@ test('CLI discovery exposes commands and submit arguments without opening runtim
   assert.equal(described.data.commands.some(command => command.name === 'schema'), true);
   assert.equal(described.data.commands.some(command => command.name === 'council-submit'), true);
   assert.equal(described.data.commands.some(command => command.name === 'council-diff'), true);
+  assert.equal(described.data.commands.some(command => command.name === 'council-adopt'), true);
 
   const submit = await execute(['describe', 'submit'], { env: {} });
   assert.equal(submit.data.name, 'submit');
@@ -50,6 +51,9 @@ test('CLI discovery exposes commands and submit arguments without opening runtim
   assert.equal(councilSubmit.data.request_schema.command, 'schema council');
   const councilDiff = await execute(['describe', 'council-diff'], { env: {} });
   assert.equal(councilDiff.data.effect, 'local_only');
+  const councilAdopt = await execute(['describe', 'council-adopt'], { env: {} });
+  assert.deepEqual(councilAdopt.data.options.map(option => option.name), ['--member', '--workspace', '--state-dir']);
+  assert.equal(councilAdopt.data.effect, 'local_state_change');
   await assert.rejects(() => execute(['describe', 'unknown'], { env: {} }), { code: 'usage' });
 });
 
@@ -99,6 +103,9 @@ test('council schema discovery and CLI fanout expose deterministic member tasks'
   const result = await execute(['council-result', input.council_id, '--state-dir', root]);
   assert.equal(result.data.members.length, 2);
   await assert.rejects(() => execute(['council-diff', input.council_id, '--state-dir', root]), { code: 'unsupported_capability' });
+  await assert.rejects(() => execute([
+    'council-adopt', input.council_id, '--member', 'wb', '--workspace', root, '--state-dir', root,
+  ]), { code: 'unsupported_capability' });
 });
 
 test('probe does not hide managed snapshot failures', async () => {

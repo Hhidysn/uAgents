@@ -69,6 +69,10 @@ export async function execute(argv, options = {}) {
     if (command === 'council-status') return ok(runtime.councilStatus(required(subject, 'council id')));
     if (command === 'council-result') return ok(runtime.councilResult(required(subject, 'council id')));
     if (command === 'council-diff') return ok(runtime.councilDiff(required(subject, 'council id')));
+    if (command === 'council-adopt') return ok(runtime.councilAdopt(required(subject, 'council id'), {
+      memberId: required(values.member, '--member'),
+      workspace: required(values.workspace, '--workspace'),
+    }));
     if (command === 'status') return ok(runtime.status(required(subject, 'task id')));
     if (command === 'result') return ok(runtime.result(required(subject, 'task id')));
     if (command === 'cancel') return ok(runtime.cancel(required(subject, 'task id')));

@@ -11,6 +11,8 @@ export const CLI_PARSE_OPTIONS = Object.freeze({
   cursor: Object.freeze({ type: 'string' }),
   config: Object.freeze({ type: 'string' }),
   format: Object.freeze({ type: 'string' }),
+  member: Object.freeze({ type: 'string' }),
+  workspace: Object.freeze({ type: 'string' }),
 });
 
 const stateDir = option('--state-dir', 'absolute_path', 'Use one explicit task-state directory for this command.');
@@ -46,6 +48,11 @@ export const CLI_COMMANDS = Object.freeze({
   'council-status': command('council-status', 'council-status <council-id> [--state-dir <dir>]', 'Aggregate persisted member Task status without contacting native Agents.', [positional('council_id', 'uuid', true)], [stateDir], 'local_only'),
   'council-result': command('council-result', 'council-result <council-id> [--state-dir <dir>]', 'Aggregate member Task results, usage and artifacts without model synthesis.', [positional('council_id', 'uuid', true)], [stateDir], 'local_only'),
   'council-diff': command('council-diff', 'council-diff <council-id> [--state-dir <dir>]', 'Compare git-worktree Council candidates, including tracked patch and untracked files, without modifying any worktree.', [positional('council_id', 'uuid', true)], [stateDir], 'local_only'),
+  'council-adopt': command('council-adopt', 'council-adopt <council-id> --member <member-id> --workspace <dir> [--state-dir <dir>]', 'Apply one explicitly selected git-worktree Council candidate to a destination workspace without committing or merging.', [positional('council_id', 'uuid', true)], [
+    option('--member', 'string', 'Council member_id to adopt.'),
+    option('--workspace', 'absolute_path', 'Destination Git workspace. Its HEAD must equal the Council base HEAD.'),
+    stateDir,
+  ], 'local_state_change'),
   status: command('status', 'status <task-id> [--state-dir <dir>]', 'Read persisted task status only.', [taskId], [stateDir], 'local_only'),
   result: command('result', 'result <task-id> [--state-dir <dir>]', 'Read persisted task result, usage and artifacts.', [taskId], [stateDir], 'local_only'),
   cancel: command('cancel', 'cancel <task-id> [--state-dir <dir>]', 'Persist cancellation intent for a task.', [taskId], [stateDir], 'local_state_change'),

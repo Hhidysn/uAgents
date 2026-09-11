@@ -147,6 +147,93 @@ test('git-worktree Council rejects a non-Git workspace before any member Task is
   }
 });
 
+test('council adopt applies one succeeded candidate to an explicit base workspace without commit or merge', () => {
+  const root = path.resolve('.local', 'test-runs', `council-adopt-${randomUUID()}`);
+  const repository = path.join(root, 'repo');
+  const stateRoot = path.join(root, 'state');
+  fs.mkdirSync(repository, { recursive: true });
+  git(repository, ['init']);
+  git(repository, ['config', 'user.name', 'uAgents Test']);
+  git(repository, ['config', 'user.email', 'uagents@example.invalid']);
+  fs.writeFileSync(path.join(repository, 'base.txt'), 'base\n');
+  fs.writeFileSync(path.join(repository, 'binary.dat'), Buffer.from([0, 1, 2, 3]));
+  git(repository, ['add', 'base.txt', 'binary.dat']);
+  git(repository, ['commit', '-m', 'base']);
+  const baseHead = git(repository, ['rev-parse', 'HEAD']).trim();
+
+  const tasks = new Map();
+  const service = new CouncilService({
+    stateRoot,
+    registry: createRegistry(),
+    submitTask: request => tasks.set(request.request_id, {
+      task_id: request.request_id, target: request.target, status: 'succeeded', native_outcome: 'succeeded', objective_verdict: 'succeeded',
+    }),
+    statusTask: taskId => tasks.get(taskId),
+    resultTask: () => null,
+  });
+  const input = council({ mode: 'implementation', workspace_strategy: 'git-worktree', workspace: repository });
+  try {
+    const submitted = service.submit(input);
+    const selected = submitted.members[0];
+    fs.writeFileSync(path.join(selected.worktree.workspace, 'base.txt'), 'selected\n');
+    fs.writeFileSync(path.join(selected.worktree.workspace, 'binary.dat'), Buffer.from([0, 9, 8, 7]));
+    fs.mkdirSync(path.join(selected.worktree.workspace, 'nested'), { recursive: true });
+    fs.writeFileSync(path.join(selected.worktree.workspace, 'nested', 'new.txt'), 'new candidate file\n');
+
+    fs.writeFileSync(path.join(repository, 'nested-collision.txt'), 'unrelated destination file\n');
+    assert.throws(() => service.adopt(input.council_id, {
+      memberId: 'missing-member', workspace: repository,
+    }), { code: 'invalid_request' });
+
+    const adopted = service.adopt(input.council_id, { memberId: selected.member_id, workspace: repository });
+    assert.equal(adopted.member_id, selected.member_id);
+    assert.equal(adopted.source.base_head, baseHead);
+    assert.equal(adopted.destination.head, baseHead);
+    assert.equal(adopted.applied.tracked_patch_bytes > 0, true);
+    assert.deepEqual(adopted.applied.untracked_files.map(file => file.path), ['nested/new.txt']);
+    assert.match(fs.readFileSync(path.join(repository, 'base.txt'), 'utf8'), /^selected\r?\n$/);
+    assert.deepEqual(fs.readFileSync(path.join(repository, 'binary.dat')), Buffer.from([0, 9, 8, 7]));
+    assert.match(fs.readFileSync(path.join(repository, 'nested', 'new.txt'), 'utf8'), /^new candidate file\r?\n$/);
+    assert.equal(git(repository, ['rev-parse', 'HEAD']).trim(), baseHead);
+    assert.equal(git(repository, ['branch', '--show-current']).trim(), 'master');
+    assert.equal(git(repository, ['status', '--porcelain=v1']).trim().length > 0, true);
+    assert.equal(fs.readFileSync(path.join(selected.worktree.workspace, 'base.txt'), 'utf8').trim(), 'selected');
+    assert.throws(() => service.adopt(input.council_id, { memberId: selected.member_id, workspace: repository }), { code: 'request_conflict' });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('council adopt preflights untracked collisions before applying tracked changes', () => {
+  const root = path.resolve('.local', 'test-runs', `council-adopt-conflict-${randomUUID()}`);
+  const repository = path.join(root, 'repo');
+  fs.mkdirSync(repository, { recursive: true });
+  git(repository, ['init']);
+  git(repository, ['config', 'user.name', 'uAgents Test']);
+  git(repository, ['config', 'user.email', 'uagents@example.invalid']);
+  fs.writeFileSync(path.join(repository, 'base.txt'), 'base\n');
+  git(repository, ['add', 'base.txt']);
+  git(repository, ['commit', '-m', 'base']);
+  const tasks = new Map();
+  const service = new CouncilService({
+    stateRoot: path.join(root, 'state'), registry: createRegistry(),
+    submitTask: request => tasks.set(request.request_id, { task_id: request.request_id, target: request.target, status: 'succeeded' }),
+    statusTask: taskId => tasks.get(taskId), resultTask: () => null,
+  });
+  const input = council({ mode: 'implementation', workspace_strategy: 'git-worktree', workspace: repository });
+  try {
+    const selected = service.submit(input).members[0];
+    fs.writeFileSync(path.join(selected.worktree.workspace, 'base.txt'), 'candidate\n');
+    fs.writeFileSync(path.join(selected.worktree.workspace, 'collision.txt'), 'candidate\n');
+    fs.writeFileSync(path.join(repository, 'collision.txt'), 'destination\n');
+    assert.throws(() => service.adopt(input.council_id, { memberId: selected.member_id, workspace: repository }), { code: 'request_conflict' });
+    assert.match(fs.readFileSync(path.join(repository, 'base.txt'), 'utf8'), /^base\r?\n$/);
+    assert.equal(fs.readFileSync(path.join(repository, 'collision.txt'), 'utf8'), 'destination\n');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('council submit fans out ordinary deterministic Tasks and is idempotent', () => {
   const root = path.resolve('.local', 'test-runs', `council-${randomUUID()}`);
   fs.mkdirSync(root, { recursive: true });

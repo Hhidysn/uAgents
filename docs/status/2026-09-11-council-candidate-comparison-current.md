@@ -22,7 +22,7 @@ uagents_council_diff
 - tracked patch 内联上限：1 MiB/member；
 - untracked 文本内联上限：256 KiB/file；
 - binary untracked 只返回 metadata；
-- 不自动 winner selection / synthesis / commit / merge / adopt / cleanup。
+- 不自动 winner selection / synthesis / commit / merge / cleanup；显式 adopt 由独立 `council-adopt` 命令完成。
 
 ## 实际验证
 
@@ -40,12 +40,12 @@ OpenCode:  opencode-result.txt  -> OC-WT-1B7E4A31
 ## 当前验证
 
 ```text
-Council + CLI targeted   22/22
+Council + CLI targeted   24/24
 Unified MCP targeted      7/7
 
-Core                    293/293
+Core                    295/295
 Doubao MCP               11/11
 TRAE MCP                  9/9
 Unified MCP               7/7
-Total                   320/320
+Total                   322/322
 ```

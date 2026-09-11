@@ -86,6 +86,68 @@ export function inspectCouncilWorktreeDiff(member) {
   };
 }
 
+export function adoptCouncilWorktree(member, destinationWorkspace) {
+  if (!member.worktree) fail('unsupported_capability', 'Council candidate adoption requires a git worktree member.', { submission: 'not_sent' });
+  if (!path.isAbsolute(destinationWorkspace ?? '')) fail('invalid_workspace', 'Candidate adoption requires an absolute destination workspace.');
+
+  const sourceRoot = member.worktree.worktree_root;
+  const destination = path.resolve(destinationWorkspace);
+  const destinationRoot = git(destination, ['rev-parse', '--show-toplevel']).trim();
+  const destinationHead = git(destination, ['rev-parse', 'HEAD']).trim();
+  if (destinationHead !== member.worktree.base_head) {
+    fail('request_conflict', 'Destination HEAD must match the Council base HEAD before adoption.', {
+      category: 'conflict', submission: 'not_sent',
+      details: { base_head: member.worktree.base_head, destination_head: destinationHead },
+    });
+  }
+
+  const untrackedPaths = splitNul(git(sourceRoot, ['ls-files', '--others', '--exclude-standard', '-z']));
+  const untracked = untrackedPaths.map(relativePath => {
+    const source = path.join(sourceRoot, ...relativePath.split('/'));
+    const destinationFile = path.join(destinationRoot, ...relativePath.split('/'));
+    const stat = fs.lstatSync(source);
+    if (!stat.isFile()) fail('unsupported_capability', `Cannot adopt non-file untracked path: ${relativePath}`, { submission: 'not_sent' });
+    if (fs.existsSync(destinationFile)) {
+      fail('request_conflict', `Destination already contains candidate untracked path: ${relativePath}`, {
+        category: 'conflict', submission: 'not_sent', details: { path: relativePath },
+      });
+    }
+    return { path: relativePath, source, destination: destinationFile, bytes: stat.size };
+  });
+
+  const patch = gitBuffer(sourceRoot, ['diff', '--binary', '--no-ext-diff', member.worktree.base_head, '--']);
+  if (patch.length) gitApply(destinationRoot, patch, true);
+  if (patch.length) gitApply(destinationRoot, patch, false);
+  for (const file of untracked) {
+    fs.mkdirSync(path.dirname(file.destination), { recursive: true });
+    fs.copyFileSync(file.source, file.destination);
+    fs.chmodSync(file.destination, fs.lstatSync(file.source).mode);
+  }
+
+  const status = git(destinationRoot, ['status', '--porcelain=v1', '--untracked-files=all']);
+  return {
+    source: {
+      member_id: member.member_id,
+      task_id: member.task_id,
+      branch: member.worktree.branch,
+      worktree_root: sourceRoot,
+      base_head: member.worktree.base_head,
+      head: git(sourceRoot, ['rev-parse', 'HEAD']).trim(),
+    },
+    destination: {
+      workspace: destination,
+      repository: destinationRoot,
+      head: destinationHead,
+      dirty: Boolean(status.trim()),
+      changes: status.split(/\r?\n/).filter(Boolean),
+    },
+    applied: {
+      tracked_patch_bytes: patch.length,
+      untracked_files: untracked.map(file => ({ path: file.path, bytes: file.bytes })),
+    },
+  };
+}
+
 function ensureWorktree(repository, destination, branch, baseHead) {
   if (fs.existsSync(path.join(destination, '.git'))) return;
   fs.mkdirSync(path.dirname(destination), { recursive: true });
@@ -134,6 +196,28 @@ function git(cwd, args) {
     });
   }
   return result.stdout ?? '';
+}
+
+function gitBuffer(cwd, args) {
+  const result = spawnSync('git', ['-C', cwd, ...args], { encoding: null, windowsHide: true });
+  if (result.error || result.status !== 0) {
+    fail('invalid_workspace', 'Git worktree operation failed.', {
+      category: 'user', submission: 'not_sent', details: { operation: args.slice(0, 2).join(' ') },
+    });
+  }
+  return result.stdout ?? Buffer.alloc(0);
+}
+
+function gitApply(cwd, patch, checkOnly) {
+  const args = ['-C', cwd, 'apply', '--whitespace=nowarn', ...(checkOnly ? ['--check'] : []), '-'];
+  const result = spawnSync('git', args, { input: patch, encoding: 'utf8', windowsHide: true });
+  if (result.error || result.status !== 0) {
+    fail('request_conflict', checkOnly
+      ? 'Candidate tracked changes do not apply cleanly to the destination workspace.'
+      : 'Candidate tracked changes could not be applied to the destination workspace.', {
+      category: 'conflict', submission: 'not_sent', details: { operation: checkOnly ? 'git apply --check' : 'git apply' },
+    });
+  }
 }
 
 function gitStatus(cwd, args) {

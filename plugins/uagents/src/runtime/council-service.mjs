@@ -6,7 +6,7 @@ import { buildCouncilMemberRequests, parseCouncilRequest } from '../protocol/cou
 import { evaluateRequest } from '../policy/evaluate.mjs';
 import { atomicWriteJson } from '../store/task-files.mjs';
 import { uuidPattern } from '../protocol/schema.mjs';
-import { inspectCouncilWorktree, inspectCouncilWorktreeDiff, prepareCouncilWorktrees } from './council-worktrees.mjs';
+import { adoptCouncilWorktree, inspectCouncilWorktree, inspectCouncilWorktreeDiff, prepareCouncilWorktrees } from './council-worktrees.mjs';
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 const ATTENTION = new Set(['waiting_user', 'indeterminate']);
@@ -149,6 +149,28 @@ export class CouncilService {
         };
       }),
       created_at_ms: status.created_at_ms,
+    };
+  }
+
+  adopt(councilId, { memberId, workspace }) {
+    const status = this.status(councilId);
+    if (status.workspace_strategy !== 'git-worktree') {
+      fail('unsupported_capability', 'council-adopt requires a git-worktree Council.', { submission: 'not_sent' });
+    }
+    const member = status.members.find(item => item.member_id === memberId);
+    if (!member) fail('invalid_request', `Unknown Council member: ${memberId}`);
+    if (member.task?.status !== 'succeeded') {
+      fail('request_conflict', 'Only a succeeded Council member can be adopted.', {
+        category: 'conflict', submission: 'not_sent', details: { member_id: memberId, status: member.task?.status ?? null },
+      });
+    }
+    return {
+      schema_version: status.schema_version,
+      council_id: status.council_id,
+      member_id: member.member_id,
+      target: member.target,
+      model: member.model,
+      ...adoptCouncilWorktree(member, workspace),
     };
   }
 
