@@ -39,6 +39,7 @@ test('CLI discovery exposes commands and submit arguments without opening runtim
   assert.equal(described.data.commands.some(command => command.name === 'council-submit'), true);
   assert.equal(described.data.commands.some(command => command.name === 'council-diff'), true);
   assert.equal(described.data.commands.some(command => command.name === 'council-adopt'), true);
+  assert.equal(described.data.commands.some(command => command.name === 'council-cleanup'), true);
 
   const submit = await execute(['describe', 'submit'], { env: {} });
   assert.equal(submit.data.name, 'submit');
@@ -54,6 +55,10 @@ test('CLI discovery exposes commands and submit arguments without opening runtim
   const councilAdopt = await execute(['describe', 'council-adopt'], { env: {} });
   assert.deepEqual(councilAdopt.data.options.map(option => option.name), ['--member', '--workspace', '--state-dir']);
   assert.equal(councilAdopt.data.effect, 'local_state_change');
+  const councilCleanup = await execute(['describe', 'council-cleanup'], { env: {} });
+  assert.deepEqual(councilCleanup.data.constraints, [{ type: 'exactly_one', options: ['--member', '--all'] }]);
+  assert.deepEqual(councilCleanup.data.options.map(option => option.name), ['--member', '--all', '--force', '--state-dir']);
+  assert.equal(councilCleanup.data.effect, 'local_state_change');
   await assert.rejects(() => execute(['describe', 'unknown'], { env: {} }), { code: 'usage' });
 });
 
@@ -106,6 +111,12 @@ test('council schema discovery and CLI fanout expose deterministic member tasks'
   await assert.rejects(() => execute([
     'council-adopt', input.council_id, '--member', 'wb', '--workspace', root, '--state-dir', root,
   ]), { code: 'unsupported_capability' });
+  await assert.rejects(() => execute([
+    'council-cleanup', input.council_id, '--member', 'wb', '--state-dir', root,
+  ]), { code: 'unsupported_capability' });
+  await assert.rejects(() => execute([
+    'council-cleanup', input.council_id, '--member', 'wb', '--all', '--state-dir', root,
+  ]), { code: 'usage' });
 });
 
 test('probe does not hide managed snapshot failures', async () => {

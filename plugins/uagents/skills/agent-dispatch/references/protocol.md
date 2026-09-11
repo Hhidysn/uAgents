@@ -20,23 +20,7 @@ Exactly one of `--request FILE` and `--request-stdin` is required. Do not inline
 
 ## Council
 
-For independent multi-Agent work, Council is a thin fan-out/fan-in layer over ordinary Tasks:
-
-```json
-{
-  "schema_version": "1.0",
-  "council_id": "<uuid>",
-  "strategy": "fanout",
-  "prompt": "Review this bounded change.",
-  "workspace": "F:\\project",
-  "members": [
-    { "member_id": "architecture", "target": "workbuddy", "model": "default", "instruction": "Focus on architecture." },
-    { "member_id": "implementation", "target": "opencode", "model": "commandcode-goat/deepseek/deepseek-v4-flash", "instruction": "Focus on feasibility." }
-  ]
-}
-```
-
-Use CLI `council-submit`, `council-status`, `council-result`, `council-diff`, `council-adopt`, or MCP `uagents_council_submit`, `uagents_council_status`, `uagents_council_result`, `uagents_council_diff`, `uagents_council_adopt`. The compatibility default is `mode:"analysis"` + `workspace_strategy:"shared"`, with `advisory-read-only` permission. `mode:"implementation"` requires `workspace_strategy:"git-worktree"` and an explicit Git workspace; implementation defaults to native permission. uAgents creates one persistent branch/worktree per member from the source committed HEAD. Dirty tracked changes and untracked source files are not copied automatically; pass extra material through attachment `source` or commit it first. A member may carry the existing `session` selector, but normal same-target/same-workspace session rules still apply. `council_id + member_id` deterministically derives the member Task UUID, so exact resubmission reuses the same Tasks/worktrees without reset. `council-result` returns each member's normal Task result plus basic worktree evidence. For git-worktree Council, `council-diff` is local-only and adds tracked file status/unified patch plus untracked file metadata and small UTF-8 file contents. Once a succeeded member is explicitly chosen, `council-adopt` applies its full binary tracked patch and Git-visible untracked regular files to an explicitly supplied destination workspace whose HEAD equals the Council base HEAD; destination branch/HEAD are not changed and no commit/merge is performed. Shared Council is unsupported for both diff and adopt. None of these paths votes, selects a winner, deletes worktrees, or adds a synthesis model call.
+Council is the thin multi-Agent fan-out/fan-in layer over ordinary Tasks. Its lifecycle, worktree, compare, adopt, and cleanup semantics live in [council.md](council.md). Use `schema council` and `describe <council-command>` rather than inferring fields from prose.
 
 ```json
 {

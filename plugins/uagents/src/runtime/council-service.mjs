@@ -6,7 +6,8 @@ import { buildCouncilMemberRequests, parseCouncilRequest } from '../protocol/cou
 import { evaluateRequest } from '../policy/evaluate.mjs';
 import { atomicWriteJson } from '../store/task-files.mjs';
 import { uuidPattern } from '../protocol/schema.mjs';
-import { adoptCouncilWorktree, inspectCouncilWorktree, inspectCouncilWorktreeDiff, prepareCouncilWorktrees } from './council-worktrees.mjs';
+import { executeCouncilWorktreeCleanup, inspectCouncilWorktree, prepareCouncilWorktreeCleanup, prepareCouncilWorktrees } from './council-worktrees.mjs';
+import { adoptCouncilWorktree, inspectCouncilWorktreeDiff } from './council-candidates.mjs';
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 const ATTENTION = new Set(['waiting_user', 'indeterminate']);
@@ -68,6 +69,7 @@ export class CouncilService {
     for (const request of memberRequests) evaluateRequest(request, { registry: this.registry });
 
     for (const [index, request] of memberRequests.entries()) {
+      if (manifest.members[index].cleanup?.removed) continue;
       try {
         this.submitTask(request);
         manifest.members[index].registration_error = null;
@@ -171,6 +173,46 @@ export class CouncilService {
       target: member.target,
       model: member.model,
       ...adoptCouncilWorktree(member, workspace),
+    };
+  }
+
+  cleanup(councilId, { memberId = null, all = false, force = false } = {}) {
+    if (Boolean(memberId) === Boolean(all)) fail('invalid_request', 'Council cleanup requires exactly one of memberId or all=true.');
+    const status = this.status(councilId);
+    if (status.workspace_strategy !== 'git-worktree') {
+      fail('unsupported_capability', 'council-cleanup requires a git-worktree Council.', { submission: 'not_sent' });
+    }
+    const selected = all ? status.members : status.members.filter(member => member.member_id === memberId);
+    if (!selected.length) fail('invalid_request', `Unknown Council member: ${memberId}`);
+    for (const member of selected) {
+      if (member.task && !TERMINAL.has(member.task.status)) {
+        fail('request_conflict', 'Cannot clean up a Council member while its Task is nonterminal.', {
+          category: 'conflict', submission: 'not_sent', details: { member_id: member.member_id, status: member.task.status },
+        });
+      }
+    }
+    const plans = selected.map(member => prepareCouncilWorktreeCleanup(member, { force }));
+    const manifest = this.#manifest(councilId);
+    const results = [];
+    for (const plan of plans) {
+      const result = { member_id: plan.member_id, cleanup: executeCouncilWorktreeCleanup(plan) };
+      const member = manifest.members.find(item => item.member_id === result.member_id);
+      if (!result.cleanup.already_removed) {
+        member.cleanup = { ...result.cleanup, cleaned_at_ms: this.clock() };
+        atomicWriteJson(path.join(councilDirectory(this.stateRoot, councilId), 'manifest.json'), manifest);
+      }
+      results.push(result);
+    }
+    return {
+      schema_version: status.schema_version,
+      council_id: status.council_id,
+      workspace_strategy: status.workspace_strategy,
+      members: results.map(result => ({
+        member_id: result.member_id,
+        cleanup: result.cleanup.already_removed
+          ? result.cleanup
+          : manifest.members.find(item => item.member_id === result.member_id).cleanup,
+      })),
     };
   }
 

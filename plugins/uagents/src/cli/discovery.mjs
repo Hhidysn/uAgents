@@ -13,6 +13,8 @@ export const CLI_PARSE_OPTIONS = Object.freeze({
   format: Object.freeze({ type: 'string' }),
   member: Object.freeze({ type: 'string' }),
   workspace: Object.freeze({ type: 'string' }),
+  all: Object.freeze({ type: 'boolean' }),
+  force: Object.freeze({ type: 'boolean' }),
 });
 
 const stateDir = option('--state-dir', 'absolute_path', 'Use one explicit task-state directory for this command.');
@@ -53,6 +55,15 @@ export const CLI_COMMANDS = Object.freeze({
     option('--workspace', 'absolute_path', 'Destination Git workspace. Its HEAD must equal the Council base HEAD.'),
     stateDir,
   ], 'local_state_change'),
+  'council-cleanup': {
+    ...command('council-cleanup', 'council-cleanup <council-id> (--member <member-id> | --all) [--force] [--state-dir <dir>]', 'Explicitly remove selected Council worktrees and dedicated branches while preserving Council and Task history.', [positional('council_id', 'uuid', true)], [
+      option('--member', 'string', 'Clean up one Council member.', { exclusive_group: 'cleanup_scope' }),
+      option('--all', 'boolean', 'Clean up every Council member.', { exclusive_group: 'cleanup_scope' }),
+      option('--force', 'boolean', 'Discard dirty or diverged candidate worktrees.'),
+      stateDir,
+    ], 'local_state_change'),
+    constraints: [{ type: 'exactly_one', options: ['--member', '--all'] }],
+  },
   status: command('status', 'status <task-id> [--state-dir <dir>]', 'Read persisted task status only.', [taskId], [stateDir], 'local_only'),
   result: command('result', 'result <task-id> [--state-dir <dir>]', 'Read persisted task result, usage and artifacts.', [taskId], [stateDir], 'local_only'),
   cancel: command('cancel', 'cancel <task-id> [--state-dir <dir>]', 'Persist cancellation intent for a task.', [taskId], [stateDir], 'local_state_change'),

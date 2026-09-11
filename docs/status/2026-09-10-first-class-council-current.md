@@ -1,5 +1,7 @@
 # First-class Council 当前状态
 
+> 历史阶段快照。Council 当前统一状态请读 [2026-09-12-council-current.md](2026-09-12-council-current.md)。本文保留第一阶段 fan-out/fan-in 的实现与验证背景。
+
 日期：2026-09-10。本文以当前仓库源码为准。
 
 ## 当前结论

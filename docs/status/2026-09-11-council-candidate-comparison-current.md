@@ -1,5 +1,7 @@
 # Council Candidate Comparison 当前状态
 
+> 历史阶段快照。Council 当前统一状态请读 [2026-09-12-council-current.md](2026-09-12-council-current.md)。本文保留 Candidate Comparison 阶段的实现与验证背景。
+
 日期：2026-09-11。本文以当前工作树源码为准。
 
 ## 当前能力

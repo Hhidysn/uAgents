@@ -16,6 +16,14 @@ const councilAdoptSchema = z.object({
   member_id: z.string().min(1).max(64),
   workspace: z.string().min(1),
 }).strict();
+const councilCleanupSchema = z.object({
+  council_id: z.uuid(),
+  member_id: z.string().min(1).max(64).optional(),
+  all: z.boolean().optional(),
+  force: z.boolean().optional(),
+}).strict().refine(value => Boolean(value.member_id) !== Boolean(value.all), {
+  message: 'Council cleanup requires exactly one of member_id or all=true.',
+});
 const attachmentInputSchema = z.object({
   type: z.enum(['file', 'image']),
   path: z.string().optional(),
@@ -94,6 +102,7 @@ export function createToolHandlers(runtime) {
     uagents_council_result: async input => runtime.councilResult(input.council_id),
     uagents_council_diff: async input => runtime.councilDiff(input.council_id),
     uagents_council_adopt: async input => runtime.councilAdopt(input.council_id, { memberId: input.member_id, workspace: input.workspace }),
+    uagents_council_cleanup: async input => runtime.councilCleanup(input.council_id, { memberId: input.member_id ?? null, all: input.all === true, force: input.force === true }),
     uagents_status: async input => runtime.status(input.task_id),
     uagents_result: async input => runtime.result(input.task_id),
     uagents_cancel: async input => runtime.cancel(input.task_id),
@@ -123,6 +132,7 @@ export function createServer({ runtime = createRuntime(), supervisor = null } = 
   register('uagents_council_result', 'Aggregate member Task results, usage and artifacts for one Council without model synthesis.', councilIdSchema);
   register('uagents_council_diff', 'Compare git-worktree Council candidates locally, including tracked patches and untracked files. Never modifies a worktree or contacts native Agents.', councilIdSchema);
   register('uagents_council_adopt', 'Apply one explicitly selected git-worktree Council candidate to a destination Git workspace. The destination HEAD must match the Council base HEAD. Never commits, merges, selects a winner, or contacts native Agents.', councilAdoptSchema);
+  register('uagents_council_cleanup', 'Explicitly remove selected Council worktrees and dedicated branches while preserving Council and Task history. Dirty or diverged candidates require force=true.', councilCleanupSchema);
   register('uagents_status', 'Read the persisted task status only. This tool never contacts the native Agent.', taskIdSchema);
   register('uagents_result', 'Read the persisted result, model identity, usage and captured artifact summary.', taskIdSchema);
   register('uagents_cancel', 'Persist a cancellation request. Remote cancellation is confirmed only when the target can prove it.', taskIdSchema);

@@ -234,6 +234,89 @@ test('council adopt preflights untracked collisions before applying tracked chan
   }
 });
 
+test('council cleanup removes clean member worktree and branch but preserves manifest history', () => {
+  const root = path.resolve('.local', 'test-runs', `council-cleanup-${randomUUID()}`);
+  const repository = path.join(root, 'repo');
+  fs.mkdirSync(repository, { recursive: true });
+  git(repository, ['init']);
+  git(repository, ['config', 'user.name', 'uAgents Test']);
+  git(repository, ['config', 'user.email', 'uagents@example.invalid']);
+  fs.writeFileSync(path.join(repository, 'base.txt'), 'base\n');
+  git(repository, ['add', 'base.txt']);
+  git(repository, ['commit', '-m', 'base']);
+  const tasks = new Map();
+  const service = new CouncilService({
+    stateRoot: path.join(root, 'state'), registry: createRegistry(),
+    submitTask: request => tasks.set(request.request_id, { task_id: request.request_id, target: request.target, status: 'succeeded' }),
+    statusTask: taskId => tasks.get(taskId), resultTask: () => null,
+  });
+  const input = council({ mode: 'implementation', workspace_strategy: 'git-worktree', workspace: repository });
+  try {
+    const submitted = service.submit(input);
+    const selected = submitted.members[0];
+    const branch = selected.worktree.branch;
+    const worktreeRoot = selected.worktree.worktree_root;
+    const cleaned = service.cleanup(input.council_id, { memberId: selected.member_id });
+    assert.equal(cleaned.members[0].cleanup.removed, true);
+    assert.equal(cleaned.members[0].cleanup.forced, false);
+    assert.equal(fs.existsSync(worktreeRoot), false);
+    assert.equal(git(repository, ['branch', '--list', branch]).trim(), '');
+
+    const status = service.status(input.council_id);
+    const historical = status.members.find(member => member.member_id === selected.member_id);
+    assert.equal(historical.cleanup.removed, true);
+    assert.equal(historical.task.status, 'succeeded');
+    assert.equal(service.result(input.council_id).members[0].worktree.removed, true);
+    assert.equal(service.diff(input.council_id).members[0].worktree.removed, true);
+    assert.throws(() => service.adopt(input.council_id, { memberId: selected.member_id, workspace: repository }), { code: 'request_conflict' });
+    assert.equal(service.cleanup(input.council_id, { memberId: selected.member_id }).members[0].cleanup.already_removed, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('council cleanup preflights all candidates and requires force for dirty or diverged worktrees', () => {
+  const root = path.resolve('.local', 'test-runs', `council-cleanup-force-${randomUUID()}`);
+  const repository = path.join(root, 'repo');
+  fs.mkdirSync(repository, { recursive: true });
+  git(repository, ['init']);
+  git(repository, ['config', 'user.name', 'uAgents Test']);
+  git(repository, ['config', 'user.email', 'uagents@example.invalid']);
+  fs.writeFileSync(path.join(repository, 'base.txt'), 'base\n');
+  git(repository, ['add', 'base.txt']);
+  git(repository, ['commit', '-m', 'base']);
+  const tasks = new Map();
+  const service = new CouncilService({
+    stateRoot: path.join(root, 'state'), registry: createRegistry(),
+    submitTask: request => tasks.set(request.request_id, { task_id: request.request_id, target: request.target, status: 'succeeded' }),
+    statusTask: taskId => tasks.get(taskId), resultTask: () => null,
+  });
+  const input = council({ mode: 'implementation', workspace_strategy: 'git-worktree', workspace: repository });
+  try {
+    const submitted = service.submit(input);
+    const [dirty, diverged] = submitted.members;
+    fs.writeFileSync(path.join(dirty.worktree.workspace, 'candidate.txt'), 'keep unless forced\n');
+    fs.writeFileSync(path.join(diverged.worktree.workspace, 'base.txt'), 'committed candidate\n');
+    git(diverged.worktree.workspace, ['add', 'base.txt']);
+    git(diverged.worktree.workspace, ['commit', '-m', 'candidate commit']);
+    assert.throws(() => service.cleanup(input.council_id, { all: true }), { code: 'request_conflict' });
+    assert.equal(fs.existsSync(dirty.worktree.worktree_root), true);
+    assert.equal(fs.existsSync(diverged.worktree.worktree_root), true);
+
+    const cleaned = service.cleanup(input.council_id, { all: true, force: true });
+    assert.equal(cleaned.members.length, 2);
+    assert.equal(cleaned.members.every(member => member.cleanup.removed), true);
+    assert.equal(fs.existsSync(dirty.worktree.worktree_root), false);
+    assert.equal(fs.existsSync(diverged.worktree.worktree_root), false);
+    const duplicate = service.submit(input);
+    assert.equal(duplicate.duplicate, true);
+    assert.equal(fs.existsSync(dirty.worktree.worktree_root), false);
+    assert.equal(fs.existsSync(diverged.worktree.worktree_root), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('council submit fans out ordinary deterministic Tasks and is idempotent', () => {
   const root = path.resolve('.local', 'test-runs', `council-${randomUUID()}`);
   fs.mkdirSync(root, { recursive: true });

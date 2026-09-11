@@ -73,6 +73,14 @@ export async function execute(argv, options = {}) {
       memberId: required(values.member, '--member'),
       workspace: required(values.workspace, '--workspace'),
     }));
+    if (command === 'council-cleanup') {
+      if (Boolean(values.member) === Boolean(values.all)) fail('usage', 'council-cleanup requires exactly one of --member or --all.');
+      return ok(runtime.councilCleanup(required(subject, 'council id'), {
+        memberId: values.member ?? null,
+        all: values.all === true,
+        force: values.force === true,
+      }));
+    }
     if (command === 'status') return ok(runtime.status(required(subject, 'task id')));
     if (command === 'result') return ok(runtime.result(required(subject, 'task id')));
     if (command === 'cancel') return ok(runtime.cancel(required(subject, 'task id')));
