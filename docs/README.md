@@ -6,6 +6,7 @@
 
 - [First-class Council 当前状态](status/2026-09-10-first-class-council-current.md)：fan-out/fan-in、确定性成员 Task、CLI/MCP surface 与 Council 聚合语义。
 - [Council Worktree Isolation 当前状态](status/2026-09-11-council-worktree-isolation-current.md)：implementation Council、独立 Git branch/worktree、workspace lease 并行与 diff evidence。
+- [Council Candidate Comparison 当前状态](status/2026-09-11-council-candidate-comparison-current.md)：`council-diff`、tracked patch、untracked 文件内容与只读候选比较。
 - [CLI Schema Discovery 当前状态](status/2026-09-10-cli-schema-discovery-current.md)：CLI `describe` / `schema request` 的 machine-readable contract、source of truth 与验证边界。
 - [Native Session Continuation / Fork 当前状态](status/2026-09-10-session-continuation-current.md)：WorkBuddy/OpenCode 显式续聊与 native branch 的当前源码能力、边界和验证状态。
 - [Universal Attachment 当前状态](status/2026-09-09-universal-attachment-current.md)：本轮源码中的统一附件 contract、WorkBuddy/OpenCode mapping、agy fail-closed 能力和剩余缺口。
@@ -17,6 +18,7 @@
 
 - [First-class Council 设计](superpowers/specs/2026-09-10-first-class-council-design.md)
 - [Council Worktree Isolation 设计](superpowers/specs/2026-09-11-council-worktree-isolation-design.md)
+- [Council Candidate Comparison 设计](superpowers/specs/2026-09-11-council-candidate-comparison-design.md)
 - [CLI Schema Discovery 设计](superpowers/specs/2026-09-10-cli-schema-discovery-design.md)
 - [统一 Runtime 设计](superpowers/specs/2026-09-04-uagents-unified-agent-runtime-design.md)
 - [受管 Agent 生命周期设计](superpowers/specs/2026-09-04-uagents-managed-agent-lifecycle-design.md)
@@ -36,6 +38,7 @@
 ## 验证证据
 
 - [Council Worktree Isolation 实机 implementation E2E（2026-09-11）](verification/2026-09-11-real-council-worktree-implementation-e2e.md)
+- [Council Candidate Comparison 验证（2026-09-11）](verification/2026-09-11-council-candidate-comparison.md)
 - [First-class Council 实机 E2E（2026-09-11）](verification/2026-09-11-real-first-class-council-e2e.md)
 - [Council Worktree Isolation provider-free 验证（2026-09-11）](verification/2026-09-11-council-worktree-isolation.md)
 - [First-class Council provider-free 验证（2026-09-10）](verification/2026-09-10-first-class-council.md)

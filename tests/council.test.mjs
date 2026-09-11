@@ -101,13 +101,24 @@ test('git-worktree Council gives each implementation member an isolated branch a
     }
 
     const first = submitted.members[0];
+    const secondMember = submitted.members[1];
     fs.writeFileSync(path.join(first.worktree.workspace, 'base.txt'), 'changed\n');
-    fs.writeFileSync(path.join(first.worktree.workspace, 'new.txt'), 'new\n');
+    fs.writeFileSync(path.join(secondMember.worktree.workspace, 'new.txt'), 'new candidate\n');
     const result = runtime.councilResult(input.council_id);
     assert.equal(result.members[0].worktree.dirty, true);
     assert.equal(result.members[0].worktree.changes.some(line => line.includes('base.txt')), true);
-    assert.equal(result.members[0].worktree.changes.some(line => line.includes('new.txt')), true);
-    assert.equal(result.members[1].worktree.dirty, false);
+    assert.equal(result.members[1].worktree.changes.some(line => line.includes('new.txt')), true);
+
+    const comparison = runtime.councilDiff(input.council_id);
+    assert.equal(comparison.workspace_strategy, 'git-worktree');
+    assert.equal(comparison.members[0].worktree.tracked_files.some(file => file.path === 'base.txt' && file.status === 'M'), true);
+    assert.match(comparison.members[0].worktree.tracked_patch, /changed/);
+    assert.deepEqual(comparison.members[0].worktree.untracked_files, []);
+    assert.equal(comparison.members[1].worktree.tracked_patch, '');
+    assert.deepEqual(comparison.members[1].worktree.tracked_files, []);
+    assert.deepEqual(comparison.members[1].worktree.untracked_files, [{
+      path: 'new.txt', status: 'untracked', bytes: Buffer.byteLength('new candidate\n'), binary: false, text: 'new candidate\n',
+    }]);
 
     const duplicate = runtime.submitCouncil(input);
     assert.equal(duplicate.duplicate, true);
@@ -168,6 +179,7 @@ test('council submit fans out ordinary deterministic Tasks and is idempotent', (
     const aggregate = runtime.councilResult(input.council_id);
     assert.equal(aggregate.members.length, 2);
     assert.equal(aggregate.members.every(member => member.result.response.text === ''), true);
+    assert.throws(() => runtime.councilDiff(input.council_id), { code: 'unsupported_capability' });
   } finally {
     runtime.close();
     fs.rmSync(root, { recursive: true, force: true });

@@ -6,7 +6,7 @@ import { buildCouncilMemberRequests, parseCouncilRequest } from '../protocol/cou
 import { evaluateRequest } from '../policy/evaluate.mjs';
 import { atomicWriteJson } from '../store/task-files.mjs';
 import { uuidPattern } from '../protocol/schema.mjs';
-import { inspectCouncilWorktree, prepareCouncilWorktrees } from './council-worktrees.mjs';
+import { inspectCouncilWorktree, inspectCouncilWorktreeDiff, prepareCouncilWorktrees } from './council-worktrees.mjs';
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 const ATTENTION = new Set(['waiting_user', 'indeterminate']);
@@ -111,6 +111,44 @@ export class CouncilService {
         worktree: inspectCouncilWorktree(member),
         result: member.task ? this.resultTask(member.task_id) : null,
       })),
+    };
+  }
+
+  diff(councilId) {
+    const status = this.status(councilId);
+    if (status.workspace_strategy !== 'git-worktree') {
+      fail('unsupported_capability', 'council-diff requires a git-worktree Council.', { submission: 'not_sent' });
+    }
+    return {
+      schema_version: status.schema_version,
+      council_id: status.council_id,
+      strategy: status.strategy,
+      mode: status.mode,
+      workspace_strategy: status.workspace_strategy,
+      base_head: status.base_head,
+      status: status.status,
+      members: status.members.map(member => {
+        const result = member.task ? this.resultTask(member.task_id) : null;
+        return {
+          member_id: member.member_id,
+          target: member.target,
+          model: member.model,
+          task_id: member.task_id,
+          registration_error: member.registration_error,
+          task: member.task ? {
+            status: member.task.status,
+            native_outcome: member.task.native_outcome,
+            objective_verdict: member.task.objective_verdict,
+          } : null,
+          result: result ? {
+            response: result.response,
+            usage: result.usage,
+            artifacts: result.artifacts,
+          } : null,
+          worktree: inspectCouncilWorktreeDiff(member),
+        };
+      }),
+      created_at_ms: status.created_at_ms,
     };
   }
 

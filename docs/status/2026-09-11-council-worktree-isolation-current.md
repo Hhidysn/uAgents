@@ -20,7 +20,7 @@ First-class Council 已扩展支持：
 
 不同成员 worktree canonical workspace 不重叠，所以现有 workspace lease 不再把它们串行化；global / target concurrency limit 仍生效。
 
-`council-result` 会返回 branch、worktree root、effective workspace、base/current HEAD、dirty、changes、diff stat。
+`council-result` 会返回 branch、worktree root、effective workspace、base/current HEAD、dirty、changes、diff stat。`council-diff` 在此基础上专门比较候选：返回 tracked file status/unified patch，并把此前 Git diff 看不到的 untracked 文件单独列出；小型 UTF-8 新文件会直接带正文。
 
 不自动 merge、commit、删除 worktree 或选择 winner。
 

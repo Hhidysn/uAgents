@@ -3,6 +3,11 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fail } from '../protocol/errors.mjs';
 
+export const COUNCIL_DIFF_LIMITS = Object.freeze({
+  patch_bytes: 1024 * 1024,
+  untracked_text_bytes: 256 * 1024,
+});
+
 export function prepareCouncilWorktrees({ stateRoot, council }) {
   if (council.workspace_strategy !== 'git-worktree') return null;
   if (!council.workspace) fail('invalid_workspace', 'git-worktree Council requires workspace.');
@@ -51,6 +56,36 @@ export function inspectCouncilWorktree(member) {
   };
 }
 
+export function inspectCouncilWorktreeDiff(member) {
+  if (!member.worktree) return null;
+  const root = member.worktree.worktree_root;
+  const baseHead = member.worktree.base_head;
+  const head = git(root, ['rev-parse', 'HEAD']).trim();
+  const patch = boundedText(git(root, ['diff', '--no-ext-diff', '--no-color', baseHead, '--']), COUNCIL_DIFF_LIMITS.patch_bytes);
+  const tracked = parseNameStatus(git(root, ['diff', '--name-status', '--no-renames', '-z', baseHead, '--']));
+  const untracked = splitNul(git(root, ['ls-files', '--others', '--exclude-standard', '-z'])).map(relativePath => {
+    const file = path.join(root, ...relativePath.split('/'));
+    const stat = fs.statSync(file);
+    const descriptor = { path: relativePath, status: 'untracked', bytes: stat.size };
+    if (!stat.isFile() || stat.size > COUNCIL_DIFF_LIMITS.untracked_text_bytes) return descriptor;
+    const body = fs.readFileSync(file);
+    const text = decodeUtf8(body);
+    return text === null ? { ...descriptor, binary: true } : { ...descriptor, binary: false, text };
+  });
+  const diffStat = git(root, ['diff', '--stat', baseHead, '--']).trim();
+  return {
+    ...member.worktree,
+    head,
+    dirty: tracked.length > 0 || untracked.length > 0,
+    tracked_files: tracked,
+    untracked_files: untracked,
+    tracked_diff_stat: diffStat,
+    tracked_patch: patch.text,
+    tracked_patch_bytes: patch.bytes,
+    tracked_patch_truncated: patch.truncated,
+  };
+}
+
 function ensureWorktree(repository, destination, branch, baseHead) {
   if (fs.existsSync(path.join(destination, '.git'))) return;
   fs.mkdirSync(path.dirname(destination), { recursive: true });
@@ -63,6 +98,31 @@ function ensureWorktree(repository, destination, branch, baseHead) {
 
 function councilBranch(councilId, taskId) {
   return `uagents/council/${councilId}/${taskId}`;
+}
+
+function parseNameStatus(value) {
+  const fields = splitNul(value);
+  const rows = [];
+  for (let index = 0; index + 1 < fields.length; index += 2) {
+    rows.push({ status: fields[index], path: fields[index + 1] });
+  }
+  return rows;
+}
+
+function splitNul(value) {
+  return value.split('\0').filter(Boolean);
+}
+
+function boundedText(value, maxBytes) {
+  const body = Buffer.from(value, 'utf8');
+  if (body.length <= maxBytes) return { text: value, bytes: body.length, truncated: false };
+  return { text: body.subarray(0, maxBytes).toString('utf8'), bytes: body.length, truncated: true };
+}
+
+function decodeUtf8(value) {
+  if (value.includes(0)) return null;
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(value); }
+  catch { return null; }
 }
 
 function git(cwd, args) {

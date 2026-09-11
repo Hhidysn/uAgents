@@ -107,7 +107,7 @@ Council 默认用于独立多 Agent analysis。示例：
 }
 ```
 
-兼容默认仍是 `analysis + shared`，analysis 默认 `advisory-read-only`。需要多个 Agent 并行改代码时，使用 `mode:"implementation"`、`workspace_strategy:"git-worktree"` 和显式 Git workspace；implementation 默认 `native`。uAgents 从 source committed HEAD 为每个 member 创建独立持久 branch/worktree，主 workspace 的 dirty tracked/untracked 内容不会隐式复制。`council_id + member_id` 继续确定性派生成员 Task UUID，所以相同 Council 重提复用原 Task/worktree，不 reset 修改。`council-result` 除 response / usage / artifacts 外，还返回 branch、base/current HEAD、dirty、changes、diff stat；不自动 commit、投票、merge、删除 worktree 或调用 synthesis 模型。shared workspace 仍可能被 workspace lease 串行化；git-worktree member 不再互相 overlap，但 target/global concurrency limit 仍生效。
+兼容默认仍是 `analysis + shared`，analysis 默认 `advisory-read-only`。需要多个 Agent 并行改代码时，使用 `mode:"implementation"`、`workspace_strategy:"git-worktree"` 和显式 Git workspace；implementation 默认 `native`。uAgents 从 source committed HEAD 为每个 member 创建独立持久 branch/worktree，主 workspace 的 dirty tracked/untracked 内容不会隐式复制。`council_id + member_id` 继续确定性派生成员 Task UUID，所以相同 Council 重提复用原 Task/worktree，不 reset 修改。`council-result` 聚合 response / usage / artifacts 与基础 worktree 状态；`council-diff <council-id>` 进一步返回每个候选的 tracked file status / unified patch 与 untracked 文件（小型 UTF-8 文件直接带正文），方便 Codex 本地比较实现。两者都不自动 commit、投票、merge、删除 worktree 或调用 synthesis 模型。shared workspace 仍可能被 workspace lease 串行化；git-worktree member 不再互相 overlap，但 target/global concurrency limit 仍生效。
 
 受管生命周期命令（Host 状态固定在 `%LOCALAPPDATA%\uAgents\host-v1`，不受 `--state-dir` 影响）：
 
@@ -127,7 +127,7 @@ uagents_list_models        uagents_probe
 uagents_submit             uagents_status
 uagents_result             uagents_cancel
 uagents_council_submit     uagents_council_status
-uagents_council_result
+uagents_council_result     uagents_council_diff
 uagents_list_tasks         uagents_reconcile
 uagents_ensure             uagents_resume
 uagents_stop
@@ -161,6 +161,8 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 - [Native Session Fork / Branch 设计](docs/superpowers/specs/2026-09-10-native-session-fork-design.md)
 - [First-class Council 设计](docs/superpowers/specs/2026-09-10-first-class-council-design.md)
 - [Council Worktree Isolation 设计](docs/superpowers/specs/2026-09-11-council-worktree-isolation-design.md)
+- [Council Candidate Comparison 设计](docs/superpowers/specs/2026-09-11-council-candidate-comparison-design.md)
+- [Council Candidate Comparison 验证](docs/verification/2026-09-11-council-candidate-comparison.md)
 - [Council Worktree Isolation 实机 implementation E2E](docs/verification/2026-09-11-real-council-worktree-implementation-e2e.md)
 - [Council Worktree Isolation provider-free 验证](docs/verification/2026-09-11-council-worktree-isolation.md)
 - [First-class Council 实机 E2E](docs/verification/2026-09-11-real-first-class-council-e2e.md)

@@ -41,7 +41,7 @@ test('bundled stdio server initializes and lists the unified tool surface', asyn
     send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const listed = await wait(2);
     assert.deepEqual(listed.result.tools.map(tool => tool.name).sort(), [
-      'uagents_cancel', 'uagents_council_result', 'uagents_council_status', 'uagents_council_submit', 'uagents_ensure', 'uagents_get_capabilities', 'uagents_list_models', 'uagents_list_targets', 'uagents_list_tasks',
+      'uagents_cancel', 'uagents_council_diff', 'uagents_council_result', 'uagents_council_status', 'uagents_council_submit', 'uagents_ensure', 'uagents_get_capabilities', 'uagents_list_models', 'uagents_list_targets', 'uagents_list_tasks',
       'uagents_probe', 'uagents_reconcile', 'uagents_result', 'uagents_resume', 'uagents_status', 'uagents_stop', 'uagents_submit',
     ]);
     const submitTool = listed.result.tools.find(tool => tool.name === 'uagents_submit');
@@ -189,5 +189,6 @@ test('MCP Council schema and handlers expose first-class fanout aggregation', as
     assert.equal(submitted.members.length, 2);
     assert.equal((await handlers.uagents_council_status({ council_id: input.council_id })).members.length, 2);
     assert.equal((await handlers.uagents_council_result({ council_id: input.council_id })).members.length, 2);
+    await assert.rejects(() => handlers.uagents_council_diff({ council_id: input.council_id }), { code: 'unsupported_capability' });
   } finally { runtime.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });

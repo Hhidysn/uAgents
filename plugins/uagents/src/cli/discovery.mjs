@@ -45,6 +45,7 @@ export const CLI_COMMANDS = Object.freeze({
   },
   'council-status': command('council-status', 'council-status <council-id> [--state-dir <dir>]', 'Aggregate persisted member Task status without contacting native Agents.', [positional('council_id', 'uuid', true)], [stateDir], 'local_only'),
   'council-result': command('council-result', 'council-result <council-id> [--state-dir <dir>]', 'Aggregate member Task results, usage and artifacts without model synthesis.', [positional('council_id', 'uuid', true)], [stateDir], 'local_only'),
+  'council-diff': command('council-diff', 'council-diff <council-id> [--state-dir <dir>]', 'Compare git-worktree Council candidates, including tracked patch and untracked files, without modifying any worktree.', [positional('council_id', 'uuid', true)], [stateDir], 'local_only'),
   status: command('status', 'status <task-id> [--state-dir <dir>]', 'Read persisted task status only.', [taskId], [stateDir], 'local_only'),
   result: command('result', 'result <task-id> [--state-dir <dir>]', 'Read persisted task result, usage and artifacts.', [taskId], [stateDir], 'local_only'),
   cancel: command('cancel', 'cancel <task-id> [--state-dir <dir>]', 'Persist cancellation intent for a task.', [taskId], [stateDir], 'local_state_change'),
