@@ -26,7 +26,9 @@ First-class Council 已扩展支持：
 
 ## Provider 边界
 
-当前实现与自动化验证只调用本地 Git 和 fixture/stub，没有发送真实 implementation Council provider prompt。真实 implementation Council E2E 仍需新的明确授权。
+2026-09-11 已完成一次明确授权的真实 WorkBuddy + OpenCode implementation Council E2E，详见 [实机 implementation E2E](../verification/2026-09-11-real-council-worktree-implementation-e2e.md)。两个 member 均在各自 worktree 内成功写入独立文件并返回精确 acknowledgement；source repo 保持干净，两个 worktree 互相看不到对方文件，且没有自动 commit/merge。该实机验证共两次 provider prompt，没有额外 synthesis call。
+
+一次状态采样中 WorkBuddy 已结束而 OpenCode 仍为 `running/submission=sent`；这说明 OpenCode 没有被同一个 source workspace lease 保持在 `queued/not_sent`，但单次采样不用于声称 provider 远端计算严格同时发生。
 
 ## 当前验证
 

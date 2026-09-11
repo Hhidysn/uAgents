@@ -35,6 +35,7 @@
 
 ## 验证证据
 
+- [Council Worktree Isolation 实机 implementation E2E（2026-09-11）](verification/2026-09-11-real-council-worktree-implementation-e2e.md)
 - [First-class Council 实机 E2E（2026-09-11）](verification/2026-09-11-real-first-class-council-e2e.md)
 - [Council Worktree Isolation provider-free 验证（2026-09-11）](verification/2026-09-11-council-worktree-isolation.md)
 - [First-class Council provider-free 验证（2026-09-10）](verification/2026-09-10-first-class-council.md)
