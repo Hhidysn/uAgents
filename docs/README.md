@@ -4,7 +4,7 @@
 
 ## 当前先读
 
-- [Council 当前状态](status/2026-09-12-council-current.md)：当前统一入口，覆盖 fan-out、worktree、diff、adopt 与显式 cleanup 生命周期。
+- [Council 当前状态](status/2026-09-12-council-current.md)：当前统一入口，覆盖 fan-out、worktree、diff、local validation evidence、adopt 与显式 cleanup 生命周期。
 - [CLI Schema Discovery 当前状态](status/2026-09-10-cli-schema-discovery-current.md)：CLI `describe` / `schema request` 的 machine-readable contract、source of truth 与验证边界。
 - [Native Session Continuation / Fork 当前状态](status/2026-09-10-session-continuation-current.md)：WorkBuddy/OpenCode 显式续聊与 native branch 的当前源码能力、边界和验证状态。
 - [Universal Attachment 当前状态](status/2026-09-09-universal-attachment-current.md)：本轮源码中的统一附件 contract、WorkBuddy/OpenCode mapping、agy fail-closed 能力和剩余缺口。
@@ -19,6 +19,7 @@
 - [Council Candidate Comparison 设计](superpowers/specs/2026-09-11-council-candidate-comparison-design.md)
 - [Explicit Candidate Adopt 设计](superpowers/specs/2026-09-11-explicit-candidate-adopt-design.md)
 - [Council Cleanup 设计](superpowers/specs/2026-09-12-council-cleanup-design.md)
+- [Council Candidate Validation 设计](superpowers/specs/2026-09-12-council-candidate-validation-design.md)
 - [CLI Schema Discovery 设计](superpowers/specs/2026-09-10-cli-schema-discovery-design.md)
 - [统一 Runtime 设计](superpowers/specs/2026-09-04-uagents-unified-agent-runtime-design.md)
 - [受管 Agent 生命周期设计](superpowers/specs/2026-09-04-uagents-managed-agent-lifecycle-design.md)
@@ -41,6 +42,7 @@
 - [Council Candidate Comparison 验证（2026-09-11）](verification/2026-09-11-council-candidate-comparison.md)
 - [Explicit Candidate Adopt 验证（2026-09-11）](verification/2026-09-11-explicit-candidate-adopt.md)
 - [Council Cleanup provider-free 验证（2026-09-12）](verification/2026-09-12-council-cleanup.md)
+- [Council Candidate Validation / Test Evidence 验证（2026-09-12）](verification/2026-09-12-council-candidate-validation.md)
 - [First-class Council 实机 E2E（2026-09-11）](verification/2026-09-11-real-first-class-council-e2e.md)
 - [Council Worktree Isolation provider-free 验证（2026-09-11）](verification/2026-09-11-council-worktree-isolation.md)
 - [First-class Council provider-free 验证（2026-09-10）](verification/2026-09-10-first-class-council.md)

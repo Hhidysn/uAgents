@@ -6,6 +6,7 @@ import { createRegistry, targetDescriptor } from '../registry/registry.mjs';
 import { CLI_PARSE_OPTIONS, describeCli, isKnownCliCommand } from './discovery.mjs';
 import { requestJsonSchema } from '../protocol/request-json-schema.mjs';
 import { councilJsonSchema } from '../protocol/council-schema.mjs';
+import { councilValidationJsonSchema } from '../protocol/council-validation-schema.mjs';
 
 export async function execute(argv, options = {}) {
   const registry = options.registry ?? createRegistry();
@@ -29,7 +30,8 @@ export async function execute(argv, options = {}) {
     if (values.format === 'table') fail('usage', 'schema is machine-readable JSON only.');
     if (subject === 'request') return ok(requestJsonSchema());
     if (subject === 'council') return ok(councilJsonSchema());
-    fail('usage', 'schema requires subject request or council.');
+    if (subject === 'council-validation') return ok(councilValidationJsonSchema());
+    fail('usage', 'schema requires subject request, council, or council-validation.');
   }
   if (command === 'config' && subject === 'validate') {
     const config = values.config ? JSON.parse(fs.readFileSync(values.config, 'utf8')) : {};
@@ -73,6 +75,15 @@ export async function execute(argv, options = {}) {
       memberId: required(values.member, '--member'),
       workspace: required(values.workspace, '--workspace'),
     }));
+    if (command === 'council-validate') {
+      if (Boolean(values.member) === Boolean(values.all)) fail('usage', 'council-validate requires exactly one of --member or --all.');
+      const validation = parseJson(fs.readFileSync(required(values.validation, '--validation'), 'utf8'), 'Council validation');
+      return ok(runtime.councilValidate(required(subject, 'council id'), {
+        memberId: values.member ?? null,
+        all: values.all === true,
+        validation,
+      }));
+    }
     if (command === 'council-cleanup') {
       if (Boolean(values.member) === Boolean(values.all)) fail('usage', 'council-cleanup requires exactly one of --member or --all.');
       return ok(runtime.councilCleanup(required(subject, 'council id'), {

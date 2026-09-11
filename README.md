@@ -26,7 +26,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 - workspace 重叠租约、fencing token、统一附件快照（类型/MIME/尺寸/字节数/SHA-256）、不可变产物捕获与 SHA-256 验证。
 - 附件既可继续用 workspace 相对 `{type,path}`，也可用绝对本地 `{type,source}`；submit 会把外部文件归一化到 workspace 的 `.uagents/inputs/` 后复用同一附件链路。
 - WorkBuddy/OpenCode 支持 `session.continue_from_task_id` 和 `session.fork_from_task_id`：新 Task 可以继续上一 native session，或从它派生独立 native branch；uAgents 不重放历史 prompt。
-- First-class Council 把 2–16 个成员组织成一个持久化 fan-out/fan-in 单元；默认 `analysis + shared`。`implementation + git-worktree` 可并行产出独立候选，再通过 `council-diff` 比较、显式 `council-adopt` 采纳、显式 `council-cleanup` 回收；成员仍是普通 Task，不自动投票、merge、总结或后台 GC。
+- First-class Council 把 2–16 个成员组织成一个持久化 fan-out/fan-in 单元；默认 `analysis + shared`。`implementation + git-worktree` 可并行产出独立候选，再通过 `council-diff` 比较、`council-validate` 记录本地测试证据、显式 `council-adopt` 采纳、显式 `council-cleanup` 回收；成员仍是普通 Task，不自动投票、merge、总结或后台 GC。
 - `status`/`list` 只读本地状态；只有显式 `reconcile`（或针对已有 durable process 的 `resume`）才恢复已有原生执行观察，绝不重发原 prompt。
 - 受管生命周期：`submit` 自动发现、验证并缓存本机入口；豆包/TRAE 在专用隔离 Profile 中自动启动并跨 Task DB 用 Host lease 防双开；首次登录后同 UUID `submit` 或 `resume` 在原 Attempt 上恢复；`stop` 只停止所有权证据完整的实例。
 - 资源冲突时有界排队；未发送任务可用同 UUID 恢复，任务租约和原子 Attempt claim 防止重复发送。受管桌面恢复绑定原实例，`advisory-read-only` 会传递只读提示并关闭 WorkBuddy 隐式编辑自动接受。
@@ -70,6 +70,8 @@ node "<plugin-root>\bin\uagents.mjs" council-submit --request "F:\path\council.j
 node "<plugin-root>\bin\uagents.mjs" council-status <council-id>
 node "<plugin-root>\bin\uagents.mjs" council-result <council-id>
 node "<plugin-root>\bin\uagents.mjs" council-diff <council-id>
+node "<plugin-root>\bin\uagents.mjs" schema council-validation
+node "<plugin-root>\bin\uagents.mjs" council-validate <council-id> --all --validation "F:\path\validation.json"
 node "<plugin-root>\bin\uagents.mjs" council-adopt <council-id> --member <member-id> --workspace "F:\project"
 node "<plugin-root>\bin\uagents.mjs" council-cleanup <council-id> --member <member-id>
 node "<plugin-root>\bin\uagents.mjs" council-cleanup <council-id> --all --force
@@ -111,7 +113,7 @@ Council 默认用于独立多 Agent analysis。示例：
 }
 ```
 
-Council 当前完整生命周期统一记录在 [Council 当前状态](docs/status/2026-09-12-council-current.md)。兼容默认是 `analysis + shared`；并行改代码使用 `implementation + git-worktree`，随后可 `council-diff` 比较、显式 `council-adopt` 采纳、最后显式 `council-cleanup` 回收 worktree/branch。uAgents 不自动选 winner、synthesis、commit、merge 或后台 cleanup。
+Council 当前完整生命周期统一记录在 [Council 当前状态](docs/status/2026-09-12-council-current.md)。兼容默认是 `analysis + shared`；并行改代码使用 `implementation + git-worktree`，随后可 `council-diff` 比较、`council-validate` 在各 candidate worktree 中执行显式本地 argv 测试并记录 evidence、显式 `council-adopt` 采纳、最后显式 `council-cleanup` 回收 worktree/branch。uAgents 不自动选 winner、synthesis、commit、merge 或后台 cleanup。
 
 受管生命周期命令（Host 状态固定在 `%LOCALAPPDATA%\uAgents\host-v1`，不受 `--state-dir` 影响）：
 
@@ -132,7 +134,8 @@ uagents_submit             uagents_status
 uagents_result             uagents_cancel
 uagents_council_submit     uagents_council_status
 uagents_council_result     uagents_council_diff
-uagents_council_adopt      uagents_council_cleanup
+uagents_council_validate   uagents_council_adopt
+uagents_council_cleanup
 uagents_list_tasks         uagents_reconcile
 uagents_ensure             uagents_resume
 uagents_stop
@@ -170,8 +173,10 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 - [Council Candidate Comparison 设计](docs/superpowers/specs/2026-09-11-council-candidate-comparison-design.md)
 - [Explicit Candidate Adopt 设计](docs/superpowers/specs/2026-09-11-explicit-candidate-adopt-design.md)
 - [Council Cleanup 设计](docs/superpowers/specs/2026-09-12-council-cleanup-design.md)
+- [Council Candidate Validation 设计](docs/superpowers/specs/2026-09-12-council-candidate-validation-design.md)
 - [Explicit Candidate Adopt 验证](docs/verification/2026-09-11-explicit-candidate-adopt.md)
 - [Council Cleanup provider-free 验证](docs/verification/2026-09-12-council-cleanup.md)
+- [Council Candidate Validation provider-free / 真实候选验证](docs/verification/2026-09-12-council-candidate-validation.md)
 - [Council Candidate Comparison 验证](docs/verification/2026-09-11-council-candidate-comparison.md)
 - [Council Worktree Isolation 实机 implementation E2E](docs/verification/2026-09-11-real-council-worktree-implementation-e2e.md)
 - [Council Worktree Isolation provider-free 验证](docs/verification/2026-09-11-council-worktree-isolation.md)

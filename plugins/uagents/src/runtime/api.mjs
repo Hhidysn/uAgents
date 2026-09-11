@@ -136,6 +136,7 @@ export class UnifiedRuntime {
   councilResult(councilId) { return this.councils.result(councilId); }
   councilDiff(councilId) { return this.councils.diff(councilId); }
   councilAdopt(councilId, options) { return this.councils.adopt(councilId, options); }
+  councilValidate(councilId, options) { return this.councils.validate(councilId, options); }
   councilCleanup(councilId, options) { return this.councils.cleanup(councilId, options); }
 
   async resume(taskId) {

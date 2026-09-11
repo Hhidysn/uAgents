@@ -8,6 +8,7 @@
 council-submit
   -> council-status / council-result
   -> council-diff
+  -> council-validate
   -> council-adopt
   -> council-cleanup
 ```
@@ -22,6 +23,7 @@ council-submit (--request <file> | --request-stdin)
 council-status <council-id>
 council-result <council-id>
 council-diff <council-id>
+council-validate <council-id> (--member <member-id> | --all) --validation <file>
 council-adopt <council-id> --member <member-id> --workspace <absolute-dir>
 council-cleanup <council-id> (--member <member-id> | --all) [--force]
 ```
@@ -37,9 +39,11 @@ Unified MCP 使用同名 `uagents_council_*` tools。
 - `council_id + member_id` 确定性派生成员 Task UUID，完全相同 Council 重提复用原 Task/worktree。
 - `fanout` 表示不等待前一个 member 完成才注册后一个；global / target concurrency limit 仍生效。
 
-## Compare / adopt
+## Compare / validate / adopt
 
 `council-diff` 是纯本地只读比较：返回 response/usage/artifacts、tracked file status/unified patch、untracked 文件 metadata，以及小型 UTF-8 新文件正文。
+
+`council-validate` 在 selected candidate 的 effective worktree workspace 中执行显式 argv validation，不经过 shell。非零退出码是 `failed` evidence，不是 API error；timeout 与启动错误也会结构化记录。latest validation 包含 command、duration、exit/signal、outcome 与有界 stdout/stderr，并会出现在 status/result/diff 中。第一版 `--all` 顺序运行，不自动 test discovery 或 winner selection。
 
 `council-adopt` 只接受明确指定的 `succeeded` member。它把候选相对 Council `base_head` 的 binary tracked patch 与 Git-visible untracked 普通文件应用到显式 destination workspace。destination `HEAD` 必须仍等于 `base_head`；操作不会 switch branch、commit、merge、cherry-pick 或选择 winner。
 
@@ -61,14 +65,14 @@ Unified MCP 使用同名 `uagents_council_*` tools。
 
 ## Provider 边界
 
-`council-submit` 可能发送 provider-billable prompt；`status`、`result`、`diff`、`adopt`、`cleanup` 都是本地操作，不调用模型。
+`council-submit` 可能发送 provider-billable prompt；`status`、`result`、`diff`、`validate`、`adopt`、`cleanup` 都是本地操作，不调用模型。
 
 真实 provider 证据见：
 
 - [First-class Council 实机 E2E](../verification/2026-09-11-real-first-class-council-e2e.md)
 - [Implementation Worktree 实机 E2E](../verification/2026-09-11-real-council-worktree-implementation-e2e.md)
 
-provider-free diff/adopt/cleanup 证据分别保存在对应 verification 文档。
+provider-free diff/validation/adopt/cleanup 证据分别保存在对应 verification 文档。
 
 ## Source of truth
 
@@ -77,6 +81,7 @@ provider-free diff/adopt/cleanup 证据分别保存在对应 verification 文档
 ```text
 uagents describe <command>
 uagents schema council
+uagents schema council-validation
 MCP tools/list
 ```
 
@@ -85,14 +90,14 @@ Core parser/runtime 仍是最终 admission 与行为权威。
 ## 当前验证
 
 ```text
-Council + CLI targeted   26/26
-Unified MCP targeted      7/7
+Council + CLI targeted   31/31
+Unified MCP targeted      8/8
 
-Core                    297/297
+Core                    302/302
 Doubao MCP               11/11
 TRAE MCP                  9/9
-Unified MCP               7/7
-Total                   324/324
+Unified MCP               8/8
+Total                   330/330
 ```
 
-本轮文档收口、代码拆分和 Cleanup 验证均为 provider-free；没有发送新的 Agent prompt。
+Candidate Validation 的 fixture、真实既有 candidate validation、文档收口与 Cleanup 验证均为 provider-free；没有发送新的 Agent prompt。

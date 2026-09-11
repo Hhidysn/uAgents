@@ -8,6 +8,8 @@ import { atomicWriteJson } from '../store/task-files.mjs';
 import { uuidPattern } from '../protocol/schema.mjs';
 import { executeCouncilWorktreeCleanup, inspectCouncilWorktree, prepareCouncilWorktreeCleanup, prepareCouncilWorktrees } from './council-worktrees.mjs';
 import { adoptCouncilWorktree, inspectCouncilWorktreeDiff } from './council-candidates.mjs';
+import { parseCouncilValidation } from '../protocol/council-validation-schema.mjs';
+import { runCouncilValidation } from './council-validation.mjs';
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 const ATTENTION = new Set(['waiting_user', 'indeterminate']);
@@ -137,6 +139,7 @@ export class CouncilService {
           model: member.model,
           task_id: member.task_id,
           registration_error: member.registration_error,
+          validation: member.validation ?? null,
           task: member.task ? {
             status: member.task.status,
             native_outcome: member.task.native_outcome,
@@ -173,6 +176,45 @@ export class CouncilService {
       target: member.target,
       model: member.model,
       ...adoptCouncilWorktree(member, workspace),
+    };
+  }
+
+  validate(councilId, { memberId = null, all = false, validation }) {
+    if (Boolean(memberId) === Boolean(all)) fail('invalid_request', 'Council validation requires exactly one of memberId or all=true.');
+    const parsedValidation = parseCouncilValidation(validation);
+    const status = this.status(councilId);
+    if (status.workspace_strategy !== 'git-worktree') {
+      fail('unsupported_capability', 'council-validate requires a git-worktree Council.', { submission: 'not_sent' });
+    }
+    const selected = all ? status.members : status.members.filter(member => member.member_id === memberId);
+    if (!selected.length) fail('invalid_request', `Unknown Council member: ${memberId}`);
+    for (const member of selected) {
+      if (!member.worktree || member.cleanup?.removed || !fs.existsSync(member.worktree.worktree_root)) {
+        fail('request_conflict', 'Cannot validate a Council candidate after its worktree has been cleaned up.', {
+          category: 'conflict', submission: 'not_sent', details: { member_id: member.member_id },
+        });
+      }
+      if (!member.task || !TERMINAL.has(member.task.status)) {
+        fail('request_conflict', 'Council candidate validation requires a terminal member Task.', {
+          category: 'conflict', submission: 'not_sent', details: { member_id: member.member_id, status: member.task?.status ?? null },
+        });
+      }
+    }
+
+    const manifest = this.#manifest(councilId);
+    const results = [];
+    for (const member of selected) {
+      const evidence = runCouncilValidation(member, parsedValidation, { clock: this.clock });
+      const stored = manifest.members.find(item => item.member_id === member.member_id);
+      stored.validation = evidence;
+      atomicWriteJson(path.join(councilDirectory(this.stateRoot, councilId), 'manifest.json'), manifest);
+      results.push({ member_id: member.member_id, target: member.target, model: member.model, validation: evidence });
+    }
+    return {
+      schema_version: status.schema_version,
+      council_id: status.council_id,
+      workspace_strategy: status.workspace_strategy,
+      members: results,
     };
   }
 

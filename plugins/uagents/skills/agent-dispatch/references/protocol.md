@@ -4,7 +4,7 @@
 
 Local Codex should normally use the CLI. `uagents_submit` is the MCP fallback and takes the same request fields directly. CLI file input is:
 
-For machine-readable discovery, use `node "<plugin-root>/bin/uagents.mjs" describe submit` / `describe council-submit` for CLI contracts and `schema request` / `schema council` for the current Task and Council JSON Schemas. This document explains semantics and examples; the Core parsers remain authoritative.
+For machine-readable discovery, use `node "<plugin-root>/bin/uagents.mjs" describe submit` / `describe council-submit` for CLI contracts and `schema request` / `schema council` / `schema council-validation` for the current Task, Council, and local candidate-validation JSON Schemas. This document explains semantics and examples; the Core parsers remain authoritative.
 
 ```powershell
 node "<plugin-root>/bin/uagents.mjs" submit --request "<request-json>" --state-dir "<absolute-state-dir>"
@@ -20,7 +20,7 @@ Exactly one of `--request FILE` and `--request-stdin` is required. Do not inline
 
 ## Council
 
-Council is the thin multi-Agent fan-out/fan-in layer over ordinary Tasks. Its lifecycle, worktree, compare, adopt, and cleanup semantics live in [council.md](council.md). Use `schema council` and `describe <council-command>` rather than inferring fields from prose.
+Council is the thin multi-Agent fan-out/fan-in layer over ordinary Tasks. Its lifecycle, worktree, compare, local validation, adopt, and cleanup semantics live in [council.md](council.md). Use `schema council`, `schema council-validation`, and `describe <council-command>` rather than inferring fields from prose.
 
 ```json
 {

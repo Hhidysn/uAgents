@@ -11,10 +11,11 @@ node <plugin-root>/bin/uagents.mjs describe
 node <plugin-root>/bin/uagents.mjs describe <command>
 node <plugin-root>/bin/uagents.mjs schema request
 node <plugin-root>/bin/uagents.mjs schema council
+node <plugin-root>/bin/uagents.mjs schema council-validation
 ```
 
 `describe` 返回 CLI command contract，包括 usage、positionals、options、互斥约束和 effect。
-`schema request` 返回普通 Task 请求的 Draft 2020-12 JSON Schema；`schema council` 返回 First-class Council 请求 Schema。
+`schema request` 返回普通 Task 请求的 Draft 2020-12 JSON Schema；`schema council` 返回 First-class Council 请求 Schema；`schema council-validation` 返回 candidate 本地验证 argv/timeout contract。
 
 这两个命令在 Runtime 模块加载前处理，因此不会打开 Task DB，也不会因为 `node:sqlite` 加载产生 discovery-only warning；
 不会启动 Agent 或联系 Provider。

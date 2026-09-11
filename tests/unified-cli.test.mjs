@@ -39,6 +39,7 @@ test('CLI discovery exposes commands and submit arguments without opening runtim
   assert.equal(described.data.commands.some(command => command.name === 'council-submit'), true);
   assert.equal(described.data.commands.some(command => command.name === 'council-diff'), true);
   assert.equal(described.data.commands.some(command => command.name === 'council-adopt'), true);
+  assert.equal(described.data.commands.some(command => command.name === 'council-validate'), true);
   assert.equal(described.data.commands.some(command => command.name === 'council-cleanup'), true);
 
   const submit = await execute(['describe', 'submit'], { env: {} });
@@ -55,6 +56,10 @@ test('CLI discovery exposes commands and submit arguments without opening runtim
   const councilAdopt = await execute(['describe', 'council-adopt'], { env: {} });
   assert.deepEqual(councilAdopt.data.options.map(option => option.name), ['--member', '--workspace', '--state-dir']);
   assert.equal(councilAdopt.data.effect, 'local_state_change');
+  const councilValidate = await execute(['describe', 'council-validate'], { env: {} });
+  assert.deepEqual(councilValidate.data.constraints, [{ type: 'exactly_one', options: ['--member', '--all'] }]);
+  assert.equal(councilValidate.data.request_schema.command, 'schema council-validation');
+  assert.equal(councilValidate.data.effect, 'local_execution');
   const councilCleanup = await execute(['describe', 'council-cleanup'], { env: {} });
   assert.deepEqual(councilCleanup.data.constraints, [{ type: 'exactly_one', options: ['--member', '--all'] }]);
   assert.deepEqual(councilCleanup.data.options.map(option => option.name), ['--member', '--all', '--force', '--state-dir']);
@@ -82,6 +87,15 @@ test('request schema discovery mirrors the Core request contract', async () => {
   await assert.rejects(() => execute(['schema', 'request', '--format', 'table'], { env: {} }), { code: 'usage' });
 });
 
+test('council validation schema discovery exposes direct argv execution', async () => {
+  const schema = (await execute(['schema', 'council-validation'], { env: {} })).data;
+  assert.equal(schema.$id, 'uagents://schema/council-validation/1.0');
+  assert.deepEqual(schema.required, ['schema_version', 'command']);
+  assert.equal(schema.properties.command.minItems, 1);
+  assert.equal(schema.properties.timeout_ms.default, 120000);
+  assert.match(schema.properties.command.description, /without a shell/);
+});
+
 test('council schema discovery and CLI fanout expose deterministic member tasks', async () => {
   const schema = (await execute(['schema', 'council'], { env: {} })).data;
   assert.equal(schema.$id, 'uagents://schema/council/1.0');
@@ -97,7 +111,9 @@ test('council schema discovery and CLI fanout expose deterministic member tasks'
     ],
   };
   const requestFile = path.join(root, `${input.council_id}.council.json`);
+  const validationFile = path.join(root, `${input.council_id}.validation.json`);
   fs.writeFileSync(requestFile, JSON.stringify(input));
+  fs.writeFileSync(validationFile, JSON.stringify({ schema_version: '1.0', command: [process.execPath, '-e', 'process.exit(0)'] }));
   const spawns = [];
   const submitted = await execute(['council-submit', '--request', requestFile, '--state-dir', root], { spawnWorker: (...args) => spawns.push(args) });
   assert.equal(submitted.data.status, 'running');
@@ -111,6 +127,12 @@ test('council schema discovery and CLI fanout expose deterministic member tasks'
   await assert.rejects(() => execute([
     'council-adopt', input.council_id, '--member', 'wb', '--workspace', root, '--state-dir', root,
   ]), { code: 'unsupported_capability' });
+  await assert.rejects(() => execute([
+    'council-validate', input.council_id, '--member', 'wb', '--validation', validationFile, '--state-dir', root,
+  ]), { code: 'unsupported_capability' });
+  await assert.rejects(() => execute([
+    'council-validate', input.council_id, '--member', 'wb', '--all', '--validation', validationFile, '--state-dir', root,
+  ]), { code: 'usage' });
   await assert.rejects(() => execute([
     'council-cleanup', input.council_id, '--member', 'wb', '--state-dir', root,
   ]), { code: 'unsupported_capability' });

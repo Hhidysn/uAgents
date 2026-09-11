@@ -5,11 +5,13 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { parseCouncilRequest, councilJsonSchema, councilMemberTaskId } from '../plugins/uagents/src/protocol/council-schema.mjs';
+import { parseCouncilValidation, councilValidationJsonSchema } from '../plugins/uagents/src/protocol/council-validation-schema.mjs';
 import { UnifiedRuntime } from '../plugins/uagents/src/runtime/api.mjs';
 import { CouncilService } from '../plugins/uagents/src/runtime/council-service.mjs';
 import { createRegistry } from '../plugins/uagents/src/registry/registry.mjs';
 import { acquireExecutionLeases, releaseLeases } from '../plugins/uagents/src/runtime/leases.mjs';
 import { canonicalHash } from '../plugins/uagents/src/protocol/canonical-json.mjs';
+import { runCouncilValidation } from '../plugins/uagents/src/runtime/council-validation.mjs';
 
 const route = 'commandcode-goat/deepseek/deepseek-v4-flash';
 
@@ -46,6 +48,32 @@ test('council schema keeps shared analysis default and gates implementation on g
   assert.equal(councilJsonSchema().properties.mode.enum.includes('implementation'), true);
   assert.equal(councilJsonSchema().properties.workspace_strategy.enum.includes('git-worktree'), true);
   assert.equal(councilJsonSchema().properties.members.minItems, 2);
+});
+
+test('council validation schema uses explicit argv and bounded timeout', () => {
+  const parsed = parseCouncilValidation({ schema_version: '1.0', command: ['node', '--test'] });
+  assert.deepEqual(parsed.command, ['node', '--test']);
+  assert.equal(parsed.timeout_ms, 120_000);
+  assert.equal(councilValidationJsonSchema().properties.command.minItems, 1);
+  assert.throws(() => parseCouncilValidation({ schema_version: '1.0', command: [] }), { code: 'invalid_request' });
+  assert.throws(() => parseCouncilValidation({ schema_version: '1.0', command: ['node'], timeout_ms: 1 }), { code: 'invalid_request' });
+  assert.throws(() => parseCouncilValidation({ schema_version: '1.0', command: ['node'], shell: true }), { code: 'unsupported_field' });
+});
+
+test('council validation bounds captured output without changing command outcome', () => {
+  const root = path.resolve('.local', 'test-runs', `council-validation-output-${randomUUID()}`);
+  fs.mkdirSync(root, { recursive: true });
+  try {
+    const evidence = runCouncilValidation({ worktree: { workspace: root } }, {
+      schema_version: '1.0', command: [process.execPath, '-e', "process.stdout.write('x'.repeat(70000))"], timeout_ms: 5_000,
+    });
+    assert.equal(evidence.outcome, 'passed');
+    assert.equal(evidence.stdout.captured_bytes, 70_000);
+    assert.equal(Buffer.byteLength(evidence.stdout.text), 65_536);
+    assert.equal(evidence.stdout.truncated, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('git-worktree Council gives each implementation member an isolated branch and reports its diff', () => {
@@ -312,6 +340,80 @@ test('council cleanup preflights all candidates and requires force for dirty or 
     assert.equal(duplicate.duplicate, true);
     assert.equal(fs.existsSync(dirty.worktree.worktree_root), false);
     assert.equal(fs.existsSync(diverged.worktree.worktree_root), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('council validation records pass/fail evidence per candidate and exposes it through diff', () => {
+  const root = path.resolve('.local', 'test-runs', `council-validation-${randomUUID()}`);
+  const repository = path.join(root, 'repo');
+  fs.mkdirSync(repository, { recursive: true });
+  git(repository, ['init']);
+  git(repository, ['config', 'user.name', 'uAgents Test']);
+  git(repository, ['config', 'user.email', 'uagents@example.invalid']);
+  fs.writeFileSync(path.join(repository, 'base.txt'), 'base\n');
+  git(repository, ['add', 'base.txt']);
+  git(repository, ['commit', '-m', 'base']);
+  const tasks = new Map();
+  const service = new CouncilService({
+    stateRoot: path.join(root, 'state'), registry: createRegistry(),
+    submitTask: request => tasks.set(request.request_id, { task_id: request.request_id, target: request.target, status: 'succeeded' }),
+    statusTask: taskId => tasks.get(taskId), resultTask: () => null,
+  });
+  const input = council({ mode: 'implementation', workspace_strategy: 'git-worktree', workspace: repository });
+  try {
+    const submitted = service.submit(input);
+    fs.writeFileSync(path.join(submitted.members[0].worktree.workspace, 'marker.txt'), 'present\n');
+    const validation = {
+      schema_version: '1.0',
+      command: [process.execPath, '-e', "const fs=require('fs'); if(fs.existsSync('marker.txt')){console.log('marker ok')}else{console.error('missing marker');process.exit(7)}"],
+      timeout_ms: 5_000,
+    };
+    const validated = service.validate(input.council_id, { all: true, validation });
+    assert.deepEqual(validated.members.map(member => member.validation.outcome), ['passed', 'failed']);
+    assert.deepEqual(validated.members.map(member => member.validation.exit_code), [0, 7]);
+    assert.match(validated.members[0].validation.stdout.text, /marker ok/);
+    assert.match(validated.members[1].validation.stderr.text, /missing marker/);
+    const status = service.status(input.council_id);
+    assert.deepEqual(status.members.map(member => member.validation.outcome), ['passed', 'failed']);
+    const compared = service.diff(input.council_id);
+    assert.deepEqual(compared.members.map(member => member.validation.outcome), ['passed', 'failed']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('council validation records timeout and rejects cleaned candidates before running', () => {
+  const root = path.resolve('.local', 'test-runs', `council-validation-timeout-${randomUUID()}`);
+  const repository = path.join(root, 'repo');
+  fs.mkdirSync(repository, { recursive: true });
+  git(repository, ['init']);
+  git(repository, ['config', 'user.name', 'uAgents Test']);
+  git(repository, ['config', 'user.email', 'uagents@example.invalid']);
+  fs.writeFileSync(path.join(repository, 'base.txt'), 'base\n');
+  git(repository, ['add', 'base.txt']);
+  git(repository, ['commit', '-m', 'base']);
+  const tasks = new Map();
+  const service = new CouncilService({
+    stateRoot: path.join(root, 'state'), registry: createRegistry(),
+    submitTask: request => tasks.set(request.request_id, { task_id: request.request_id, target: request.target, status: 'succeeded' }),
+    statusTask: taskId => tasks.get(taskId), resultTask: () => null,
+  });
+  const input = council({ mode: 'implementation', workspace_strategy: 'git-worktree', workspace: repository });
+  try {
+    const submitted = service.submit(input);
+    const timed = service.validate(input.council_id, {
+      memberId: submitted.members[0].member_id,
+      validation: { schema_version: '1.0', command: [process.execPath, '-e', 'setTimeout(()=>{},5000)'], timeout_ms: 150 },
+    });
+    assert.equal(timed.members[0].validation.outcome, 'timeout');
+    assert.equal(timed.members[0].validation.error_code, 'ETIMEDOUT');
+    service.cleanup(input.council_id, { memberId: submitted.members[0].member_id, force: true });
+    assert.throws(() => service.validate(input.council_id, {
+      memberId: submitted.members[0].member_id,
+      validation: { schema_version: '1.0', command: [process.execPath, '-e', 'process.exit(0)'] },
+    }), { code: 'request_conflict' });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

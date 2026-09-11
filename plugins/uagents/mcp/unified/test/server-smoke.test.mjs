@@ -8,8 +8,9 @@ import * as z from 'zod/v4';
 import { execute } from '../../../src/cli/main.mjs';
 import { requestJsonSchema } from '../../../src/protocol/request-json-schema.mjs';
 import { councilJsonSchema } from '../../../src/protocol/council-schema.mjs';
+import { councilValidationJsonSchema } from '../../../src/protocol/council-validation-schema.mjs';
 import { UnifiedRuntime } from '../../../src/runtime/api.mjs';
-import { councilRequestSchema, createToolHandlers, requestSchema } from '../src/server.mjs';
+import { councilRequestSchema, councilValidationSchema, createToolHandlers, requestSchema } from '../src/server.mjs';
 
 const base = path.resolve('../../../../.local/test-runs');
 
@@ -41,7 +42,7 @@ test('bundled stdio server initializes and lists the unified tool surface', asyn
     send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const listed = await wait(2);
     assert.deepEqual(listed.result.tools.map(tool => tool.name).sort(), [
-      'uagents_cancel', 'uagents_council_adopt', 'uagents_council_cleanup', 'uagents_council_diff', 'uagents_council_result', 'uagents_council_status', 'uagents_council_submit', 'uagents_ensure', 'uagents_get_capabilities', 'uagents_list_models', 'uagents_list_targets', 'uagents_list_tasks',
+      'uagents_cancel', 'uagents_council_adopt', 'uagents_council_cleanup', 'uagents_council_diff', 'uagents_council_result', 'uagents_council_status', 'uagents_council_submit', 'uagents_council_validate', 'uagents_ensure', 'uagents_get_capabilities', 'uagents_list_models', 'uagents_list_targets', 'uagents_list_tasks',
       'uagents_probe', 'uagents_reconcile', 'uagents_result', 'uagents_resume', 'uagents_status', 'uagents_stop', 'uagents_submit',
     ]);
     const submitTool = listed.result.tools.find(tool => tool.name === 'uagents_submit');
@@ -155,6 +156,16 @@ test('CLI request schema discovery stays structurally aligned with MCP submit sc
   assert.deepEqual(Object.keys(mcp.properties.session.properties), ['continue_from_task_id', 'fork_from_task_id']);
 });
 
+test('MCP Council validation schema stays aligned with Core validation discovery', () => {
+  const core = councilValidationJsonSchema();
+  const mcp = z.toJSONSchema(councilValidationSchema);
+  assert.deepEqual(mcp.required, core.required);
+  assert.equal(mcp.properties.command.minItems, core.properties.command.minItems);
+  assert.equal(mcp.properties.command.maxItems, core.properties.command.maxItems);
+  assert.equal(mcp.properties.timeout_ms.minimum, core.properties.timeout_ms.minimum);
+  assert.equal(mcp.properties.timeout_ms.maximum, core.properties.timeout_ms.maximum);
+});
+
 test('MCP Council schema and handlers expose first-class fanout aggregation', async () => {
   const core = councilJsonSchema();
   const mcp = z.toJSONSchema(councilRequestSchema);
@@ -192,6 +203,9 @@ test('MCP Council schema and handlers expose first-class fanout aggregation', as
     await assert.rejects(() => handlers.uagents_council_diff({ council_id: input.council_id }), { code: 'unsupported_capability' });
     await assert.rejects(() => handlers.uagents_council_adopt({
       council_id: input.council_id, member_id: 'wb', workspace: root,
+    }), { code: 'unsupported_capability' });
+    await assert.rejects(() => handlers.uagents_council_validate({
+      council_id: input.council_id, member_id: 'wb', validation: { schema_version: '1.0', command: [process.execPath, '-e', 'process.exit(0)'] },
     }), { code: 'unsupported_capability' });
     await assert.rejects(() => handlers.uagents_council_cleanup({
       council_id: input.council_id, member_id: 'wb',
