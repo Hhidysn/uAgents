@@ -76,7 +76,9 @@ test('request schema discovery mirrors the Core request contract', async () => {
   assert.deepEqual(schema.properties.mode.enum, ['analysis', 'implementation']);
   assert.deepEqual(schema.properties.execution.properties.effort.enum, ['low', 'medium', 'high', 'max']);
   assert.deepEqual(schema.properties.inputs.items.properties.type.enum, ['file', 'image']);
-  assert.deepEqual(schema.properties.inputs.items.oneOf, [{ required: ['path'] }, { required: ['source'] }]);
+  assert.deepEqual(schema.properties.inputs.items.oneOf, [{ required: ['path'] }, { required: ['source'] }, { required: ['blob'] }]);
+  assert.deepEqual(schema.properties.inputs.items.properties.blob.required, ['name', 'data_base64']);
+  assert.equal(schema.properties.inputs.items.properties.blob.properties.data_base64['x-uagents-encoding'], 'base64');
   assert.equal(schema.properties.session.anyOf[0].properties.continue_from_task_id.type, 'string');
   assert.equal(schema.properties.session.anyOf[0].properties.fork_from_task_id.type, 'string');
   assert.deepEqual(schema.properties.session.anyOf[0].oneOf, [

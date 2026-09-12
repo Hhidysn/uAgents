@@ -5,7 +5,7 @@ uAgents 是供 Codex 使用的本地统一 Agent 调度插件。当前发行标�
 TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时明确保留各目标不同的
 模型、文件、权限、取消和桌面连接能力。
 
-先看：[Council 当前状态](docs/status/2026-09-12-council-current.md) · [Session Continuation / Fork 当前状态](docs/status/2026-09-10-session-continuation-current.md) · [Universal Attachment 当前状态](docs/status/2026-09-09-universal-attachment-current.md) · [文档索引](docs/README.md)
+先看：[Council 当前状态](docs/status/2026-09-12-council-current.md) · [Session Continuation / Fork 当前状态](docs/status/2026-09-10-session-continuation-current.md) · [Universal Attachment 当前状态](docs/status/2026-09-12-universal-attachment-current.md) · [文档索引](docs/README.md)
 
 > 重要边界：OpenCode 现在支持文本 `analysis` 和 `implementation`，并把声明式文件/图片输入映射为原生附件；
 > WorkBuddy 也通过其已核实的 stream-json `document` / `image` block 接入文件和图片。WorkBuddy 与 OpenCode
@@ -24,7 +24,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 - 本地 uAgents CLI、后台 Worker 和受信任的 Agent CLI 逐层继承调用终端环境，使任意 Provider 的环境变量凭据无需硬编码即可使用；环境内容不会进入请求、SQLite 或结果。
 - 外部发送前持久化 `possibly_sent`；发送后不确定状态不自动换 UUID、模型或 Provider 重放。
 - workspace 重叠租约、fencing token、统一附件快照（类型/MIME/尺寸/字节数/SHA-256）、不可变产物捕获与 SHA-256 验证。
-- 附件既可继续用 workspace 相对 `{type,path}`，也可用绝对本地 `{type,source}`；submit 会把外部文件归一化到 workspace 的 `.uagents/inputs/` 后复用同一附件链路。
+- 附件既可继续用 workspace 相对 `{type,path}`、绝对本地 `{type,source}`，也可用 `{type,blob:{name,data_base64}}` 直接传宿主/connector 已取得的文件 bytes；外部 source/blob 都会归一化到 workspace 的 `.uagents/inputs/` 后复用同一附件链路。
 - WorkBuddy/OpenCode 支持 `session.continue_from_task_id` 和 `session.fork_from_task_id`：新 Task 可以继续上一 native session，或从它派生独立 native branch；uAgents 不重放历史 prompt。
 - First-class Council 把 2–16 个成员组织成一个持久化 fan-out/fan-in 单元；默认 `analysis + shared`。`implementation + git-worktree` 可并行产出独立候选，再通过 `council-diff` 比较、`council-validate` 记录本地测试证据、显式 `council-adopt` 采纳、显式 `council-cleanup` 回收；成员仍是普通 Task，不自动投票、merge、总结或后台 GC。
 - `status`/`list` 只读本地状态；只有显式 `reconcile`（或针对已有 durable process 的 `resume`）才恢复已有原生执行观察，绝不重发原 prompt。
@@ -47,7 +47,7 @@ uAgents 自身强制工作区写入边界。`execution.permission` 为 Schema 1.
 因此不能把产物校验当成安全隔离。
 
 当前附件能力、已安装 cache 与源码工作树的边界、验证证据及待补齐项见
-[Universal Attachment 当前状态](docs/status/2026-09-09-universal-attachment-current.md)。
+[Universal Attachment 当前状态](docs/status/2026-09-12-universal-attachment-current.md)。
 
 ## 使用
 
@@ -81,7 +81,7 @@ node "<plugin-root>\bin\uagents.mjs" council-cleanup <council-id> --all --force
 
 CLI-first 调用不再需要只靠 Skill prose 猜参数：`describe [command]` 返回 machine-readable 的 CLI command contract，`schema request` / `schema council` 返回 Task/Council 的 Draft 2020-12 JSON Schema；这些 discovery 都是纯本地只读，不创建 Runtime/Task，也不联系 Provider。MCP 入口继续通过 `tools/list` 暴露自己的 input schema。
 
-附件输入有两种等价入口：已有的 `{"type":"file","path":"requirements.md"}` / `{"type":"image","path":"assets/screenshot.png"}` 直接引用 workspace 内文件；新的 `{"type":"file","source":"F:\\Downloads\\brief.pdf"}` / `{"type":"image","source":"F:\\Downloads\\screen.png"}` 可直接引用 workspace 外的绝对本地路径。`source` 会在注册前复制为 `.uagents/inputs/...` 下的 workspace-relative attachment；后续 snapshot 和 target mapping 与 `path` 输入完全共用。
+附件输入有三种等价入口：`{"type":"file","path":"requirements.md"}` / `{"type":"image","path":"assets/screenshot.png"}` 直接引用 workspace 内文件；`{"type":"file","source":"F:\\Downloads\\brief.pdf"}` 可引用 workspace 外的绝对本地路径；宿主/connector 已经取得文件 bytes 时可直接使用 `{"type":"file","blob":{"name":"brief.pdf","data_base64":"..."}}`。`source` / `blob` 都会在注册前归一化为 `.uagents/inputs/...` 下的 workspace-relative attachment；后续 snapshot 和 target mapping 与 `path` 输入完全共用。uAgents Core 不解析 Drive/Slack/邮件等 opaque connector ID，connector 层只需把文件 bytes 交成通用 blob。
 
 WorkBuddy/OpenCode 的下一轮对话仍然 submit 一个新的请求和新的 UUID，只需增加：
 
@@ -142,8 +142,8 @@ uagents_stop
 ```
 
 Unified MCP 的 `uagents_submit` 与 Core 使用同一附件输入：`file` / `image` 都可以给 workspace-relative
-`path`，也可以给宿主已经物化到本机的绝对 `source`。`source` 会在注册前复制进 workspace 并归一化为
-现有 `{type,path}`；MCP 不会把 opaque connector file-id 直接传给 target。
+`path`，也可以给宿主已经物化到本机的绝对 `source`，或者直接给 `{blob:{name,data_base64}}`。`source` / `blob` 会在注册前复制进 workspace 并归一化为
+现有 `{type,path}`；MCP 不会把 opaque connector file-id 直接传给 target，connector host 先取得 bytes 再使用 blob。
 
 Codex 可能只把显式声明的环境变量交给插件 MCP 进程，因此环境变量鉴权的本机 Agent 不应默认走 MCP。CLI 与 MCP 只有在使用同一状态目录时才共享 Task/Attempt；切换入口也不得用新 UUID 重放已发送或不确定的任务。
 
@@ -185,6 +185,8 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 - [Native Session Fork provider-free 验证](docs/verification/2026-09-10-session-fork.md)
 - [Runtime 可靠性修复验证](docs/verification/2026-09-06-runtime-reliability-fixes.md)
 - [Universal Attachment Input 验证](docs/verification/2026-09-09-universal-attachment-input.md)
+- [Connector / Blob Attachment Input 设计](docs/superpowers/specs/2026-09-12-connector-blob-attachment-input-design.md)
+- [Connector / Blob Attachment Input 验证](docs/verification/2026-09-12-connector-blob-attachment-input.md)
 - [统一 Runtime 实施计划](docs/superpowers/plans/2026-09-04-uagents-unified-agent-runtime-implementation.md)
 - [受管 Agent 生命周期设计](docs/superpowers/specs/2026-09-04-uagents-managed-agent-lifecycle-design.md)
 - [受管生命周期实施计划](docs/superpowers/plans/2026-09-05-uagents-managed-agent-lifecycle-implementation.md)

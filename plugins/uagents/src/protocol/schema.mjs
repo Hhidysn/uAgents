@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fail } from './errors.mjs';
 
 export const SCHEMA_VERSION = '1.0';
@@ -8,7 +9,8 @@ export const REQUEST_FIELD_NAMES = Object.freeze(['schema_version', 'request_id'
 export const EXECUTION_FIELD_NAMES = Object.freeze(['observation_timeout_ms', 'execution_timeout_ms', 'effort', 'permission', 'native_args']);
 export const POLICY_FIELD_NAMES = Object.freeze(['fallback', 'max_cost_usd']);
 export const SESSION_FIELD_NAMES = Object.freeze(['continue_from_task_id', 'fork_from_task_id']);
-export const INPUT_FIELD_NAMES = Object.freeze(['type', 'path', 'source']);
+export const INPUT_FIELD_NAMES = Object.freeze(['type', 'path', 'source', 'blob']);
+export const BLOB_FIELD_NAMES = Object.freeze(['name', 'data_base64']);
 export const OUTPUT_FIELD_NAMES = Object.freeze(['path', 'type', 'required', 'max_bytes']);
 export const REQUEST_MODES = Object.freeze(['analysis', 'implementation']);
 export const EXECUTION_PERMISSIONS = Object.freeze(['native', 'advisory-read-only', 'enforced-read-only', 'workspace-write', 'full-access']);
@@ -24,6 +26,8 @@ export const REQUEST_LIMITS = Object.freeze({
   native_args: 64,
   native_arg_bytes: 4_096,
   relative_path_bytes: 1_024,
+  attachment_name_bytes: 255,
+  attachment_blob_base64_bytes: 44_739_244,
   observation_timeout_min_ms: 1_000,
   observation_timeout_max_ms: 1_200_000,
   execution_timeout_min_ms: 1_000,
@@ -37,6 +41,7 @@ const EXECUTION_FIELDS = new Set(EXECUTION_FIELD_NAMES);
 const POLICY_FIELDS = new Set(POLICY_FIELD_NAMES);
 const SESSION_FIELDS = new Set(SESSION_FIELD_NAMES);
 const INPUT_FIELDS = new Set(INPUT_FIELD_NAMES);
+const BLOB_FIELDS = new Set(BLOB_FIELD_NAMES);
 const OUTPUT_FIELDS = new Set(OUTPUT_FIELD_NAMES);
 const MODES = new Set(REQUEST_MODES);
 const PERMISSIONS = new Set(EXECUTION_PERMISSIONS);
@@ -159,11 +164,22 @@ function parseInput(item, index) {
   if (value.type !== 'file' && value.type !== 'image') fail('invalid_input', 'Input type must be file or image.');
   const hasPath = value.path !== undefined;
   const hasSource = value.source !== undefined;
-  if (hasPath === hasSource) fail('invalid_input', `inputs[${index}] must contain exactly one of path or source.`);
+  const hasBlob = value.blob !== undefined;
+  if (Number(hasPath) + Number(hasSource) + Number(hasBlob) !== 1) fail('invalid_input', `inputs[${index}] must contain exactly one of path, source, or blob.`);
   if (hasPath) return { type: value.type, path: relativePath(value.path, `inputs[${index}].path`) };
-  requiredString(value.source, `inputs[${index}].source`, REQUEST_LIMITS.workspace_bytes);
-  if (!path.isAbsolute(value.source)) fail('invalid_input', `inputs[${index}].source must be an absolute local path.`);
-  return { type: value.type, source: path.resolve(value.source) };
+  if (hasSource) {
+    requiredString(value.source, `inputs[${index}].source`, REQUEST_LIMITS.workspace_bytes);
+    if (!path.isAbsolute(value.source)) fail('invalid_input', `inputs[${index}].source must be an absolute local path.`);
+    return { type: value.type, source: path.resolve(value.source) };
+  }
+  const blob = plainObject(value.blob, `inputs[${index}].blob`);
+  exactFields(blob, BLOB_FIELDS, `inputs[${index}].blob`);
+  requiredString(blob.name, `inputs[${index}].blob.name`, REQUEST_LIMITS.attachment_name_bytes);
+  if (/[\\/\x00-\x1f]/.test(blob.name) || blob.name === '.' || blob.name === '..') fail('invalid_input', `inputs[${index}].blob.name must be a filename, not a path.`);
+  if (typeof blob.data_base64 !== 'string' || Buffer.byteLength(blob.data_base64) > REQUEST_LIMITS.attachment_blob_base64_bytes || !validBase64(blob.data_base64)) {
+    fail('invalid_input', `inputs[${index}].blob.data_base64 must be valid base64 within the attachment size limit.`);
+  }
+  return { type: value.type, blob: { name: blob.name.normalize('NFC'), data_base64: blob.data_base64 } };
 }
 
 function parseOutput(item, index) {
@@ -190,8 +206,16 @@ function ensureUniquePaths(items, label) {
 function ensureUniqueInputLocations(inputs) {
   const keys = inputs.map(input => input.path !== undefined
     ? `path:${input.path.toLocaleLowerCase('en-US')}`
-    : `source:${input.source.normalize('NFC').toLocaleLowerCase('en-US')}`);
-  if (new Set(keys).size !== keys.length) fail('invalid_request', 'inputs contains duplicate paths or sources.');
+    : input.source !== undefined
+      ? `source:${input.source.normalize('NFC').toLocaleLowerCase('en-US')}`
+      : `blob:${createHash('sha256').update(Buffer.from(input.blob.data_base64, 'base64')).digest('hex')}`);
+  if (new Set(keys).size !== keys.length) fail('invalid_request', 'inputs contains duplicate attachment locations or blob content.');
+}
+
+function validBase64(value) {
+  if (value.length === 0) return true;
+  if (value.length % 4 !== 0) return false;
+  return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value);
 }
 
 function arrayOf(value, label, maximum, parser) {

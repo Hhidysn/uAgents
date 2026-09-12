@@ -120,15 +120,43 @@ test('MCP submit accepts host-materialized file and image sources and normalizes
   } finally { runtime.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('MCP attachment schema requires exactly one of path or source', () => {
+test('MCP submit accepts connector-materialized blob bytes without a local source path', async () => {
+  fs.mkdirSync(base, { recursive: true });
+  const root = fs.mkdtempSync(path.join(base, 'unified-blob-'));
+  const workspace = path.join(root, 'workspace');
+  fs.mkdirSync(workspace, { recursive: true });
+  const bytes = Buffer.from('%PDF-1.7\nconnector payload');
+  const request = requestSchema.parse({
+    schema_version: '1.0', request_id: randomUUID(), target: 'opencode', model: 'commandcode-goat/deepseek/deepseek-v4-flash',
+    mode: 'analysis', prompt: 'inspect the connector attachment', workspace,
+    inputs: [{ type: 'file', blob: { name: 'connector.pdf', data_base64: bytes.toString('base64') } }],
+    execution: { observation_timeout_ms: 5_000, effort: 'medium', permission: 'native' },
+    policy: { fallback: 'none', max_cost_usd: null },
+  });
+  const runtime = new UnifiedRuntime({ stateRoot: root, spawnWorker: () => {} });
+  try {
+    const submitted = await createToolHandlers(runtime).uagents_submit(request);
+    const stored = runtime.service.payload(submitted.task_id);
+    assert.equal(stored.request.inputs[0].blob, undefined);
+    assert.equal(stored.request.inputs[0].source, undefined);
+    assert.equal(stored.request.inputs[0].path.startsWith('.uagents/inputs/'), true);
+    assert.deepEqual(fs.readFileSync(path.join(workspace, ...stored.request.inputs[0].path.split('/'))), bytes);
+    assert.equal(stored.payload.input_snapshots[0].media_type, 'application/pdf');
+    assert.equal(JSON.stringify(stored).includes(bytes.toString('base64')), false);
+  } finally { runtime.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('MCP attachment schema accepts path, source, or inline blob exclusively', () => {
   const baseInput = {
     schema_version: '1.0', request_id: randomUUID(), target: 'opencode', model: 'commandcode-goat/deepseek/deepseek-v4-flash',
     mode: 'analysis', prompt: 'bounded', workspace: path.resolve('.'),
   };
   assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'image', path: 'screen.png' }] }).success, true);
   assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file', source: path.resolve('brief.txt') }] }).success, true);
+  assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file', blob: { name: 'brief.txt', data_base64: Buffer.from('brief').toString('base64') } }] }).success, true);
   assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file' }] }).success, false);
   assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file', path: 'brief.txt', source: path.resolve('brief.txt') }] }).success, false);
+  assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file', path: 'brief.txt', blob: { name: 'brief.txt', data_base64: '' } }] }).success, false);
 });
 
 test('MCP request schema exposes explicit task-based session continuation and fork', () => {
@@ -153,6 +181,7 @@ test('CLI request schema discovery stays structurally aligned with MCP submit sc
   assert.deepEqual(mcp.properties.execution.properties.effort.enum, core.properties.execution.properties.effort.enum);
   assert.deepEqual(mcp.properties.execution.properties.permission.enum, core.properties.execution.properties.permission.enum);
   assert.deepEqual(mcp.properties.inputs.items.properties.type.enum, core.properties.inputs.items.properties.type.enum);
+  assert.deepEqual(Object.keys(mcp.properties.inputs.items.properties.blob.properties), ['name', 'data_base64']);
   assert.deepEqual(Object.keys(mcp.properties.session.properties), ['continue_from_task_id', 'fork_from_task_id']);
 });
 

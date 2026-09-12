@@ -59,8 +59,14 @@ test('workspace and file paths are validated before execution', () => {
     [{ type: 'image', path: 'assets/screenshot.png' }]);
   assert.deepEqual(parseRequest(request({ workspace, inputs: [{ type: 'file', source }] })).inputs,
     [{ type: 'file', source }]);
+  const blob = { name: 'brief.pdf', data_base64: Buffer.from('%PDF-1.7\nblob').toString('base64') };
+  assert.deepEqual(parseRequest(request({ workspace, inputs: [{ type: 'file', blob }] })).inputs,
+    [{ type: 'file', blob }]);
   assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'file', source: 'relative.pdf' }] })), { code: 'invalid_input' });
   assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'file', path: 'brief.pdf', source }] })), { code: 'invalid_input' });
+  assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'file', path: 'brief.pdf', blob }] })), { code: 'invalid_input' });
+  assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'file', blob: { name: '../brief.pdf', data_base64: blob.data_base64 } }] })), { code: 'invalid_input' });
+  assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'file', blob: { name: 'brief.pdf', data_base64: 'not base64' } }] })), { code: 'invalid_input' });
   assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'file' }] })), { code: 'invalid_input' });
   assert.throws(() => parseRequest(request({ workspace, inputs: [{ type: 'blob', path: 'assets/raw.bin' }] })), { code: 'invalid_input' });
 });

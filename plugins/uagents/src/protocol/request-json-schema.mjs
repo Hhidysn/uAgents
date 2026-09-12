@@ -43,8 +43,15 @@ export function requestJsonSchema() {
             type: { type: 'string', enum: [...INPUT_TYPES] },
             path: { type: 'string', 'x-uagents-path': 'workspace-relative-forward-slash', 'x-uagents-max-bytes': REQUEST_LIMITS.relative_path_bytes },
             source: { type: 'string', 'x-uagents-path': 'absolute-local', 'x-uagents-max-bytes': REQUEST_LIMITS.workspace_bytes },
+            blob: {
+              type: 'object', additionalProperties: false, required: ['name', 'data_base64'],
+              properties: {
+                name: byteString(REQUEST_LIMITS.attachment_name_bytes),
+                data_base64: { type: 'string', 'x-uagents-encoding': 'base64', 'x-uagents-max-bytes': REQUEST_LIMITS.attachment_blob_base64_bytes },
+              },
+            },
           },
-          oneOf: [{ required: ['path'] }, { required: ['source'] }],
+          oneOf: [{ required: ['path'] }, { required: ['source'] }, { required: ['blob'] }],
         },
       },
       expected_outputs: {

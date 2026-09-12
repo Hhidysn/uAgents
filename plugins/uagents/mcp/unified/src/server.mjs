@@ -41,8 +41,12 @@ const attachmentInputSchema = z.object({
   type: z.enum(['file', 'image']),
   path: z.string().optional(),
   source: z.string().optional(),
-}).strict().refine(input => Boolean(input.path) !== Boolean(input.source), {
-  message: 'Attachment input must contain exactly one of path or source.',
+  blob: z.object({
+    name: z.string().min(1).max(255),
+    data_base64: z.string().max(44_739_244),
+  }).strict().optional(),
+}).strict().refine(input => Number(input.path !== undefined) + Number(input.source !== undefined) + Number(input.blob !== undefined) === 1, {
+  message: 'Attachment input must contain exactly one of path, source, or blob.',
 });
 export const requestSchema = z.object({
   schema_version: z.literal('1.0'),

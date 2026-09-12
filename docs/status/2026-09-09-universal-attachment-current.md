@@ -1,5 +1,7 @@
 # Universal Attachment Input 当前状态
 
+> 历史阶段快照：当前附件 contract 已扩展 blob/connector-host ingestion。最新状态见 [2026-09-12 Universal Attachment 当前状态](2026-09-12-universal-attachment-current.md)。
+
 日期：2026-09-09。本文记录**当前仓库工作树**的附件能力，不代表 2026-09-07 的已安装 uAgents cache。
 旧 cache 没有本轮源码，不能用于反推当前实现。实现和验证仍以 `F:\documents\software\uAgents` 当前 checkout 为准。
 

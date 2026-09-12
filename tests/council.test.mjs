@@ -158,6 +158,50 @@ test('git-worktree Council gives each implementation member an isolated branch a
   }
 });
 
+test('git-worktree Council fans one inline blob into every member worktree without persisting blob bytes', () => {
+  const root = path.resolve('.local', 'test-runs', `council-blob-${randomUUID()}`);
+  const repository = path.join(root, 'repo');
+  const stateRoot = path.join(root, 'state');
+  fs.mkdirSync(repository, { recursive: true });
+  git(repository, ['init']);
+  git(repository, ['config', 'user.name', 'uAgents Test']);
+  git(repository, ['config', 'user.email', 'uagents@example.invalid']);
+  fs.writeFileSync(path.join(repository, 'base.txt'), 'base\n');
+  git(repository, ['add', 'base.txt']);
+  git(repository, ['commit', '-m', 'base']);
+  const bytes = Buffer.from('%PDF-1.7\nshared connector blob');
+  const encoded = bytes.toString('base64');
+  const input = council({
+    mode: 'implementation', workspace_strategy: 'git-worktree', workspace: repository,
+    inputs: [{ type: 'file', blob: { name: 'requirements.pdf', data_base64: encoded } }],
+  });
+  const spawns = [];
+  const runtime = new UnifiedRuntime({ stateRoot, spawnWorker: (...args) => { spawns.push(args); } });
+  try {
+    const submitted = runtime.submitCouncil(input);
+    assert.equal(submitted.members.length, 2);
+    assert.equal(spawns.length, 2);
+    const persisted = JSON.parse(fs.readFileSync(path.join(stateRoot, 'councils', input.council_id, 'request.json'), 'utf8'));
+    assert.equal(persisted.inputs[0].blob.data_base64, null);
+    assert.equal(persisted.inputs[0].blob.size_bytes, bytes.length);
+    assert.match(persisted.inputs[0].blob.sha256, /^[0-9a-f]{64}$/);
+    assert.equal(JSON.stringify(persisted).includes(encoded), false);
+    for (const member of submitted.members) {
+      const stored = runtime.service.payload(member.task_id);
+      assert.equal(stored.request.inputs.length, 1);
+      assert.equal(stored.request.inputs[0].blob, undefined);
+      assert.equal(stored.request.inputs[0].source, undefined);
+      assert.equal(stored.request.inputs[0].path.startsWith('.uagents/inputs/'), true);
+      assert.deepEqual(fs.readFileSync(path.join(member.worktree.workspace, ...stored.request.inputs[0].path.split('/'))), bytes);
+    }
+    assert.equal(runtime.submitCouncil(input).duplicate, true);
+    assert.equal(spawns.length, 2);
+  } finally {
+    runtime.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('git-worktree Council rejects a non-Git workspace before any member Task is launched', () => {
   const root = path.resolve('.local', 'test-runs', `council-nongit-${randomUUID()}`);
   const workspace = path.join(root, 'plain');

@@ -9,7 +9,7 @@ import { STORE_SCHEMA_VERSION } from '../store/schema.mjs';
 import { materializeEffectiveRequest } from './effective-request.mjs';
 import { assertFencing } from './leases.mjs';
 import { transitionState } from './state-machine.mjs';
-import { ingestAttachmentSources } from '../artifacts/attachments.mjs';
+import { ingestAttachmentInputs } from '../artifacts/attachments.mjs';
 import { canonicalWorkspace } from './workspace-key.mjs';
 
 export class TaskService {
@@ -24,7 +24,7 @@ export class TaskService {
   submit(input, { adapterVersion = null } = {}) {
     const evaluated = evaluateRequest(input, { registry: this.registry, health: this.health });
     const session = this.#resolveSession(evaluated.request);
-    const normalizedInputs = ingestAttachmentSources(evaluated.request.workspace, evaluated.request.inputs);
+    const normalizedInputs = ingestAttachmentInputs(evaluated.request.workspace, evaluated.request.inputs);
     const normalized = normalizedInputs === evaluated.request.inputs ? evaluated : {
       ...evaluated,
       request: { ...evaluated.request, inputs: normalizedInputs },

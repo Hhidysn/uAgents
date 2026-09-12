@@ -7,7 +7,7 @@
 - [Council 当前状态](status/2026-09-12-council-current.md)：当前统一入口，覆盖 fan-out、worktree、diff、local validation evidence、adopt 与显式 cleanup 生命周期。
 - [CLI Schema Discovery 当前状态](status/2026-09-10-cli-schema-discovery-current.md)：CLI `describe` / `schema request` 的 machine-readable contract、source of truth 与验证边界。
 - [Native Session Continuation / Fork 当前状态](status/2026-09-10-session-continuation-current.md)：WorkBuddy/OpenCode 显式续聊与 native branch 的当前源码能力、边界和验证状态。
-- [Universal Attachment 当前状态](status/2026-09-09-universal-attachment-current.md)：本轮源码中的统一附件 contract、WorkBuddy/OpenCode mapping、agy fail-closed 能力和剩余缺口。
+- [Universal Attachment 当前状态](status/2026-09-12-universal-attachment-current.md)：当前统一附件 contract，覆盖 workspace path、本地 source、connector/host inline blob、WorkBuddy/OpenCode mapping 与能力边界。
 - [下一阶段功能交接：Universal Attachment Input](status/2026-09-09-next-feature-handoff.md)：本轮实现开始前的附件能力快照与实施交接；保留为历史输入，不代表当前工作树能力。
 - [2026-09-06 当前状态与能力矩阵](status/2026-09-06-current-status.md)：Durable Runtime 阶段的历史状态快照。
 - [项目 README](../README.md)：安装、CLI、MCP 和开发验证的快速入口。
@@ -19,6 +19,7 @@
 - [Council Candidate Comparison 设计](superpowers/specs/2026-09-11-council-candidate-comparison-design.md)
 - [Explicit Candidate Adopt 设计](superpowers/specs/2026-09-11-explicit-candidate-adopt-design.md)
 - [Council Cleanup 设计](superpowers/specs/2026-09-12-council-cleanup-design.md)
+- [Connector / Blob Attachment Input 设计](superpowers/specs/2026-09-12-connector-blob-attachment-input-design.md)
 - [Council Candidate Validation 设计](superpowers/specs/2026-09-12-council-candidate-validation-design.md)
 - [CLI Schema Discovery 设计](superpowers/specs/2026-09-10-cli-schema-discovery-design.md)
 - [统一 Runtime 设计](superpowers/specs/2026-09-04-uagents-unified-agent-runtime-design.md)
@@ -52,6 +53,7 @@
 - [Native Session Continuation 实机 E2E（2026-09-10）](verification/2026-09-10-real-session-continuation-e2e.md)
 - [Native Session Continuation provider-free 验证（2026-09-10）](verification/2026-09-10-session-continuation.md)
 - [Universal Attachment Input provider-free 验证（2026-09-09）](verification/2026-09-09-universal-attachment-input.md)
+- [Connector / Blob Attachment Input provider-free 验证（2026-09-12）](verification/2026-09-12-connector-blob-attachment-input.md)
 - [真实 OpenCode Provider E2E（analysis / implementation / timeout，2026-09-07）](verification/2026-09-07-real-opencode-e2e.md)
 - [冗余 execution-timeout guardian 安装验收（2026-09-07）](verification/2026-09-07-redundant-timeout-guardian-release.md)
 - [Verified Execution Timeout 安装验收（2026-09-06）](verification/2026-09-06-verified-execution-timeout-release.md)

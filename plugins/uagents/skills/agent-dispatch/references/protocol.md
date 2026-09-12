@@ -33,7 +33,8 @@ Council is the thin multi-Agent fan-out/fan-in layer over ordinary Tasks. Its li
   "workspace": "F:\\absolute\\project",
   "inputs": [
     { "type": "file", "path": "requirements.md" },
-    { "type": "image", "source": "F:\\Downloads\\screenshot.png" }
+    { "type": "image", "source": "F:\\Downloads\\screenshot.png" },
+    { "type": "file", "blob": { "name": "connector.pdf", "data_base64": "JVBERi0xLjc..." } }
   ],
   "expected_outputs": [{ "type": "file", "path": "result.md", "required": true, "max_bytes": 10485760 }],
   "execution": {
@@ -47,9 +48,9 @@ Council is the thin multi-Agent fan-out/fan-in layer over ordinary Tasks. Its li
 }
 ```
 
-Unknown fields and unsupported capability combinations are rejected before registration. Each attachment input contains exactly one of `path` or `source`. `path` is the existing workspace-relative form, uses `/`, and may not escape `workspace`. `source` is an absolute local path for callers that already have the attachment materialized outside the workspace. This includes Unified MCP callers whose host/connector layer has materialized a chat attachment to a local path. On submit, uAgents copies a source attachment into `.uagents/inputs/` under the declared workspace using a content-addressed filename, then stores and dispatches only the normalized `{type,path}` form. Existing `{type:"file",path}` and `{type:"image",path}` requests remain valid without changes. `source` is ingestion convenience only; target adapters never receive or interpret it directly, and uAgents does not resolve opaque connector file IDs by itself.
+Unknown fields and unsupported capability combinations are rejected before registration. Each attachment input contains exactly one of `path`, `source`, or `blob`. `path` is the existing workspace-relative form, uses `/`, and may not escape `workspace`. `source` is an absolute local path for callers that already have the attachment materialized outside the workspace. `blob:{name,data_base64}` is for hosts/connectors that already have the attachment bytes but should not expose/manage a local path. On submit, uAgents materializes source/blob attachments into `.uagents/inputs/` under the declared workspace using a content-addressed filename, then stores and dispatches only the normalized `{type,path}` form. Existing path/source requests remain valid without changes. Target adapters never receive or interpret source/blob directly. uAgents does not resolve opaque connector file IDs or URLs itself; the connector host obtains bytes first, then supplies a blob.
 
-Generic files are capped at 32 MiB. Image inputs use the same attachment contract with `type:"image"`; the current image whitelist is PNG, JPEG, GIF and WebP, verified from file headers rather than filename, with a 20 MiB limit, maximum width/height of 16,384 px, and maximum canvas area of 64 Mi pixels. If `inputs` are declared, `workspace` is required and their normalized identity is snapshotted before dispatch. Snapshots record attachment kind, path, media type, byte size and SHA-256; image snapshots also record verified width/height. Attachment bytes are not stored in SQLite. If no workspace is supplied and there are no attachment inputs, uAgents creates one under the task directory.
+Generic files are capped at 32 MiB. Image inputs use the same attachment contract with `type:"image"`; the current image whitelist is PNG, JPEG, GIF and WebP, verified from file headers rather than filename, with a 20 MiB limit, maximum width/height of 16,384 px, and maximum canvas area of 64 Mi pixels. If `inputs` are declared, `workspace` is required and their normalized identity is snapshotted before dispatch. Snapshots record attachment kind, path, media type, byte size and SHA-256; image snapshots also record verified width/height. Attachment bytes are not stored in SQLite or persisted Task request/payload. Council blob history stores identity evidence only, not the base64 payload. CLI `--request-stdin` remains capped at 1 MiB, so larger inline blobs should use `--request <file>` or a host/MCP call. If no workspace is supplied and there are no attachment inputs, uAgents creates one under the task directory.
 
 WorkBuddy and OpenCode support explicit continuation and fork contracts:
 

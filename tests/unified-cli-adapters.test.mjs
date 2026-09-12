@@ -127,6 +127,38 @@ test('external file and image sources are ingested into workspace before registr
   } finally { control.close(); }
 });
 
+test('inline file and image blobs are ingested into workspace without persisting blob payloads', () => {
+  const control = new ControlDatabase(path.join(root, `blob-inputs-${randomUUID()}`));
+  const workspace = path.join(root, `blob-workspace-${randomUUID()}`);
+  fs.mkdirSync(workspace, { recursive: true });
+  const fileBytes = Buffer.from('%PDF-1.7\nconnector blob attachment');
+  const imageBytes = pngFixture(4, 5);
+  try {
+    const service = new TaskService(control);
+    const input = baseRequest({
+      target: 'workbuddy', model: 'default', workspace,
+      inputs: [
+        { type: 'file', blob: { name: 'brief.pdf', data_base64: fileBytes.toString('base64') } },
+        { type: 'image', blob: { name: 'screen.png', data_base64: imageBytes.toString('base64') } },
+      ],
+    });
+    const registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
+    const stored = service.payload(registered.task_id);
+    assert.equal(stored.request.inputs.length, 2);
+    assert.equal(stored.request.inputs.every(item => item.path.startsWith('.uagents/inputs/')), true);
+    assert.equal(stored.request.inputs.some(item => item.source !== undefined || item.blob !== undefined), false);
+    assert.deepEqual(fs.readFileSync(path.join(workspace, ...stored.request.inputs[0].path.split('/'))), fileBytes);
+    assert.deepEqual(fs.readFileSync(path.join(workspace, ...stored.request.inputs[1].path.split('/'))), imageBytes);
+    assert.equal(stored.payload.input_snapshots[0].media_type, 'application/pdf');
+    assert.equal(stored.payload.input_snapshots[1].media_type, 'image/png');
+    assert.equal(stored.payload.input_snapshots[1].width_px, 4);
+    assert.equal(stored.payload.input_snapshots[1].height_px, 5);
+    const serialized = JSON.stringify(stored);
+    assert.equal(serialized.includes(fileBytes.toString('base64')), false);
+    assert.equal(serialized.includes(imageBytes.toString('base64')), false);
+  } finally { control.close(); }
+});
+
 test('WorkBuddy follow-up task continues the persisted native session', async () => {
   const control = new ControlDatabase(path.join(root, `workbuddy-continuation-${randomUUID()}`));
   const workspace = path.join(root, `workbuddy-continuation-workspace-${randomUUID()}`);

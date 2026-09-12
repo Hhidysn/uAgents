@@ -24,16 +24,24 @@ export function readWorkspaceAttachment(workspace, input) {
   return readAttachmentFile(real, input.type, input.path, input.path);
 }
 
-export function ingestAttachmentSources(workspace, inputs) {
-  if (!inputs.some(input => input.source !== undefined)) return inputs;
+export function ingestAttachmentInputs(workspace, inputs) {
+  if (!inputs.some(input => input.source !== undefined || input.blob !== undefined)) return inputs;
   canonicalWorkspace(workspace);
   return inputs.map(input => {
-    if (input.source === undefined) return input;
-    let real;
-    try { real = fs.realpathSync.native(input.source); }
-    catch (error) { fail('invalid_input', `Attachment source cannot be read: ${input.source}`, { details: { cause: error.code } }); }
-    const attachment = readAttachmentFile(real, input.type, input.source, null);
-    const name = portableAttachmentName(real);
+    if (input.source === undefined && input.blob === undefined) return input;
+    let attachment;
+    let name;
+    if (input.source !== undefined) {
+      let real;
+      try { real = fs.realpathSync.native(input.source); }
+      catch (error) { fail('invalid_input', `Attachment source cannot be read: ${input.source}`, { details: { cause: error.code } }); }
+      attachment = readAttachmentFile(real, input.type, input.source, null);
+      name = portableAttachmentName(real);
+    } else {
+      const bytes = Buffer.from(input.blob.data_base64, 'base64');
+      attachment = inspectAttachmentBytes(bytes, input.type, input.blob.name);
+      name = portableAttachmentName(input.blob.name);
+    }
     const relative = `.uagents/inputs/${attachment.sha256}-${name}`;
     const destination = path.resolve(workspace, relative);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
@@ -48,17 +56,28 @@ function readAttachmentFile(real, type, label, relativePath = null) {
   const maximum = type === 'image' ? ATTACHMENT_LIMITS.image_bytes : ATTACHMENT_LIMITS.file_bytes;
   if (info.size > maximum) fail('invalid_input', `Input exceeds ${maximum} bytes: ${label}`);
   const bytes = fs.readFileSync(real);
+  return { ...inspectAttachmentBytes(bytes, type, label), ...(relativePath === null ? {} : { path: relativePath }), absolute_path: real };
+}
+
+function inspectAttachmentBytes(bytes, type, label) {
+  const maximum = type === 'image' ? ATTACHMENT_LIMITS.image_bytes : ATTACHMENT_LIMITS.file_bytes;
+  if (bytes.length > maximum) fail('invalid_input', `Input exceeds ${maximum} bytes: ${label}`);
   const media = type === 'image' ? inspectImage(bytes, label) : inspectFile(bytes);
   return {
     type,
-    ...(relativePath === null ? {} : { path: relativePath }),
     media_type: media.media_type,
-    size_bytes: info.size,
+    size_bytes: bytes.length,
     sha256: createHash('sha256').update(bytes).digest('hex'),
     ...(media.width_px ? { width_px: media.width_px, height_px: media.height_px } : {}),
     bytes,
-    absolute_path: real,
   };
+}
+
+export function blobAttachmentIdentity(input) {
+  if (!input?.blob) return null;
+  const { bytes, ...attachment } = inspectAttachmentBytes(Buffer.from(input.blob.data_base64, 'base64'), input.type, input.blob.name);
+  return { type: input.type, name: input.blob.name, media_type: attachment.media_type, size_bytes: attachment.size_bytes, sha256: attachment.sha256,
+    ...(attachment.width_px ? { width_px: attachment.width_px, height_px: attachment.height_px } : {}) };
 }
 
 function portableAttachmentName(source) {

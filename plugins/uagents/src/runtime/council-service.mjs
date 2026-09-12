@@ -10,6 +10,7 @@ import { executeCouncilWorktreeCleanup, inspectCouncilWorktree, prepareCouncilWo
 import { adoptCouncilWorktree, inspectCouncilWorktreeDiff } from './council-candidates.mjs';
 import { parseCouncilValidation } from '../protocol/council-validation-schema.mjs';
 import { runCouncilValidation } from './council-validation.mjs';
+import { blobAttachmentIdentity } from '../artifacts/attachments.mjs';
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 const ATTENTION = new Set(['waiting_user', 'indeterminate']);
@@ -42,7 +43,7 @@ export class CouncilService {
       }
     } else {
       worktreePlan = prepareCouncilWorktrees({ stateRoot: this.stateRoot, council });
-      atomicWriteJson(requestFile, council);
+      atomicWriteJson(requestFile, storedCouncilRequest(council));
       manifest = {
         schema_version: council.schema_version,
         council_id: council.council_id,
@@ -288,4 +289,25 @@ function legacyCouncilHashMatches(manifest, council) {
   delete legacy.mode;
   delete legacy.workspace_strategy;
   return canonicalHash(legacy) === manifest.request_hash;
+}
+
+function storedCouncilRequest(council) {
+  return {
+    ...council,
+    inputs: council.inputs.map(input => {
+      if (!input.blob) return input;
+      const identity = blobAttachmentIdentity(input);
+      return {
+        type: input.type,
+        blob: {
+          name: input.blob.name,
+          data_base64: null,
+          media_type: identity.media_type,
+          size_bytes: identity.size_bytes,
+          sha256: identity.sha256,
+          ...(identity.width_px ? { width_px: identity.width_px, height_px: identity.height_px } : {}),
+        },
+      };
+    }),
+  };
 }
