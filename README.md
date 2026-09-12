@@ -1,7 +1,7 @@
 # uAgents
 
 uAgents 是供 Codex 使用的本地统一 Agent 调度插件。当前发行标识为
-`0.2.0-alpha.1+codex.20260907011733`，把 agy/Gemini、WorkBuddy、OpenCode、豆包工作和
+`0.2.0-alpha.1+codex.20260913014746`，把 agy/Gemini、WorkBuddy、OpenCode、豆包工作和
 TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时明确保留各目标不同的
 模型、文件、权限、取消和桌面连接能力。
 
@@ -167,6 +167,7 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 
 ## 设计与证据
 
+- [Codex 插件刷新实机验收（2026-09-13）](docs/verification/2026-09-13-plugin-refresh.md)
 - [Dynamic Model Discovery 当前状态](docs/status/2026-09-12-dynamic-model-discovery-current.md)
 - [Dynamic Model Discovery 设计](docs/superpowers/specs/2026-09-12-dynamic-model-discovery-design.md)
 - [Dynamic Model Discovery provider-free 验证](docs/verification/2026-09-12-dynamic-model-discovery.md)

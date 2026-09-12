@@ -44,6 +44,7 @@
 
 ## 验证证据
 
+- [Codex 插件刷新实机验收（2026-09-13）](verification/2026-09-13-plugin-refresh.md)
 - [Dynamic Model Discovery provider-free 验证（2026-09-12）](verification/2026-09-12-dynamic-model-discovery.md)
 - [Council Worktree Isolation 实机 implementation E2E（2026-09-11）](verification/2026-09-11-real-council-worktree-implementation-e2e.md)
 - [Council Candidate Comparison 验证（2026-09-11）](verification/2026-09-11-council-candidate-comparison.md)
