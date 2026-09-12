@@ -2,6 +2,8 @@
 
 日期：2026-09-12。
 
+> 本文记录最初 single-command validation 阶段。当前源码已在保持该 contract 兼容的基础上增加有序 named checks；见 [Multi-step Candidate Validation 设计](2026-09-12-multi-step-candidate-validation-design.md)。
+
 ## 目标
 
 让 git-worktree Council 的候选在各自 effective workspace 中运行用户明确指定的本地验证命令，并把可比较的测试证据持久化到 Council member。该能力不调用 Agent/provider，不自动选择 winner，也不修改候选代码。

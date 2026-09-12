@@ -212,8 +212,23 @@ test('MCP Council validation schema stays aligned with Core validation discovery
   assert.deepEqual(mcp.required, core.required);
   assert.equal(mcp.properties.command.minItems, core.properties.command.minItems);
   assert.equal(mcp.properties.command.maxItems, core.properties.command.maxItems);
+  assert.equal(mcp.properties.checks.minItems, core.properties.checks.minItems);
+  assert.equal(mcp.properties.checks.maxItems, core.properties.checks.maxItems);
+  assert.deepEqual(mcp.properties.on_failure.enum, core.properties.on_failure.enum);
   assert.equal(mcp.properties.timeout_ms.minimum, core.properties.timeout_ms.minimum);
   assert.equal(mcp.properties.timeout_ms.maximum, core.properties.timeout_ms.maximum);
+  assert.equal(councilValidationSchema.safeParse({
+    schema_version: '1.0', on_failure: 'continue', checks: [
+      { name: 'lint', command: [process.execPath, '-e', 'process.exit(0)'] },
+      { name: 'test', command: [process.execPath, '-e', 'process.exit(1)'], timeout_ms: 5_000 },
+    ],
+  }).success, true);
+  assert.equal(councilValidationSchema.safeParse({
+    schema_version: '1.0', command: [process.execPath], checks: [{ name: 'x', command: [process.execPath] }],
+  }).success, false);
+  assert.equal(councilValidationSchema.safeParse({
+    schema_version: '1.0', checks: [{ name: 'same', command: [process.execPath] }, { name: 'SAME', command: [process.execPath] }],
+  }).success, false);
 });
 
 test('MCP Council schema and handlers expose first-class fanout aggregation', async () => {

@@ -43,7 +43,7 @@ Unified MCP 使用同名 `uagents_council_*` tools。
 
 `council-diff` 是纯本地只读比较：返回 response/usage/artifacts、tracked file status/unified patch、untracked 文件 metadata，以及小型 UTF-8 新文件正文。
 
-`council-validate` 在 selected candidate 的 effective worktree workspace 中执行显式 argv validation，不经过 shell。非零退出码是 `failed` evidence，不是 API error；timeout 与启动错误也会结构化记录。latest validation 包含 command、duration、exit/signal、outcome 与有界 stdout/stderr，并会出现在 status/result/diff 中。第一版 `--all` 顺序运行，不自动 test discovery 或 winner selection。
+`council-validate` 在 selected candidate 的 effective worktree workspace 中执行显式 argv validation，不经过 shell。旧 `{command,timeout_ms}` 单步 contract 保持兼容；multi-step 可提供最多 16 个有序 named `checks[]`，顶层 timeout 作为默认值、单个 check 可覆盖。`on_failure:"continue"` 默认尽量收集完整 lint/typecheck/test/build 类证据；显式 `stop` 时后续 check 记录为 `skipped`。非零退出码是 `failed` evidence，不是 API error；timeout 与启动错误也会结构化记录。latest validation 及每个 named check 的 duration、exit/signal、outcome 与有界 stdout/stderr 会出现在 status/result/diff 中。`--all` 仍按 member 顺序运行，不自动 test discovery 或 winner selection。
 
 `council-adopt` 只接受明确指定的 `succeeded` member。它把候选相对 Council `base_head` 的 binary tracked patch 与 Git-visible untracked 普通文件应用到显式 destination workspace。destination `HEAD` 必须仍等于 `base_head`；操作不会 switch branch、commit、merge、cherry-pick 或选择 winner。
 
@@ -90,14 +90,14 @@ Core parser/runtime 仍是最终 admission 与行为权威。
 ## 当前验证
 
 ```text
-Council + CLI targeted   31/31
-Unified MCP targeted      8/8
+Council + CLI targeted   34/34
+Unified MCP targeted     10/10
 
-Core                    302/302
+Core                    310/310
 Doubao MCP               11/11
 TRAE MCP                  9/9
-Unified MCP               8/8
-Total                   330/330
+Unified MCP              10/10
+Total                   340/340
 ```
 
-Candidate Validation 的 fixture、真实既有 candidate validation、文档收口与 Cleanup 验证均为 provider-free；没有发送新的 Agent prompt。
+Multi-step Candidate Validation 已在 provider-free fixture 和此前真实 WorkBuddy/OpenCode candidate worktree 上验证；没有发送新的 Agent prompt。完整回归前两轮曾命中既有 OpenCode durable delayed-session 10 秒 wall-clock timing 抖动；该 durable 文件隔离重跑 4/4，最终完整 `npm test` 全绿。

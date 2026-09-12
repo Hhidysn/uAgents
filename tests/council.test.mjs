@@ -50,13 +50,26 @@ test('council schema keeps shared analysis default and gates implementation on g
   assert.equal(councilJsonSchema().properties.members.minItems, 2);
 });
 
-test('council validation schema uses explicit argv and bounded timeout', () => {
+test('council validation schema supports legacy argv and ordered named checks', () => {
   const parsed = parseCouncilValidation({ schema_version: '1.0', command: ['node', '--test'] });
   assert.deepEqual(parsed.command, ['node', '--test']);
   assert.equal(parsed.timeout_ms, 120_000);
+  const multi = parseCouncilValidation({
+    schema_version: '1.0', timeout_ms: 5_000, on_failure: 'stop',
+    checks: [
+      { name: 'lint', command: ['node', 'lint.mjs'] },
+      { name: 'test', command: ['node', '--test'], timeout_ms: 10_000 },
+    ],
+  });
+  assert.equal(multi.on_failure, 'stop');
+  assert.deepEqual(multi.checks.map(check => [check.name, check.timeout_ms]), [['lint', 5_000], ['test', 10_000]]);
   assert.equal(councilValidationJsonSchema().properties.command.minItems, 1);
+  assert.equal(councilValidationJsonSchema().properties.checks.maxItems, 16);
+  assert.deepEqual(councilValidationJsonSchema().properties.on_failure.enum, ['continue', 'stop']);
   assert.throws(() => parseCouncilValidation({ schema_version: '1.0', command: [] }), { code: 'invalid_request' });
   assert.throws(() => parseCouncilValidation({ schema_version: '1.0', command: ['node'], timeout_ms: 1 }), { code: 'invalid_request' });
+  assert.throws(() => parseCouncilValidation({ schema_version: '1.0', command: ['node'], checks: [{ name: 'x', command: ['node'] }] }), { code: 'invalid_request' });
+  assert.throws(() => parseCouncilValidation({ schema_version: '1.0', checks: [{ name: 'same', command: ['node'] }, { name: 'SAME', command: ['node'] }] }), { code: 'invalid_request' });
   assert.throws(() => parseCouncilValidation({ schema_version: '1.0', command: ['node'], shell: true }), { code: 'unsupported_field' });
 });
 
@@ -71,6 +84,39 @@ test('council validation bounds captured output without changing command outcome
     assert.equal(evidence.stdout.captured_bytes, 70_000);
     assert.equal(Buffer.byteLength(evidence.stdout.text), 65_536);
     assert.equal(evidence.stdout.truncated, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('multi-step council validation records every check and can stop with skipped evidence', () => {
+  const root = path.resolve('.local', 'test-runs', `council-validation-multi-${randomUUID()}`);
+  fs.mkdirSync(root, { recursive: true });
+  try {
+    const member = { worktree: { workspace: root } };
+    const continued = runCouncilValidation(member, {
+      schema_version: '1.0', on_failure: 'continue',
+      checks: [
+        { name: 'lint', command: [process.execPath, '-e', "console.log('lint ok')"] },
+        { name: 'typecheck', command: [process.execPath, '-e', "console.error('type error');process.exit(2)"] },
+        { name: 'test', command: [process.execPath, '-e', "console.log('tests still ran')"] },
+      ],
+    });
+    assert.equal(continued.outcome, 'failed');
+    assert.deepEqual(continued.checks.map(check => check.outcome), ['passed', 'failed', 'passed']);
+    assert.match(continued.checks[2].stdout.text, /tests still ran/);
+
+    const stopped = runCouncilValidation(member, {
+      schema_version: '1.0', on_failure: 'stop',
+      checks: [
+        { name: 'lint', command: [process.execPath, '-e', 'process.exit(3)'] },
+        { name: 'build', command: [process.execPath, '-e', "console.log('must not run')"] },
+      ],
+    });
+    assert.equal(stopped.outcome, 'failed');
+    assert.deepEqual(stopped.checks.map(check => check.outcome), ['failed', 'skipped']);
+    assert.equal(stopped.checks[1].started_at_ms, null);
+    assert.equal(stopped.checks[1].stdout.text, '');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -423,6 +469,45 @@ test('council validation records pass/fail evidence per candidate and exposes it
     assert.deepEqual(status.members.map(member => member.validation.outcome), ['passed', 'failed']);
     const compared = service.diff(input.council_id);
     assert.deepEqual(compared.members.map(member => member.validation.outcome), ['passed', 'failed']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('council validation persists multi-step evidence per candidate and exposes named checks through diff', () => {
+  const root = path.resolve('.local', 'test-runs', `council-validation-multi-service-${randomUUID()}`);
+  const repository = path.join(root, 'repo');
+  fs.mkdirSync(repository, { recursive: true });
+  git(repository, ['init']);
+  git(repository, ['config', 'user.name', 'uAgents Test']);
+  git(repository, ['config', 'user.email', 'uagents@example.invalid']);
+  fs.writeFileSync(path.join(repository, 'base.txt'), 'base\n');
+  git(repository, ['add', 'base.txt']);
+  git(repository, ['commit', '-m', 'base']);
+  const tasks = new Map();
+  const service = new CouncilService({
+    stateRoot: path.join(root, 'state'), registry: createRegistry(),
+    submitTask: request => tasks.set(request.request_id, { task_id: request.request_id, target: request.target, status: 'succeeded' }),
+    statusTask: taskId => tasks.get(taskId), resultTask: () => null,
+  });
+  const input = council({ mode: 'implementation', workspace_strategy: 'git-worktree', workspace: repository });
+  try {
+    const submitted = service.submit(input);
+    fs.writeFileSync(path.join(submitted.members[0].worktree.workspace, 'marker.txt'), 'present\n');
+    const validation = {
+      schema_version: '1.0', on_failure: 'continue',
+      checks: [
+        { name: 'marker', command: [process.execPath, '-e', "const fs=require('fs');process.exit(fs.existsSync('marker.txt')?0:4)"] },
+        { name: 'always', command: [process.execPath, '-e', "console.log('ran')"] },
+      ],
+    };
+    const validated = service.validate(input.council_id, { all: true, validation });
+    assert.deepEqual(validated.members.map(member => member.validation.outcome), ['passed', 'failed']);
+    assert.deepEqual(validated.members[0].validation.checks.map(check => check.name), ['marker', 'always']);
+    assert.deepEqual(validated.members[1].validation.checks.map(check => check.outcome), ['failed', 'passed']);
+    const compared = service.diff(input.council_id);
+    assert.equal(compared.members[0].validation.checks[0].name, 'marker');
+    assert.equal(compared.members[1].validation.checks[0].exit_code, 4);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

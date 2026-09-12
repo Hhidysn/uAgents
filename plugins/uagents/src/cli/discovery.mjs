@@ -57,7 +57,7 @@ export const CLI_COMMANDS = Object.freeze({
     stateDir,
   ], 'local_state_change'),
   'council-validate': {
-    ...command('council-validate', 'council-validate <council-id> (--member <member-id> | --all) --validation <file> [--state-dir <dir>]', 'Run one explicit local argv validation in selected Council candidate worktrees and persist the latest evidence.', [positional('council_id', 'uuid', true)], [
+    ...command('council-validate', 'council-validate <council-id> (--member <member-id> | --all) --validation <file> [--state-dir <dir>]', 'Run one legacy argv validation or ordered named local validation checks in selected Council candidate worktrees and persist the latest evidence.', [positional('council_id', 'uuid', true)], [
       option('--member', 'string', 'Validate one Council member.', { exclusive_group: 'validation_scope' }),
       option('--all', 'boolean', 'Validate every Council member.', { exclusive_group: 'validation_scope' }),
       option('--validation', 'file', 'Read the Council validation JSON from a file.'),

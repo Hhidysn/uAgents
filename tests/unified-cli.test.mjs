@@ -99,11 +99,17 @@ test('request schema discovery mirrors the Core request contract', async () => {
   await assert.rejects(() => execute(['schema', 'request', '--format', 'table'], { env: {} }), { code: 'usage' });
 });
 
-test('council validation schema discovery exposes direct argv execution', async () => {
+test('council validation schema discovery exposes legacy and multi-step direct argv execution', async () => {
   const schema = (await execute(['schema', 'council-validation'], { env: {} })).data;
   assert.equal(schema.$id, 'uagents://schema/council-validation/1.0');
-  assert.deepEqual(schema.required, ['schema_version', 'command']);
+  assert.deepEqual(schema.required, ['schema_version']);
+  assert.deepEqual(schema.oneOf, [
+    { required: ['command'], not: { anyOf: [{ required: ['checks'] }, { required: ['on_failure'] }] } },
+    { required: ['checks'], not: { required: ['command'] } },
+  ]);
   assert.equal(schema.properties.command.minItems, 1);
+  assert.equal(schema.properties.checks.maxItems, 16);
+  assert.deepEqual(schema.properties.on_failure.enum, ['continue', 'stop']);
   assert.equal(schema.properties.timeout_ms.default, 120000);
   assert.match(schema.properties.command.description, /without a shell/);
 });
