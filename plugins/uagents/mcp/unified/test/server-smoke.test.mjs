@@ -9,6 +9,7 @@ import { execute } from '../../../src/cli/main.mjs';
 import { requestJsonSchema } from '../../../src/protocol/request-json-schema.mjs';
 import { councilJsonSchema } from '../../../src/protocol/council-schema.mjs';
 import { councilValidationJsonSchema } from '../../../src/protocol/council-validation-schema.mjs';
+import { hostAttachmentsToInputs } from '../../../src/host/attachment-inputs.mjs';
 import { UnifiedRuntime } from '../../../src/runtime/api.mjs';
 import { councilRequestSchema, councilValidateSchema, councilValidationSchema, createToolHandlers, requestSchema } from '../src/server.mjs';
 
@@ -48,6 +49,8 @@ test('bundled stdio server initializes and lists the unified tool surface', asyn
     const submitTool = listed.result.tools.find(tool => tool.name === 'uagents_submit');
     const submitSchema = JSON.stringify(submitTool.inputSchema);
     assert.match(submitSchema, /"source"/);
+    assert.match(submitSchema, /"attachments"/);
+    assert.match(submitSchema, /"local_path"/);
     assert.match(submitSchema, /"image"/);
     assert.match(submitSchema, /"continue_from_task_id"/);
     assert.match(submitSchema, /"fork_from_task_id"/);
@@ -141,6 +144,85 @@ test('MCP submit accepts host-materialized file and image sources and normalizes
   } finally { runtime.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('MCP host attachments preserve display names and keep temporary paths out of task identity', async () => {
+  fs.mkdirSync(base, { recursive: true });
+  const root = fs.mkdtempSync(path.join(base, 'unified-host-attachments-'));
+  const workspace = path.join(root, 'workspace');
+  const hostFiles = path.join(root, 'host-files');
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.mkdirSync(hostFiles, { recursive: true });
+  const firstPath = path.join(hostFiles, 'upload-a.tmp');
+  const secondPath = path.join(hostFiles, 'upload-b.tmp');
+  const bytes = Buffer.from('%PDF-1.7\nhost attachment');
+  fs.writeFileSync(firstPath, bytes);
+  fs.writeFileSync(secondPath, bytes);
+  const requestId = randomUUID();
+  const input = localPath => requestSchema.parse({
+    schema_version: '1.0', request_id: requestId, target: 'opencode', model: 'commandcode-goat/deepseek/deepseek-v4-flash',
+    mode: 'analysis', prompt: 'inspect the uploaded requirements', workspace,
+    attachments: [{ type: 'file', local_path: localPath, name: 'requirements.pdf' }],
+    execution: { observation_timeout_ms: 5_000, effort: 'medium', permission: 'native' },
+    policy: { fallback: 'none', max_cost_usd: null },
+  });
+  const runtime = new UnifiedRuntime({ stateRoot: root, spawnWorker: () => {} });
+  try {
+    const handlers = createToolHandlers(runtime);
+    const first = await handlers.uagents_submit(input(firstPath));
+    const second = await handlers.uagents_submit(input(secondPath));
+    assert.equal(second.duplicate, true);
+    assert.equal(second.task_id, first.task_id);
+    const stored = runtime.service.payload(first.task_id);
+    assert.match(stored.request.inputs[0].path, /-requirements\.pdf$/);
+    assert.equal(stored.payload.input_snapshots[0].media_type, 'application/pdf');
+    const serialized = JSON.stringify(stored);
+    assert.equal(serialized.includes(firstPath), false);
+    assert.equal(serialized.includes(secondPath), false);
+    assert.equal(serialized.includes(bytes.toString('base64')), false);
+  } finally { runtime.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('host attachment adapter rejects non-local paths and invalid display names before Core submit', () => {
+  assert.throws(() => hostAttachmentsToInputs([{ type: 'file', local_path: 'relative.tmp' }]), { code: 'invalid_input' });
+  assert.throws(() => hostAttachmentsToInputs([{ type: 'file', local_path: path.resolve('missing.tmp') }]), { code: 'invalid_input' });
+  const root = fs.mkdtempSync(path.join(base, 'host-attachment-validation-'));
+  const localPath = path.join(root, 'upload.tmp');
+  fs.writeFileSync(localPath, 'x');
+  try {
+    assert.throws(() => hostAttachmentsToInputs([{ type: 'file', local_path: localPath, name: '../brief.txt' }]), { code: 'invalid_input' });
+    const [input] = hostAttachmentsToInputs([{ type: 'file', local_path: localPath, name: 'brief.txt' }]);
+    assert.equal(input.blob.name, 'brief.txt');
+    assert.equal(Buffer.from(input.blob.data_base64, 'base64').toString('utf8'), 'x');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('MCP Council host attachments are converted before the Core Council contract', async () => {
+  fs.mkdirSync(base, { recursive: true });
+  const root = fs.mkdtempSync(path.join(base, 'unified-host-council-'));
+  const localPath = path.join(root, 'opaque-upload.bin');
+  const bytes = Buffer.from('shared council attachment');
+  fs.writeFileSync(localPath, bytes);
+  let captured = null;
+  const handlers = createToolHandlers({
+    submitCouncil(input) { captured = input; return { council_id: input.council_id }; },
+  });
+  const input = councilRequestSchema.parse({
+    schema_version: '1.0', council_id: randomUUID(), prompt: 'compare this attachment', workspace: path.resolve(root),
+    attachments: [{ type: 'file', local_path: localPath, name: 'brief.txt' }],
+    members: [
+      { member_id: 'wb', target: 'workbuddy', model: 'default' },
+      { member_id: 'oc', target: 'opencode', model: 'commandcode-goat/deepseek/deepseek-v4-flash' },
+    ],
+  });
+  try {
+    await handlers.uagents_council_submit(input);
+    assert.equal(captured.attachments, undefined);
+    assert.equal(captured.inputs.length, 1);
+    assert.equal(captured.inputs[0].blob.name, 'brief.txt');
+    assert.deepEqual(Buffer.from(captured.inputs[0].blob.data_base64, 'base64'), bytes);
+    assert.equal(JSON.stringify(captured).includes(localPath), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('MCP submit accepts connector-materialized blob bytes without a local source path', async () => {
   fs.mkdirSync(base, { recursive: true });
   const root = fs.mkdtempSync(path.join(base, 'unified-blob-'));
@@ -178,6 +260,9 @@ test('MCP attachment schema accepts path, source, or inline blob exclusively', (
   assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file' }] }).success, false);
   assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file', path: 'brief.txt', source: path.resolve('brief.txt') }] }).success, false);
   assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file', path: 'brief.txt', blob: { name: 'brief.txt', data_base64: '' } }] }).success, false);
+  assert.equal(requestSchema.safeParse({ ...baseInput, attachments: [{ type: 'file', local_path: path.resolve('upload.tmp'), name: 'brief.txt' }] }).success, true);
+  assert.equal(requestSchema.safeParse({ ...baseInput, attachments: [{ type: 'file', local_path: 'relative.tmp' }] }).success, false);
+  assert.equal(requestSchema.safeParse({ ...baseInput, inputs: [{ type: 'file', path: 'brief.txt' }], attachments: [{ type: 'file', local_path: path.resolve('upload.tmp') }] }).success, false);
 });
 
 test('MCP request schema exposes explicit task-based session continuation and fork', () => {
@@ -197,7 +282,8 @@ test('CLI request schema discovery stays structurally aligned with MCP submit sc
   const core = requestJsonSchema();
   const mcp = z.toJSONSchema(requestSchema);
   assert.deepEqual(mcp.required, core.required);
-  assert.deepEqual(Object.keys(mcp.properties), Object.keys(core.properties));
+  assert.deepEqual(Object.keys(mcp.properties).filter(key => key !== 'attachments'), Object.keys(core.properties));
+  assert.deepEqual(Object.keys(mcp.properties.attachments.items.properties), ['type', 'local_path', 'name']);
   assert.deepEqual(mcp.properties.mode.enum, core.properties.mode.enum);
   assert.deepEqual(mcp.properties.execution.properties.effort.enum, core.properties.execution.properties.effort.enum);
   assert.deepEqual(mcp.properties.execution.properties.permission.enum, core.properties.execution.properties.permission.enum);
@@ -240,7 +326,7 @@ test('MCP Council schema and handlers expose first-class fanout aggregation', as
   const core = councilJsonSchema();
   const mcp = z.toJSONSchema(councilRequestSchema);
   assert.deepEqual(mcp.required, core.required);
-  assert.deepEqual(Object.keys(mcp.properties), Object.keys(core.properties));
+  assert.deepEqual(Object.keys(mcp.properties).filter(key => key !== 'attachments'), Object.keys(core.properties));
   assert.equal(mcp.properties.members.minItems, 2);
   assert.equal(mcp.properties.members.maxItems, 16);
   assert.deepEqual(mcp.properties.mode.enum, core.properties.mode.enum);

@@ -16,6 +16,8 @@ inline blob { name, data_base64 }
 
 这意味着聊天、connector 或其它宿主只要已经能取得附件 bytes，就可以直接把附件交给 uAgents，不再需要先暴露一个用户可管理的本地路径。uAgents 不解析 connector 厂商 ID；connector/宿主负责取得 bytes，uAgents 接收通用 blob。
 
+Unified MCP 另外提供 host-facing `attachments:[{type,local_path,name?}]` 便捷入口。它只存在于 MCP tool schema：宿主给出已经物化的绝对临时路径和可选原始文件名，MCP 层在进入 Core 前把文件转换为现有 blob input。Core request schema、CLI 和 target adapter 没有新增第四种 attachment 类型。
+
 ## Target mapping
 
 | Target | workspace readable | native file | native image | Mapping |
@@ -49,6 +51,17 @@ chat / Drive / Slack / mail attachment
   -> WorkBuddy / OpenCode native mapping
 ```
 
+如果宿主已经把 conversation attachment 物化成临时本地文件，则 Unified MCP 可以直接使用：
+
+```text
+host temp file + original display name
+  -> MCP attachments[{ type, local_path, name }]
+  -> existing blob input
+  -> normal attachment pipeline
+```
+
+host temp path 不进入 request identity 或持久化历史；相同 request UUID 以相同 display name + bytes 从另一个 temp path 重试仍保持幂等。只有 bytes、没有可用本地路径的宿主继续使用现有 `inputs.blob`。
+
 因此 connector integration 不需要进入 uAgents target registry，也不会给 Core 增加特定厂商依赖。
 
 ## Limits
@@ -63,19 +76,18 @@ chat / Drive / Slack / mail attachment
 
 blob ingestion 本身可完全 provider-free 验证。它不会新增 provider 调用，也不会改变 WorkBuddy/OpenCode 已有 transport。真实 provider attachment E2E 仍需要用户单独明确授权。
 
-验证证据见 [Connector / Blob Attachment Input 验证](../verification/2026-09-12-connector-blob-attachment-input.md)。
+验证证据见 [Connector / Blob Attachment Input 验证](../verification/2026-09-12-connector-blob-attachment-input.md) 与 [Attachment Host UX Integration 验证](../verification/2026-09-12-attachment-host-ux-integration.md)。
 
 ## 当前验证
 
 ```text
-Attachment/Council/CLI targeted   56/56
-Unified MCP targeted               9/9
+Unified MCP targeted              13/13
 
-Core                             304/304
+Core                             312/312
 Doubao MCP                        11/11
 TRAE MCP                           9/9
-Unified MCP                        9/9
-Total                            333/333
+Unified MCP                       13/13
+Total                            345/345
 ```
 
-本轮没有发送新的 provider prompt。
+Attachment Host UX Integration 的第一轮完整回归只命中既有 OpenCode durable delayed-session 10 秒 wall-clock timing 抖动；该 durable 文件隔离重跑 4/4，第二轮完整 `npm test` 得到上面的 345/345。本轮没有发送新的 provider prompt。

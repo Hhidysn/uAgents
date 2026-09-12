@@ -8,6 +8,7 @@ import { notOk, ok } from '../../../src/protocol/envelope.mjs';
 import { resolveStateRoot, UnifiedRuntime } from '../../../src/runtime/api.mjs';
 import { runRegisteredTask } from '../../../src/runtime/worker-factory.mjs';
 import { childEnvironment } from '../../../src/runtime/child-environment.mjs';
+import { normalizeHostAttachmentRequest } from '../../../src/host/attachment-inputs.mjs';
 
 const taskIdSchema = z.object({ task_id: z.uuid() }).strict();
 const councilIdSchema = z.object({ council_id: z.uuid() }).strict();
@@ -64,6 +65,11 @@ const attachmentInputSchema = z.object({
 }).strict().refine(input => Number(input.path !== undefined) + Number(input.source !== undefined) + Number(input.blob !== undefined) === 1, {
   message: 'Attachment input must contain exactly one of path, source, or blob.',
 });
+export const hostAttachmentSchema = z.object({
+  type: z.enum(['file', 'image']),
+  local_path: z.string().min(1).max(32_767).refine(value => path.isAbsolute(value), { message: 'local_path must be absolute.' }),
+  name: z.string().min(1).max(255).refine(value => !/[\\/\x00-\x1f]/.test(value) && value !== '.' && value !== '..', { message: 'name must be a filename, not a path.' }).optional(),
+}).strict();
 export const requestSchema = z.object({
   schema_version: z.literal('1.0'),
   request_id: z.uuid(),
@@ -79,6 +85,7 @@ export const requestSchema = z.object({
     message: 'Session must contain exactly one of continue_from_task_id or fork_from_task_id.',
   }).optional(),
   inputs: z.array(attachmentInputSchema).max(64).optional(),
+  attachments: z.array(hostAttachmentSchema).min(1).max(64).optional(),
   expected_outputs: z.array(z.object({
     path: z.string(), type: z.literal('file'), required: z.boolean().optional(), max_bytes: z.number().int().positive().optional(),
   }).strict()).max(64).optional(),
@@ -89,7 +96,9 @@ export const requestSchema = z.object({
     native_args: z.array(z.string().min(1).max(4_096)).max(64).optional(),
   }).strict().optional(),
   policy: z.object({ fallback: z.string().optional(), max_cost_usd: z.number().nonnegative().nullable().optional() }).strict().optional(),
-}).strict();
+}).strict().refine(value => !(value.inputs && value.attachments), {
+  message: 'Use either protocol inputs or host attachments, not both.',
+});
 
 export const councilRequestSchema = z.object({
   schema_version: z.literal('1.0'),
@@ -100,6 +109,7 @@ export const councilRequestSchema = z.object({
   prompt: z.string().min(1).max(65_536),
   workspace: z.string().optional(),
   inputs: z.array(attachmentInputSchema).max(64).optional(),
+  attachments: z.array(hostAttachmentSchema).min(1).max(64).optional(),
   execution: z.object({
     observation_timeout_ms: z.number().int().optional(),
     effort: z.enum(['low', 'medium', 'high', 'max']).optional(),
@@ -121,6 +131,8 @@ export const councilRequestSchema = z.object({
   message: 'implementation Council requires workspace_strategy=git-worktree.',
 }).refine(value => value.workspace_strategy !== 'git-worktree' || Boolean(value.workspace), {
   message: 'git-worktree Council requires workspace.',
+}).refine(value => !(value.inputs && value.attachments), {
+  message: 'Use either protocol inputs or host attachments, not both.',
 });
 
 export function createToolHandlers(runtime) {
@@ -129,8 +141,8 @@ export function createToolHandlers(runtime) {
     uagents_get_capabilities: async input => runtime.capabilities(input.target),
     uagents_list_models: async input => runtime.listModels(input.target),
     uagents_probe: async input => runtime.probe(input.target, { model: input.model ?? 'default' }),
-    uagents_submit: async input => runtime.submit(input),
-    uagents_council_submit: async input => runtime.submitCouncil(input),
+    uagents_submit: async input => runtime.submit(normalizeHostAttachmentRequest(input)),
+    uagents_council_submit: async input => runtime.submitCouncil(normalizeHostAttachmentRequest(input)),
     uagents_council_status: async input => runtime.councilStatus(input.council_id),
     uagents_council_result: async input => runtime.councilResult(input.council_id),
     uagents_council_diff: async input => runtime.councilDiff(input.council_id),
@@ -160,8 +172,8 @@ export function createServer({ runtime = createRuntime(), supervisor = null } = 
   register('uagents_get_capabilities', 'Return the declared capabilities of one Agent target.', z.object({ target: z.string().min(1).max(64) }).strict());
   register('uagents_list_models', 'Merge approved model routes with local no-prompt native model discovery. Discovery never auto-approves new models and does not validate provider authentication, quota, or live availability.', z.object({ target: z.string().min(1).max(64), refresh: z.boolean().optional() }).strict());
   register('uagents_probe', 'Check one target connection without submitting a task, launching an app, logging in, or approving anything.', z.object({ target: z.string().min(1).max(64), model: z.string().min(1).max(256).optional() }).strict());
-  register('uagents_submit', 'Register one idempotent task and return quickly with a task ID and polling interval. Execution continues in a detached worker.', requestSchema);
-  register('uagents_council_submit', 'Register a fan-out Council. Shared mode preserves the original workspace; git-worktree creates one persistent branch/worktree per member and enables implementation Council. No automatic merge, vote or synthesis is performed.', councilRequestSchema);
+  register('uagents_submit', 'Register one idempotent task and return quickly with a task ID and polling interval. Host-facing attachments may be passed as {type,local_path,name?}; uAgents reads those local files and converts them into the existing attachment contract before registration. Execution continues in a detached worker.', requestSchema);
+  register('uagents_council_submit', 'Register a fan-out Council. Host-facing attachments may be passed as {type,local_path,name?} and are converted into the existing attachment contract before fan-out. Shared mode preserves the original workspace; git-worktree creates one persistent branch/worktree per member and enables implementation Council. No automatic merge, vote or synthesis is performed.', councilRequestSchema);
   register('uagents_council_status', 'Aggregate persisted member Task status for one Council. Never contacts native Agents.', councilIdSchema);
   register('uagents_council_result', 'Aggregate member Task results, usage and artifacts for one Council without model synthesis.', councilIdSchema);
   register('uagents_council_diff', 'Compare git-worktree Council candidates locally, including tracked patches and untracked files. Never modifies a worktree or contacts native Agents.', councilIdSchema);

@@ -25,7 +25,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 - 本地 uAgents CLI、后台 Worker 和受信任的 Agent CLI 逐层继承调用终端环境，使任意 Provider 的环境变量凭据无需硬编码即可使用；环境内容不会进入请求、SQLite 或结果。
 - 外部发送前持久化 `possibly_sent`；发送后不确定状态不自动换 UUID、模型或 Provider 重放。
 - workspace 重叠租约、fencing token、统一附件快照（类型/MIME/尺寸/字节数/SHA-256）、不可变产物捕获与 SHA-256 验证。
-- 附件既可继续用 workspace 相对 `{type,path}`、绝对本地 `{type,source}`，也可用 `{type,blob:{name,data_base64}}` 直接传宿主/connector 已取得的文件 bytes；外部 source/blob 都会归一化到 workspace 的 `.uagents/inputs/` 后复用同一附件链路。
+- 附件既可继续用 workspace 相对 `{type,path}`、绝对本地 `{type,source}`，也可用 `{type,blob:{name,data_base64}}` 直接传宿主/connector 已取得的文件 bytes；Unified MCP 还可直接接收 `attachments:[{type,local_path,name?}]`，让聊天宿主把已物化临时文件交给 uAgents 而无需手工 base64。外部附件最终都复用同一 `.uagents/inputs/`、snapshot 与 target mapping 链路。
 - WorkBuddy/OpenCode 支持 `session.continue_from_task_id` 和 `session.fork_from_task_id`：新 Task 可以继续上一 native session，或从它派生独立 native branch；uAgents 不重放历史 prompt。
 - First-class Council 把 2–16 个成员组织成一个持久化 fan-out/fan-in 单元；默认 `analysis + shared`。`implementation + git-worktree` 可并行产出独立候选，再通过 `council-diff` 比较、`council-validate` 记录单步或多步 named 本地测试证据、显式 `council-adopt` 采纳、显式 `council-cleanup` 回收；成员仍是普通 Task，不自动投票、merge、总结或后台 GC。
 - `status`/`list` 只读本地状态；只有显式 `reconcile`（或针对已有 durable process 的 `resume`）才恢复已有原生执行观察，绝不重发原 prompt。
@@ -86,7 +86,9 @@ CLI-first 调用不再需要只靠 Skill prose 猜参数：`describe [command]` 
 
 `models <target>` 是 no-prompt native discovery：WorkBuddy 从本机 CLI help 读取 supported labels，OpenCode 从本机 `models <provider> --pure` catalog 读取 route。结果同时标记 `configured`、`admission_allowed`、`discovered` 和 `usable`；`usable` 只表示 allowlist 与本机 catalog 的交集，不证明 provider authentication/quota/live availability。详见 [Dynamic Model Discovery 当前状态](docs/status/2026-09-12-dynamic-model-discovery-current.md)。
 
-附件输入有三种等价入口：`{"type":"file","path":"requirements.md"}` / `{"type":"image","path":"assets/screenshot.png"}` 直接引用 workspace 内文件；`{"type":"file","source":"F:\\Downloads\\brief.pdf"}` 可引用 workspace 外的绝对本地路径；宿主/connector 已经取得文件 bytes 时可直接使用 `{"type":"file","blob":{"name":"brief.pdf","data_base64":"..."}}`。`source` / `blob` 都会在注册前归一化为 `.uagents/inputs/...` 下的 workspace-relative attachment；后续 snapshot 和 target mapping 与 `path` 输入完全共用。uAgents Core 不解析 Drive/Slack/邮件等 opaque connector ID，connector 层只需把文件 bytes 交成通用 blob。
+Core 附件输入有三种等价入口：`{"type":"file","path":"requirements.md"}` / `{"type":"image","path":"assets/screenshot.png"}` 直接引用 workspace 内文件；`{"type":"file","source":"F:\\Downloads\\brief.pdf"}` 可引用 workspace 外的绝对本地路径；宿主/connector 已经取得文件 bytes 时可直接使用 `{"type":"file","blob":{"name":"brief.pdf","data_base64":"..."}}`。`source` / `blob` 都会在注册前归一化为 `.uagents/inputs/...` 下的 workspace-relative attachment；后续 snapshot 和 target mapping 与 `path` 输入完全共用。uAgents Core 不解析 Drive/Slack/邮件等 opaque connector ID。
+
+Unified MCP 为聊天/connector host 再提供一个不进入 Core schema 的便捷入口：`attachments:[{"type":"file","local_path":"C:\\host-temp\\upload.tmp","name":"brief.pdf"}]`。宿主已经有本地临时文件时应优先用它，而不是自己读取并 base64；MCP 层会在进入 Runtime 前转成现有 blob contract。临时 `local_path` 不进入 Task/Council 历史，也不参与最终 request identity；相同 name/bytes 即使重试时 temp path 改变，仍可保持同 UUID 幂等。
 
 WorkBuddy/OpenCode 的下一轮对话仍然 submit 一个新的请求和新的 UUID，只需增加：
 
@@ -146,9 +148,7 @@ uagents_ensure             uagents_resume
 uagents_stop
 ```
 
-Unified MCP 的 `uagents_submit` 与 Core 使用同一附件输入：`file` / `image` 都可以给 workspace-relative
-`path`，也可以给宿主已经物化到本机的绝对 `source`，或者直接给 `{blob:{name,data_base64}}`。`source` / `blob` 会在注册前复制进 workspace 并归一化为
-现有 `{type,path}`；MCP 不会把 opaque connector file-id 直接传给 target，connector host 先取得 bytes 再使用 blob。
+Unified MCP 的 `uagents_submit` / `uagents_council_submit` 既接受 Core `inputs`，也接受 host-only `attachments:[{type,local_path,name?}]`，两者严格二选一。host attachment 会先转成现有 blob，再沿用同一个 `.uagents/inputs` / snapshot / Council fan-out / target mapping。MCP 不会把 opaque connector file-id 直接传给 target；connector host 仍需先取得 bytes 或物化成本地文件。
 
 Codex 可能只把显式声明的环境变量交给插件 MCP 进程，因此环境变量鉴权的本机 Agent 不应默认走 MCP。CLI 与 MCP 只有在使用同一状态目录时才共享 Task/Attempt；切换入口也不得用新 UUID 重放已发送或不确定的任务。
 
@@ -184,11 +184,13 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 - [Council Candidate Validation 设计](docs/superpowers/specs/2026-09-12-council-candidate-validation-design.md)
 - [Multi-step Candidate Validation 设计](docs/superpowers/specs/2026-09-12-multi-step-candidate-validation-design.md)
 - [Validation Profiles 设计](docs/superpowers/specs/2026-09-12-validation-profiles-design.md)
+- [Attachment Host UX Integration 设计](docs/superpowers/specs/2026-09-12-attachment-host-ux-integration-design.md)
 - [Explicit Candidate Adopt 验证](docs/verification/2026-09-11-explicit-candidate-adopt.md)
 - [Council Cleanup provider-free 验证](docs/verification/2026-09-12-council-cleanup.md)
 - [Council Candidate Validation provider-free / 真实候选验证](docs/verification/2026-09-12-council-candidate-validation.md)
 - [Multi-step Candidate Validation provider-free / 真实候选验证](docs/verification/2026-09-12-multi-step-candidate-validation.md)
 - [Validation Profiles provider-free 验证](docs/verification/2026-09-12-validation-profiles.md)
+- [Attachment Host UX Integration provider-free 验证](docs/verification/2026-09-12-attachment-host-ux-integration.md)
 - [Council Candidate Comparison 验证](docs/verification/2026-09-11-council-candidate-comparison.md)
 - [Council Worktree Isolation 实机 implementation E2E](docs/verification/2026-09-11-real-council-worktree-implementation-e2e.md)
 - [Council Worktree Isolation provider-free 验证](docs/verification/2026-09-11-council-worktree-isolation.md)
