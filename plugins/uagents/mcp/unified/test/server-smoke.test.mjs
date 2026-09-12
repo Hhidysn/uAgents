@@ -85,6 +85,27 @@ test('MCP and CLI share UUID idempotency and the same persisted model fields', a
   } finally { runtime.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('MCP model listing merges configured routes with native discovery evidence', async () => {
+  fs.mkdirSync(base, { recursive: true });
+  const root = fs.mkdtempSync(path.join(base, 'unified-model-discovery-'));
+  const runtime = new UnifiedRuntime({
+    stateRoot: root,
+    spawnWorker: () => {},
+    adapterFactory: () => ({ discoverModels: async () => ({
+      status: 'ok', discovery: 'native_cli_catalog', models: [
+        { id: 'deepseek-v4-flash', route_id: 'commandcode-goat/deepseek/deepseek-v4-flash', provider: 'commandcode-goat/deepseek' },
+        { id: 'deepseek-v4-pro', route_id: 'commandcode-goat/deepseek/deepseek-v4-pro', provider: 'commandcode-goat/deepseek' },
+      ],
+    }) }),
+  });
+  try {
+    const models = await createToolHandlers(runtime).uagents_list_models({ target: 'opencode' });
+    assert.equal(models.find(model => model.route_id === 'commandcode-goat/deepseek/deepseek-v4-flash').usable, true);
+    assert.equal(models.find(model => model.route_id === 'commandcode-goat/deepseek/deepseek-v4-pro').configured, false);
+    assert.equal(models.find(model => model.route_id === 'commandcode-goat/z-ai/glm-5.3-flash').discovered, false);
+  } finally { runtime.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('MCP submit accepts host-materialized file and image sources and normalizes them before storage', async () => {
   fs.mkdirSync(base, { recursive: true });
   const root = fs.mkdtempSync(path.join(base, 'unified-attachments-'));

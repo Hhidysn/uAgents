@@ -12,6 +12,7 @@ import { reconcileTask } from './reconcile.mjs';
 import { TaskService } from './task-service.mjs';
 import { childEnvironment } from './child-environment.mjs';
 import { CouncilService } from './council-service.mjs';
+import { discoverModelsForTarget } from './model-discovery.mjs';
 
 const sourceWorkerFile = fileURLToPath(new URL('./worker-factory.mjs', import.meta.url));
 
@@ -43,9 +44,8 @@ export class UnifiedRuntime {
 
   capabilities(target) { return { target, ...targetDescriptor(this.registry, target) }; }
 
-  listModels(target) {
-    targetDescriptor(this.registry, target);
-    return Object.values(this.registry.models).filter(model => model.target === target && model.enabled);
+  async listModels(target) {
+    return discoverModelsForTarget(target, { registry: this.registry, adapterFactory: this.adapterFactory });
   }
 
   async probe(target, { model = 'default' } = {}) {

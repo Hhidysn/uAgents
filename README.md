@@ -5,7 +5,7 @@ uAgents 是供 Codex 使用的本地统一 Agent 调度插件。当前发行标�
 TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时明确保留各目标不同的
 模型、文件、权限、取消和桌面连接能力。
 
-先看：[Council 当前状态](docs/status/2026-09-12-council-current.md) · [Session Continuation / Fork 当前状态](docs/status/2026-09-10-session-continuation-current.md) · [Universal Attachment 当前状态](docs/status/2026-09-12-universal-attachment-current.md) · [文档索引](docs/README.md)
+先看：[Council 当前状态](docs/status/2026-09-12-council-current.md) · [Dynamic Model Discovery 当前状态](docs/status/2026-09-12-dynamic-model-discovery-current.md) · [Session Continuation / Fork 当前状态](docs/status/2026-09-10-session-continuation-current.md) · [Universal Attachment 当前状态](docs/status/2026-09-12-universal-attachment-current.md) · [文档索引](docs/README.md)
 
 > 重要边界：OpenCode 现在支持文本 `analysis` 和 `implementation`，并把声明式文件/图片输入映射为原生附件；
 > WorkBuddy 也通过其已核实的 stream-json `document` / `image` block 接入文件和图片。WorkBuddy 与 OpenCode
@@ -20,6 +20,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 - SQLite WAL 控制面；Task、Attempt、Native Process、Native Session 分离；同 UUID 与同一有效请求不会重复发送。
 - 每次调用记录 `model_requested`、`model_resolved`、`model_reported`、`model_verified`，不把配置选择冒充运行期验证。
 - `model_resolved` 保存规范模型名，完整 Provider/Model 运输路线单独保存在 `route_id`。
+- `models <target>` 会把静态 allowlist 与 WorkBuddy/OpenCode 本机 native catalog/help 证据合并；发现到的新模型只展示、不自动放行，provider 登录/额度/在线状态仍保持 `unconfirmed`。
 - 原生失败以脱敏结构化错误返回；Provider 响应头、响应体和凭据内容不会写入任务记录。
 - 本地 uAgents CLI、后台 Worker 和受信任的 Agent CLI 逐层继承调用终端环境，使任意 Provider 的环境变量凭据无需硬编码即可使用；环境内容不会进入请求、SQLite 或结果。
 - 外部发送前持久化 `possibly_sent`；发送后不确定状态不自动换 UUID、模型或 Provider 重放。
@@ -80,6 +81,8 @@ node "<plugin-root>\bin\uagents.mjs" council-cleanup <council-id> --all --force
 `submit` 必须且只能选择 `--request FILE` 或 `--request-stdin`。stdin 适用于调用方可以把输入与命令文本分离的场景；不要把 prompt 或完整 JSON 放入进程参数。
 
 CLI-first 调用不再需要只靠 Skill prose 猜参数：`describe [command]` 返回 machine-readable 的 CLI command contract，`schema request` / `schema council` 返回 Task/Council 的 Draft 2020-12 JSON Schema；这些 discovery 都是纯本地只读，不创建 Runtime/Task，也不联系 Provider。MCP 入口继续通过 `tools/list` 暴露自己的 input schema。
+
+`models <target>` 是 no-prompt native discovery：WorkBuddy 从本机 CLI help 读取 supported labels，OpenCode 从本机 `models <provider> --pure` catalog 读取 route。结果同时标记 `configured`、`admission_allowed`、`discovered` 和 `usable`；`usable` 只表示 allowlist 与本机 catalog 的交集，不证明 provider authentication/quota/live availability。详见 [Dynamic Model Discovery 当前状态](docs/status/2026-09-12-dynamic-model-discovery-current.md)。
 
 附件输入有三种等价入口：`{"type":"file","path":"requirements.md"}` / `{"type":"image","path":"assets/screenshot.png"}` 直接引用 workspace 内文件；`{"type":"file","source":"F:\\Downloads\\brief.pdf"}` 可引用 workspace 外的绝对本地路径；宿主/connector 已经取得文件 bytes 时可直接使用 `{"type":"file","blob":{"name":"brief.pdf","data_base64":"..."}}`。`source` / `blob` 都会在注册前归一化为 `.uagents/inputs/...` 下的 workspace-relative attachment；后续 snapshot 和 target mapping 与 `path` 输入完全共用。uAgents Core 不解析 Drive/Slack/邮件等 opaque connector ID，connector 层只需把文件 bytes 交成通用 blob。
 
@@ -162,6 +165,9 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 
 ## 设计与证据
 
+- [Dynamic Model Discovery 当前状态](docs/status/2026-09-12-dynamic-model-discovery-current.md)
+- [Dynamic Model Discovery 设计](docs/superpowers/specs/2026-09-12-dynamic-model-discovery-design.md)
+- [Dynamic Model Discovery provider-free 验证](docs/verification/2026-09-12-dynamic-model-discovery.md)
 - [Council 当前状态](docs/status/2026-09-12-council-current.md)
 - [统一 Runtime 设计](docs/superpowers/specs/2026-09-04-uagents-unified-agent-runtime-design.md)
 - [Runtime 可靠性修复设计](docs/superpowers/specs/2026-09-05-runtime-reliability-fixes-design.md)

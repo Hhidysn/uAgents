@@ -142,7 +142,7 @@ export function createServer({ runtime = createRuntime(), supervisor = null } = 
   const register = (name, description, inputSchema) => server.registerTool(name, { description, inputSchema }, invoke(handlers[name]));
   register('uagents_list_targets', 'List enabled Agent targets from the static registry. Does not contact providers.', z.object({}).strict());
   register('uagents_get_capabilities', 'Return the declared capabilities of one Agent target.', z.object({ target: z.string().min(1).max(64) }).strict());
-  register('uagents_list_models', 'List approved model routes for one target. Does not validate provider availability.', z.object({ target: z.string().min(1).max(64), refresh: z.boolean().optional() }).strict());
+  register('uagents_list_models', 'Merge approved model routes with local no-prompt native model discovery. Discovery never auto-approves new models and does not validate provider authentication, quota, or live availability.', z.object({ target: z.string().min(1).max(64), refresh: z.boolean().optional() }).strict());
   register('uagents_probe', 'Check one target connection without submitting a task, launching an app, logging in, or approving anything.', z.object({ target: z.string().min(1).max(64), model: z.string().min(1).max(256).optional() }).strict());
   register('uagents_submit', 'Register one idempotent task and return quickly with a task ID and polling interval. Execution continues in a detached worker.', requestSchema);
   register('uagents_council_submit', 'Register a fan-out Council. Shared mode preserves the original workspace; git-worktree creates one persistent branch/worktree per member and enables implementation Council. No automatic merge, vote or synthesis is performed.', councilRequestSchema);

@@ -25,7 +25,7 @@ const target = positional('target', 'target_id', true);
 export const CLI_COMMANDS = Object.freeze({
   targets: command('targets', 'targets', 'List enabled target IDs.', [], [], 'local_only'),
   capabilities: command('capabilities', 'capabilities <target>', 'Read the static capability descriptor for one target.', [target], [], 'local_only'),
-  models: command('models', 'models <target>', 'List approved model routes for one target.', [target], [], 'local_only'),
+  models: command('models', 'models <target>', 'Merge approved model routes with local no-prompt native model discovery.', [target], [], 'native_no_prompt'),
   probe: command('probe', 'probe <target> [--model <model>]', 'Run the target-specific non-prompt probe.', [target], [option('--model', 'string', 'Model selector for the probe.')], 'native_no_prompt'),
   describe: command('describe', 'describe [command]', 'Return the machine-readable CLI contract.', [positional('command', 'command_name', false)], [], 'local_only'),
   schema: command('schema', 'schema <request|council|council-validation>', 'Return a machine-readable protocol JSON Schema.', [positional('subject', 'enum', true, ['request', 'council', 'council-validation'])], [], 'local_only'),

@@ -4,6 +4,7 @@
 
 ## 当前先读
 
+- [Dynamic Model Discovery 当前状态](status/2026-09-12-dynamic-model-discovery-current.md)：WorkBuddy/OpenCode 本机模型 catalog/help 与静态 allowlist 的合并证据和 provider 边界。
 - [Council 当前状态](status/2026-09-12-council-current.md)：当前统一入口，覆盖 fan-out、worktree、diff、local validation evidence、adopt 与显式 cleanup 生命周期。
 - [CLI Schema Discovery 当前状态](status/2026-09-10-cli-schema-discovery-current.md)：CLI `describe` / `schema request` 的 machine-readable contract、source of truth 与验证边界。
 - [Native Session Continuation / Fork 当前状态](status/2026-09-10-session-continuation-current.md)：WorkBuddy/OpenCode 显式续聊与 native branch 的当前源码能力、边界和验证状态。
@@ -14,6 +15,7 @@
 
 ## 设计与实施
 
+- [Dynamic Model Discovery 设计](superpowers/specs/2026-09-12-dynamic-model-discovery-design.md)
 - [First-class Council 设计](superpowers/specs/2026-09-10-first-class-council-design.md)
 - [Council Worktree Isolation 设计](superpowers/specs/2026-09-11-council-worktree-isolation-design.md)
 - [Council Candidate Comparison 设计](superpowers/specs/2026-09-11-council-candidate-comparison-design.md)
@@ -39,6 +41,7 @@
 
 ## 验证证据
 
+- [Dynamic Model Discovery provider-free 验证（2026-09-12）](verification/2026-09-12-dynamic-model-discovery.md)
 - [Council Worktree Isolation 实机 implementation E2E（2026-09-11）](verification/2026-09-11-real-council-worktree-implementation-e2e.md)
 - [Council Candidate Comparison 验证（2026-09-11）](verification/2026-09-11-council-candidate-comparison.md)
 - [Explicit Candidate Adopt 验证（2026-09-11）](verification/2026-09-11-explicit-candidate-adopt.md)

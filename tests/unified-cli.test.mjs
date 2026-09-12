@@ -16,17 +16,25 @@ const request = patch => ({
   policy: { fallback: 'none', max_cost_usd: null }, ...patch,
 });
 
-test('discovery commands expose the approved static registry', async () => {
+test('discovery commands expose configured routes plus local native model evidence', async () => {
   const targets = await execute(['targets']);
   assert.equal(targets.ok, true);
   assert.deepEqual(targets.data, ['agy', 'workbuddy', 'opencode', 'doubao', 'trae']);
   const capabilities = await execute(['capabilities', 'opencode']);
   assert.deepEqual(capabilities.data.modes, ['analysis', 'implementation']);
   assert.equal('available' in capabilities.data, false);
-  const models = await execute(['models', 'opencode']);
-  assert.deepEqual(models.data.map(model => model.route_id).sort(), [
+  const models = await execute(['models', 'opencode'], { adapterFactory: () => ({ discoverModels: async () => ({
+    status: 'ok', discovery: 'native_cli_catalog', models: [
+      { id: 'deepseek-v4-flash', route_id: 'commandcode-goat/deepseek/deepseek-v4-flash', provider: 'commandcode-goat/deepseek' },
+      { id: 'deepseek-v4-pro', route_id: 'commandcode-goat/deepseek/deepseek-v4-pro', provider: 'commandcode-goat/deepseek' },
+      { id: 'glm-5.3-flash', route_id: 'commandcode-goat/z-ai/glm-5.3-flash', provider: 'commandcode-goat/z-ai' },
+    ],
+  }) }) });
+  assert.deepEqual(models.data.filter(model => model.configured).map(model => model.route_id).sort(), [
     'commandcode-goat/deepseek/deepseek-v4-flash', 'commandcode-goat/z-ai/glm-5.3-flash',
   ]);
+  assert.equal(models.data.find(model => model.route_id === 'commandcode-goat/deepseek/deepseek-v4-flash').usable, true);
+  assert.equal(models.data.find(model => model.route_id === 'commandcode-goat/deepseek/deepseek-v4-pro').configured, false);
 });
 
 test('CLI discovery exposes commands and submit arguments without opening runtime state', async () => {
@@ -64,6 +72,8 @@ test('CLI discovery exposes commands and submit arguments without opening runtim
   assert.deepEqual(councilCleanup.data.constraints, [{ type: 'exactly_one', options: ['--member', '--all'] }]);
   assert.deepEqual(councilCleanup.data.options.map(option => option.name), ['--member', '--all', '--force', '--state-dir']);
   assert.equal(councilCleanup.data.effect, 'local_state_change');
+  const models = await execute(['describe', 'models'], { env: {} });
+  assert.equal(models.data.effect, 'native_no_prompt');
   await assert.rejects(() => execute(['describe', 'unknown'], { env: {} }), { code: 'usage' });
 });
 

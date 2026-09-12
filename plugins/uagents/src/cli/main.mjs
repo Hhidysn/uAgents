@@ -7,6 +7,8 @@ import { CLI_PARSE_OPTIONS, describeCli, isKnownCliCommand } from './discovery.m
 import { requestJsonSchema } from '../protocol/request-json-schema.mjs';
 import { councilJsonSchema } from '../protocol/council-schema.mjs';
 import { councilValidationJsonSchema } from '../protocol/council-validation-schema.mjs';
+import { adapterFor } from '../adapters/index.mjs';
+import { discoverModelsForTarget } from '../runtime/model-discovery.mjs';
 
 export async function execute(argv, options = {}) {
   const registry = options.registry ?? createRegistry();
@@ -20,7 +22,7 @@ export async function execute(argv, options = {}) {
   if (command === 'capabilities') return ok({ target: subject, ...targetDescriptor(registry, required(subject, 'target')) });
   if (command === 'models') {
     const target = required(subject, 'target'); targetDescriptor(registry, target);
-    return ok(Object.values(registry.models).filter(model => model.target === target && model.enabled));
+    return ok(await discoverModelsForTarget(target, { registry, adapterFactory: options.adapterFactory ?? adapterFor }));
   }
   if (command === 'describe') {
     if (values.format === 'table') fail('usage', 'describe is machine-readable JSON only.');

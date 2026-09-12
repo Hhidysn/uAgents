@@ -9,6 +9,7 @@ import {
   prepareDurableExecution,
 } from '../transports/durable-cli-execution.mjs';
 import { createProcessInspector } from '../host/process-inspector.mjs';
+import { discoverCliModelCatalog } from '../transports/model-discovery.mjs';
 
 export class CliAdapter {
   #outcomes = new Map();
@@ -56,12 +57,12 @@ export class CliAdapter {
     };
   }
 
-  async discoverModels() {
+  async discoverModels({ registry = BUILTIN_REGISTRY } = {}) {
     if (this.target === 'agy') return { models: [], discovery: 'explicit-pattern' };
-    const models = Object.values(BUILTIN_REGISTRY.models).filter(model => model.target === this.target && model.enabled).map(model => ({
-      id: model.model, route_id: model.route_id, provider: model.provider, kind: model.kind,
-    }));
-    return { models, discovery: 'configured' };
+    if (this.target === 'workbuddy' || this.target === 'opencode') {
+      return discoverCliModelCatalog(this.target, { entryOverride: await this.#verifiedEntry(), registry });
+    }
+    return { models: [], discovery: 'unsupported', status: 'unsupported' };
   }
 
   async probe(request, context) {
