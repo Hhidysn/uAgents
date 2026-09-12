@@ -10,7 +10,7 @@ import { requestJsonSchema } from '../../../src/protocol/request-json-schema.mjs
 import { councilJsonSchema } from '../../../src/protocol/council-schema.mjs';
 import { councilValidationJsonSchema } from '../../../src/protocol/council-validation-schema.mjs';
 import { UnifiedRuntime } from '../../../src/runtime/api.mjs';
-import { councilRequestSchema, councilValidationSchema, createToolHandlers, requestSchema } from '../src/server.mjs';
+import { councilRequestSchema, councilValidateSchema, councilValidationSchema, createToolHandlers, requestSchema } from '../src/server.mjs';
 
 const base = path.resolve('../../../../.local/test-runs');
 
@@ -228,6 +228,11 @@ test('MCP Council validation schema stays aligned with Core validation discovery
   }).success, false);
   assert.equal(councilValidationSchema.safeParse({
     schema_version: '1.0', checks: [{ name: 'same', command: [process.execPath] }, { name: 'SAME', command: [process.execPath] }],
+  }).success, false);
+  assert.equal(councilValidateSchema.safeParse({ council_id: randomUUID(), member_id: 'a', profile: 'pre-adopt' }).success, true);
+  assert.equal(councilValidateSchema.safeParse({ council_id: randomUUID(), all: true, profile: 'bad name' }).success, false);
+  assert.equal(councilValidateSchema.safeParse({
+    council_id: randomUUID(), all: true, profile: 'fast', validation: { schema_version: '1.0', command: [process.execPath] },
   }).success, false);
 });
 

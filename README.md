@@ -72,7 +72,9 @@ node "<plugin-root>\bin\uagents.mjs" council-status <council-id>
 node "<plugin-root>\bin\uagents.mjs" council-result <council-id>
 node "<plugin-root>\bin\uagents.mjs" council-diff <council-id>
 node "<plugin-root>\bin\uagents.mjs" schema council-validation
+node "<plugin-root>\bin\uagents.mjs" schema council-validation-profiles
 node "<plugin-root>\bin\uagents.mjs" council-validate <council-id> --all --validation "F:\path\validation.json"
+node "<plugin-root>\bin\uagents.mjs" council-validate <council-id> --all --profile pre-adopt
 node "<plugin-root>\bin\uagents.mjs" council-adopt <council-id> --member <member-id> --workspace "F:\project"
 node "<plugin-root>\bin\uagents.mjs" council-cleanup <council-id> --member <member-id>
 node "<plugin-root>\bin\uagents.mjs" council-cleanup <council-id> --all --force
@@ -116,7 +118,7 @@ Council 默认用于独立多 Agent analysis。示例：
 }
 ```
 
-Council 当前完整生命周期统一记录在 [Council 当前状态](docs/status/2026-09-12-council-current.md)。兼容默认是 `analysis + shared`；并行改代码使用 `implementation + git-worktree`，随后可 `council-diff` 比较、`council-validate` 在各 candidate worktree 中执行单条 argv 或有序 named checks（例如 lint/typecheck/test/build）并记录 evidence、显式 `council-adopt` 采纳、最后显式 `council-cleanup` 回收 worktree/branch。uAgents 不自动选 winner、synthesis、commit、merge 或后台 cleanup。
+Council 当前完整生命周期统一记录在 [Council 当前状态](docs/status/2026-09-12-council-current.md)。兼容默认是 `analysis + shared`；并行改代码使用 `implementation + git-worktree`，随后可 `council-diff` 比较、`council-validate` 在各 candidate worktree 中执行单条 argv 或有序 named checks（例如 lint/typecheck/test/build）并记录 evidence。项目也可以把常用 checks 提交到 source workspace 的 `.uagents/validation-profiles.json`，再用 `--profile pre-adopt` 对所有候选应用同一标准。之后显式 `council-adopt` 采纳、最后显式 `council-cleanup` 回收 worktree/branch。uAgents 不自动选 winner、synthesis、commit、merge 或后台 cleanup。
 
 受管生命周期命令（Host 状态固定在 `%LOCALAPPDATA%\uAgents\host-v1`，不受 `--state-dir` 影响）：
 
@@ -181,10 +183,12 @@ python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plug
 - [Council Cleanup 设计](docs/superpowers/specs/2026-09-12-council-cleanup-design.md)
 - [Council Candidate Validation 设计](docs/superpowers/specs/2026-09-12-council-candidate-validation-design.md)
 - [Multi-step Candidate Validation 设计](docs/superpowers/specs/2026-09-12-multi-step-candidate-validation-design.md)
+- [Validation Profiles 设计](docs/superpowers/specs/2026-09-12-validation-profiles-design.md)
 - [Explicit Candidate Adopt 验证](docs/verification/2026-09-11-explicit-candidate-adopt.md)
 - [Council Cleanup provider-free 验证](docs/verification/2026-09-12-council-cleanup.md)
 - [Council Candidate Validation provider-free / 真实候选验证](docs/verification/2026-09-12-council-candidate-validation.md)
 - [Multi-step Candidate Validation provider-free / 真实候选验证](docs/verification/2026-09-12-multi-step-candidate-validation.md)
+- [Validation Profiles provider-free 验证](docs/verification/2026-09-12-validation-profiles.md)
 - [Council Candidate Comparison 验证](docs/verification/2026-09-11-council-candidate-comparison.md)
 - [Council Worktree Isolation 实机 implementation E2E](docs/verification/2026-09-11-real-council-worktree-implementation-e2e.md)
 - [Council Worktree Isolation provider-free 验证](docs/verification/2026-09-11-council-worktree-isolation.md)

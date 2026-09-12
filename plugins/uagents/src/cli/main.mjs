@@ -7,6 +7,7 @@ import { CLI_PARSE_OPTIONS, describeCli, isKnownCliCommand } from './discovery.m
 import { requestJsonSchema } from '../protocol/request-json-schema.mjs';
 import { councilJsonSchema } from '../protocol/council-schema.mjs';
 import { councilValidationJsonSchema } from '../protocol/council-validation-schema.mjs';
+import { councilValidationProfilesJsonSchema } from '../protocol/council-validation-profiles.mjs';
 import { adapterFor } from '../adapters/index.mjs';
 import { discoverModelsForTarget } from '../runtime/model-discovery.mjs';
 
@@ -33,7 +34,8 @@ export async function execute(argv, options = {}) {
     if (subject === 'request') return ok(requestJsonSchema());
     if (subject === 'council') return ok(councilJsonSchema());
     if (subject === 'council-validation') return ok(councilValidationJsonSchema());
-    fail('usage', 'schema requires subject request, council, or council-validation.');
+    if (subject === 'council-validation-profiles') return ok(councilValidationProfilesJsonSchema());
+    fail('usage', 'schema requires subject request, council, council-validation, or council-validation-profiles.');
   }
   if (command === 'config' && subject === 'validate') {
     const config = values.config ? JSON.parse(fs.readFileSync(values.config, 'utf8')) : {};
@@ -79,11 +81,13 @@ export async function execute(argv, options = {}) {
     }));
     if (command === 'council-validate') {
       if (Boolean(values.member) === Boolean(values.all)) fail('usage', 'council-validate requires exactly one of --member or --all.');
-      const validation = parseJson(fs.readFileSync(required(values.validation, '--validation'), 'utf8'), 'Council validation');
+      if (Boolean(values.validation) === Boolean(values.profile)) fail('usage', 'council-validate requires exactly one of --validation or --profile.');
+      const validation = values.validation ? parseJson(fs.readFileSync(values.validation, 'utf8'), 'Council validation') : null;
       return ok(runtime.councilValidate(required(subject, 'council id'), {
         memberId: values.member ?? null,
         all: values.all === true,
         validation,
+        profile: values.profile ?? null,
       }));
     }
     if (command === 'council-cleanup') {

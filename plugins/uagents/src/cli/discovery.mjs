@@ -16,6 +16,7 @@ export const CLI_PARSE_OPTIONS = Object.freeze({
   all: Object.freeze({ type: 'boolean' }),
   force: Object.freeze({ type: 'boolean' }),
   validation: Object.freeze({ type: 'string' }),
+  profile: Object.freeze({ type: 'string' }),
 });
 
 const stateDir = option('--state-dir', 'absolute_path', 'Use one explicit task-state directory for this command.');
@@ -28,7 +29,7 @@ export const CLI_COMMANDS = Object.freeze({
   models: command('models', 'models <target>', 'Merge approved model routes with local no-prompt native model discovery.', [target], [], 'native_no_prompt'),
   probe: command('probe', 'probe <target> [--model <model>]', 'Run the target-specific non-prompt probe.', [target], [option('--model', 'string', 'Model selector for the probe.')], 'native_no_prompt'),
   describe: command('describe', 'describe [command]', 'Return the machine-readable CLI contract.', [positional('command', 'command_name', false)], [], 'local_only'),
-  schema: command('schema', 'schema <request|council|council-validation>', 'Return a machine-readable protocol JSON Schema.', [positional('subject', 'enum', true, ['request', 'council', 'council-validation'])], [], 'local_only'),
+  schema: command('schema', 'schema <request|council|council-validation|council-validation-profiles>', 'Return a machine-readable protocol JSON Schema.', [positional('subject', 'enum', true, ['request', 'council', 'council-validation', 'council-validation-profiles'])], [], 'local_only'),
   config: command('config', 'config validate [--config <file>]', 'Validate user registry tightening configuration.', [positional('action', 'enum', true, ['validate'])], [option('--config', 'file', 'JSON configuration file.')], 'local_only'),
   submit: {
     ...command('submit', 'submit (--request <file> | --request-stdin) [--state-dir <dir>]', 'Register one idempotent task; a detached worker may send the prompt after registration.', [], [
@@ -57,13 +58,17 @@ export const CLI_COMMANDS = Object.freeze({
     stateDir,
   ], 'local_state_change'),
   'council-validate': {
-    ...command('council-validate', 'council-validate <council-id> (--member <member-id> | --all) --validation <file> [--state-dir <dir>]', 'Run one legacy argv validation or ordered named local validation checks in selected Council candidate worktrees and persist the latest evidence.', [positional('council_id', 'uuid', true)], [
+    ...command('council-validate', 'council-validate <council-id> (--member <member-id> | --all) (--validation <file> | --profile <name>) [--state-dir <dir>]', 'Run one explicit validation JSON or one named project validation profile in selected Council candidate worktrees and persist the latest evidence.', [positional('council_id', 'uuid', true)], [
       option('--member', 'string', 'Validate one Council member.', { exclusive_group: 'validation_scope' }),
       option('--all', 'boolean', 'Validate every Council member.', { exclusive_group: 'validation_scope' }),
-      option('--validation', 'file', 'Read the Council validation JSON from a file.'),
+      option('--validation', 'file', 'Read the Council validation JSON from a file.', { exclusive_group: 'validation_source' }),
+      option('--profile', 'string', 'Load a named profile from the Council source workspace .uagents/validation-profiles.json.', { exclusive_group: 'validation_source' }),
       stateDir,
     ], 'local_execution'),
-    constraints: [{ type: 'exactly_one', options: ['--member', '--all'] }],
+    constraints: [
+      { type: 'exactly_one', options: ['--member', '--all'] },
+      { type: 'exactly_one', options: ['--validation', '--profile'] },
+    ],
     request_schema: { command: 'schema council-validation', id: `uagents://schema/council-validation/${SCHEMA_VERSION}` },
   },
   'council-cleanup': {

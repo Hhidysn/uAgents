@@ -9,6 +9,7 @@ import { uuidPattern } from '../protocol/schema.mjs';
 import { executeCouncilWorktreeCleanup, inspectCouncilWorktree, prepareCouncilWorktreeCleanup, prepareCouncilWorktrees } from './council-worktrees.mjs';
 import { adoptCouncilWorktree, inspectCouncilWorktreeDiff } from './council-candidates.mjs';
 import { parseCouncilValidation } from '../protocol/council-validation-schema.mjs';
+import { loadCouncilValidationProfile } from '../protocol/council-validation-profiles.mjs';
 import { runCouncilValidation } from './council-validation.mjs';
 import { blobAttachmentIdentity } from '../artifacts/attachments.mjs';
 
@@ -180,13 +181,17 @@ export class CouncilService {
     };
   }
 
-  validate(councilId, { memberId = null, all = false, validation }) {
+  validate(councilId, { memberId = null, all = false, validation = null, profile = null }) {
     if (Boolean(memberId) === Boolean(all)) fail('invalid_request', 'Council validation requires exactly one of memberId or all=true.');
-    const parsedValidation = parseCouncilValidation(validation);
+    if (Boolean(validation) === Boolean(profile)) fail('invalid_request', 'Council validation requires exactly one of validation or profile.');
     const status = this.status(councilId);
     if (status.workspace_strategy !== 'git-worktree') {
       fail('unsupported_capability', 'council-validate requires a git-worktree Council.', { submission: 'not_sent' });
     }
+    const source = profile
+      ? loadCouncilValidationProfile(this.#request(councilId)?.workspace, profile)
+      : { profile_name: null, profile_file: null, validation: parseCouncilValidation(validation) };
+    const parsedValidation = source.validation;
     const selected = all ? status.members : status.members.filter(member => member.member_id === memberId);
     if (!selected.length) fail('invalid_request', `Unknown Council member: ${memberId}`);
     for (const member of selected) {
@@ -206,6 +211,7 @@ export class CouncilService {
     const results = [];
     for (const member of selected) {
       const evidence = runCouncilValidation(member, parsedValidation, { clock: this.clock });
+      if (source.profile_name) evidence.profile = { name: source.profile_name, file: source.profile_file };
       const stored = manifest.members.find(item => item.member_id === member.member_id);
       stored.validation = evidence;
       atomicWriteJson(path.join(councilDirectory(this.stateRoot, councilId), 'manifest.json'), manifest);
@@ -263,6 +269,12 @@ export class CouncilService {
     const manifest = readJsonIfExists(path.join(councilDirectory(this.stateRoot, councilId), 'manifest.json'));
     if (!manifest) fail('task_not_found', `Unknown council: ${councilId}`);
     return manifest;
+  }
+
+  #request(councilId) {
+    const request = readJsonIfExists(path.join(councilDirectory(this.stateRoot, councilId), 'request.json'));
+    if (!request) fail('task_not_found', `Unknown council: ${councilId}`);
+    return request;
   }
 }
 

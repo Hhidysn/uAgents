@@ -42,13 +42,16 @@ export const councilValidationSchema = z.object({
 }).refine(value => !value.checks || new Set(value.checks.map(check => check.name.toLocaleLowerCase('en-US'))).size === value.checks.length, {
   message: 'Council validation check names must be unique.',
 });
-const councilValidateSchema = z.object({
+export const councilValidateSchema = z.object({
   council_id: z.uuid(),
   member_id: z.string().min(1).max(64).optional(),
   all: z.boolean().optional(),
-  validation: councilValidationSchema,
+  validation: councilValidationSchema.optional(),
+  profile: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/).max(64).optional(),
 }).strict().refine(value => Boolean(value.member_id) !== Boolean(value.all), {
   message: 'Council validation requires exactly one of member_id or all=true.',
+}).refine(value => Boolean(value.validation) !== Boolean(value.profile), {
+  message: 'Council validation requires exactly one of validation or profile.',
 });
 const attachmentInputSchema = z.object({
   type: z.enum(['file', 'image']),
@@ -132,7 +135,7 @@ export function createToolHandlers(runtime) {
     uagents_council_result: async input => runtime.councilResult(input.council_id),
     uagents_council_diff: async input => runtime.councilDiff(input.council_id),
     uagents_council_adopt: async input => runtime.councilAdopt(input.council_id, { memberId: input.member_id, workspace: input.workspace }),
-    uagents_council_validate: async input => runtime.councilValidate(input.council_id, { memberId: input.member_id ?? null, all: input.all === true, validation: input.validation }),
+    uagents_council_validate: async input => runtime.councilValidate(input.council_id, { memberId: input.member_id ?? null, all: input.all === true, validation: input.validation ?? null, profile: input.profile ?? null }),
     uagents_council_cleanup: async input => runtime.councilCleanup(input.council_id, { memberId: input.member_id ?? null, all: input.all === true, force: input.force === true }),
     uagents_status: async input => runtime.status(input.task_id),
     uagents_result: async input => runtime.result(input.task_id),
@@ -163,7 +166,7 @@ export function createServer({ runtime = createRuntime(), supervisor = null } = 
   register('uagents_council_result', 'Aggregate member Task results, usage and artifacts for one Council without model synthesis.', councilIdSchema);
   register('uagents_council_diff', 'Compare git-worktree Council candidates locally, including tracked patches and untracked files. Never modifies a worktree or contacts native Agents.', councilIdSchema);
   register('uagents_council_adopt', 'Apply one explicitly selected git-worktree Council candidate to a destination Git workspace. The destination HEAD must match the Council base HEAD. Never commits, merges, selects a winner, or contacts native Agents.', councilAdoptSchema);
-  register('uagents_council_validate', 'Run one legacy argv validation or an ordered set of named local validation checks in selected git-worktree Council candidate workspaces and persist exit/output evidence. Never invokes a shell, contacts native Agents, or selects a winner.', councilValidateSchema);
+  register('uagents_council_validate', 'Run explicit validation JSON or a named project validation profile in selected git-worktree Council candidate workspaces and persist exit/output evidence. Profiles come from the Council source workspace .uagents/validation-profiles.json. Never contacts native Agents or selects a winner.', councilValidateSchema);
   register('uagents_council_cleanup', 'Explicitly remove selected Council worktrees and dedicated branches while preserving Council and Task history. Dirty or diverged candidates require force=true.', councilCleanupSchema);
   register('uagents_status', 'Read the persisted task status only. This tool never contacts the native Agent.', taskIdSchema);
   register('uagents_result', 'Read the persisted result, model identity, usage and captured artifact summary.', taskIdSchema);

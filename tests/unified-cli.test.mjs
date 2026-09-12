@@ -65,7 +65,11 @@ test('CLI discovery exposes commands and submit arguments without opening runtim
   assert.deepEqual(councilAdopt.data.options.map(option => option.name), ['--member', '--workspace', '--state-dir']);
   assert.equal(councilAdopt.data.effect, 'local_state_change');
   const councilValidate = await execute(['describe', 'council-validate'], { env: {} });
-  assert.deepEqual(councilValidate.data.constraints, [{ type: 'exactly_one', options: ['--member', '--all'] }]);
+  assert.deepEqual(councilValidate.data.constraints, [
+    { type: 'exactly_one', options: ['--member', '--all'] },
+    { type: 'exactly_one', options: ['--validation', '--profile'] },
+  ]);
+  assert.deepEqual(councilValidate.data.options.map(option => option.name), ['--member', '--all', '--validation', '--profile', '--state-dir']);
   assert.equal(councilValidate.data.request_schema.command, 'schema council-validation');
   assert.equal(councilValidate.data.effect, 'local_execution');
   const councilCleanup = await execute(['describe', 'council-cleanup'], { env: {} });
@@ -112,6 +116,11 @@ test('council validation schema discovery exposes legacy and multi-step direct a
   assert.deepEqual(schema.properties.on_failure.enum, ['continue', 'stop']);
   assert.equal(schema.properties.timeout_ms.default, 120000);
   assert.match(schema.properties.command.description, /without a shell/);
+
+  const profiles = (await execute(['schema', 'council-validation-profiles'], { env: {} })).data;
+  assert.equal(profiles.$id, 'uagents://schema/council-validation-profiles/1.0');
+  assert.equal(profiles['x-uagents-location'], '.uagents/validation-profiles.json');
+  assert.equal(profiles.properties.profiles.maxProperties, 32);
 });
 
 test('council schema discovery and CLI fanout expose deterministic member tasks', async () => {
@@ -150,6 +159,9 @@ test('council schema discovery and CLI fanout expose deterministic member tasks'
   ]), { code: 'unsupported_capability' });
   await assert.rejects(() => execute([
     'council-validate', input.council_id, '--member', 'wb', '--all', '--validation', validationFile, '--state-dir', root,
+  ]), { code: 'usage' });
+  await assert.rejects(() => execute([
+    'council-validate', input.council_id, '--member', 'wb', '--validation', validationFile, '--profile', 'fast', '--state-dir', root,
   ]), { code: 'usage' });
   await assert.rejects(() => execute([
     'council-cleanup', input.council_id, '--member', 'wb', '--state-dir', root,

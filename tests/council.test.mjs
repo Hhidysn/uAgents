@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { parseCouncilRequest, councilJsonSchema, councilMemberTaskId } from '../plugins/uagents/src/protocol/council-schema.mjs';
 import { parseCouncilValidation, councilValidationJsonSchema } from '../plugins/uagents/src/protocol/council-validation-schema.mjs';
+import { councilValidationProfilesJsonSchema, parseCouncilValidationProfiles } from '../plugins/uagents/src/protocol/council-validation-profiles.mjs';
 import { UnifiedRuntime } from '../plugins/uagents/src/runtime/api.mjs';
 import { CouncilService } from '../plugins/uagents/src/runtime/council-service.mjs';
 import { createRegistry } from '../plugins/uagents/src/registry/registry.mjs';
@@ -71,6 +72,22 @@ test('council validation schema supports legacy argv and ordered named checks', 
   assert.throws(() => parseCouncilValidation({ schema_version: '1.0', command: ['node'], checks: [{ name: 'x', command: ['node'] }] }), { code: 'invalid_request' });
   assert.throws(() => parseCouncilValidation({ schema_version: '1.0', checks: [{ name: 'same', command: ['node'] }, { name: 'SAME', command: ['node'] }] }), { code: 'invalid_request' });
   assert.throws(() => parseCouncilValidation({ schema_version: '1.0', command: ['node'], shell: true }), { code: 'unsupported_field' });
+});
+
+test('validation profiles reuse the council validation contract without repeating schema_version', () => {
+  const parsed = parseCouncilValidationProfiles({
+    schema_version: '1.0',
+    profiles: {
+      fast: { checks: [{ name: 'lint', command: ['node', '--version'] }] },
+      'pre-adopt': { command: ['node', '--test'], timeout_ms: 5_000 },
+    },
+  });
+  assert.equal(parsed.profiles.fast.on_failure, 'continue');
+  assert.equal(parsed.profiles.fast.checks[0].name, 'lint');
+  assert.deepEqual(parsed.profiles['pre-adopt'].command, ['node', '--test']);
+  assert.equal(councilValidationProfilesJsonSchema()['x-uagents-location'], '.uagents/validation-profiles.json');
+  assert.throws(() => parseCouncilValidationProfiles({ schema_version: '1.0', profiles: { 'bad name': { command: ['node'] } } }), { code: 'invalid_request' });
+  assert.throws(() => parseCouncilValidationProfiles({ schema_version: '1.0', profiles: { fast: { schema_version: '1.0', command: ['node'] } } }), { code: 'unsupported_field' });
 });
 
 test('council validation bounds captured output without changing command outcome', () => {
@@ -508,6 +525,51 @@ test('council validation persists multi-step evidence per candidate and exposes 
     const compared = service.diff(input.council_id);
     assert.equal(compared.members[0].validation.checks[0].name, 'marker');
     assert.equal(compared.members[1].validation.checks[0].exit_code, 4);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('council validation profile is loaded from the source workspace and persisted with expanded evidence', () => {
+  const root = path.resolve('.local', 'test-runs', `council-validation-profile-${randomUUID()}`);
+  const repository = path.join(root, 'repo');
+  fs.mkdirSync(path.join(repository, '.uagents'), { recursive: true });
+  git(repository, ['init']);
+  git(repository, ['config', 'user.name', 'uAgents Test']);
+  git(repository, ['config', 'user.email', 'uagents@example.invalid']);
+  fs.writeFileSync(path.join(repository, 'base.txt'), 'base\n');
+  fs.writeFileSync(path.join(repository, '.uagents', 'validation-profiles.json'), JSON.stringify({
+    schema_version: '1.0',
+    profiles: {
+      'pre-adopt': {
+        checks: [{ name: 'source-standard', command: [process.execPath, '-e', "console.log('source-profile')"] }],
+      },
+    },
+  }, null, 2));
+  git(repository, ['add', '.']);
+  git(repository, ['commit', '-m', 'base']);
+  const tasks = new Map();
+  const service = new CouncilService({
+    stateRoot: path.join(root, 'state'), registry: createRegistry(),
+    submitTask: request => tasks.set(request.request_id, { task_id: request.request_id, target: request.target, status: 'succeeded' }),
+    statusTask: taskId => tasks.get(taskId), resultTask: () => null,
+  });
+  const input = council({ mode: 'implementation', workspace_strategy: 'git-worktree', workspace: repository });
+  try {
+    const submitted = service.submit(input);
+    fs.writeFileSync(path.join(submitted.members[0].worktree.workspace, '.uagents', 'validation-profiles.json'), JSON.stringify({
+      schema_version: '1.0', profiles: { 'pre-adopt': { command: [process.execPath, '-e', 'process.exit(9)'] } },
+    }));
+    const validated = service.validate(input.council_id, { all: true, profile: 'pre-adopt' });
+    assert.equal(validated.members.every(member => member.validation.outcome === 'passed'), true);
+    assert.equal(validated.members.every(member => member.validation.profile.name === 'pre-adopt'), true);
+    assert.equal(validated.members.every(member => member.validation.profile.file === '.uagents/validation-profiles.json'), true);
+    assert.equal(validated.members.every(member => member.validation.checks[0].stdout.text === 'source-profile\n'), true);
+    assert.equal(service.diff(input.council_id).members[0].validation.profile.name, 'pre-adopt');
+    assert.throws(() => service.validate(input.council_id, { all: true, profile: 'missing' }), { code: 'invalid_request' });
+    assert.throws(() => service.validate(input.council_id, { all: true, profile: 'pre-adopt', validation: { schema_version: '1.0', command: ['node'] } }), { code: 'invalid_request' });
+    fs.rmSync(path.join(repository, '.uagents', 'validation-profiles.json'));
+    assert.throws(() => service.validate(input.council_id, { all: true, profile: 'pre-adopt' }), { code: 'invalid_request' });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

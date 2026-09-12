@@ -23,7 +23,7 @@ council-submit (--request <file> | --request-stdin)
 council-status <council-id>
 council-result <council-id>
 council-diff <council-id>
-council-validate <council-id> (--member <member-id> | --all) --validation <file>
+council-validate <council-id> (--member <member-id> | --all) (--validation <file> | --profile <name>)
 council-adopt <council-id> --member <member-id> --workspace <absolute-dir>
 council-cleanup <council-id> (--member <member-id> | --all) [--force]
 ```
@@ -43,7 +43,9 @@ Unified MCP 使用同名 `uagents_council_*` tools。
 
 `council-diff` 是纯本地只读比较：返回 response/usage/artifacts、tracked file status/unified patch、untracked 文件 metadata，以及小型 UTF-8 新文件正文。
 
-`council-validate` 在 selected candidate 的 effective worktree workspace 中执行显式 argv validation，不经过 shell。旧 `{command,timeout_ms}` 单步 contract 保持兼容；multi-step 可提供最多 16 个有序 named `checks[]`，顶层 timeout 作为默认值、单个 check 可覆盖。`on_failure:"continue"` 默认尽量收集完整 lint/typecheck/test/build 类证据；显式 `stop` 时后续 check 记录为 `skipped`。非零退出码是 `failed` evidence，不是 API error；timeout 与启动错误也会结构化记录。latest validation 及每个 named check 的 duration、exit/signal、outcome 与有界 stdout/stderr 会出现在 status/result/diff 中。`--all` 仍按 member 顺序运行，不自动 test discovery 或 winner selection。
+`council-validate` 在 selected candidate 的 effective worktree workspace 中执行显式 argv validation，不经过 shell。旧 `{command,timeout_ms}` 单步 contract 保持兼容；multi-step 可提供最多 16 个有序 named `checks[]`，顶层 timeout 作为默认值、单个 check 可覆盖。`on_failure:"continue"` 默认尽量收集完整 lint/typecheck/test/build 类证据；显式 `stop` 时后续 check 记录为 `skipped`。非零退出码是 `failed` evidence，不是 API error；timeout 与启动错误也会结构化记录。latest validation 及每个 named check 的 duration、exit/signal、outcome 与有界 stdout/stderr 会出现在 status/result/diff 中。
+
+项目还可以在 Council 原始 source workspace 的 `.uagents/validation-profiles.json` 定义命名 profile，并用 `--profile <name>` 复用同一套 validation。`--profile` 与 `--validation` 严格二选一；profile 永远从 source workspace 加载，而不是从 candidate worktree 加载，所以所有候选使用同一质量标准。evidence 会记录 profile name/file，同时保留展开后的完整 validation。`--all` 仍按 member 顺序运行，不自动 test discovery 或 winner selection。
 
 `council-adopt` 只接受明确指定的 `succeeded` member。它把候选相对 Council `base_head` 的 binary tracked patch 与 Git-visible untracked 普通文件应用到显式 destination workspace。destination `HEAD` 必须仍等于 `base_head`；操作不会 switch branch、commit、merge、cherry-pick 或选择 winner。
 
@@ -82,6 +84,7 @@ provider-free diff/validation/adopt/cleanup 证据分别保存在对应 verifica
 uagents describe <command>
 uagents schema council
 uagents schema council-validation
+uagents schema council-validation-profiles
 MCP tools/list
 ```
 
@@ -90,14 +93,14 @@ Core parser/runtime 仍是最终 admission 与行为权威。
 ## 当前验证
 
 ```text
-Council + CLI targeted   34/34
+Council + CLI targeted   36/36
 Unified MCP targeted     10/10
 
-Core                    310/310
+Core                    312/312
 Doubao MCP               11/11
 TRAE MCP                  9/9
 Unified MCP              10/10
-Total                   340/340
+Total                   342/342
 ```
 
-Multi-step Candidate Validation 已在 provider-free fixture 和此前真实 WorkBuddy/OpenCode candidate worktree 上验证；没有发送新的 Agent prompt。完整回归前两轮曾命中既有 OpenCode durable delayed-session 10 秒 wall-clock timing 抖动；该 durable 文件隔离重跑 4/4，最终完整 `npm test` 全绿。
+Multi-step Candidate Validation 与 Validation Profiles 都已在 provider-free fixture 和此前真实 WorkBuddy/OpenCode candidate worktree 上验证；没有发送新的 Agent prompt。Validation Profile 的真实验证通过 CLI 从 source workspace 读取 profile，并在 `council-diff` 中持续显示 profile evidence。完整回归最终全绿。
