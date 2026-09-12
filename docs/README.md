@@ -53,6 +53,8 @@
 - [Council Candidate Validation / Test Evidence 验证（2026-09-12）](verification/2026-09-12-council-candidate-validation.md)
 - [Multi-step Candidate Validation 验证（2026-09-12）](verification/2026-09-12-multi-step-candidate-validation.md)
 - [Validation Profiles 验证（2026-09-12）](verification/2026-09-12-validation-profiles.md)
+- [WorkBuddy generic file 真实 E2E（2026-09-13）](verification/2026-09-13-real-workbuddy-file-attachment-e2e.md)
+- [WorkBuddy image 真实 E2E（2026-09-13）](verification/2026-09-13-real-workbuddy-image-attachment-e2e.md)
 - [Attachment Host UX Integration provider-free 验证（2026-09-12）](verification/2026-09-12-attachment-host-ux-integration.md)
 - [First-class Council 实机 E2E（2026-09-11）](verification/2026-09-11-real-first-class-council-e2e.md)
 - [Council Worktree Isolation provider-free 验证（2026-09-11）](verification/2026-09-11-council-worktree-isolation.md)

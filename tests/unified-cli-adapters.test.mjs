@@ -110,7 +110,7 @@ test('external file and image sources are ingested into workspace before registr
   try {
     const service = new TaskService(control);
     const input = baseRequest({
-      target: 'workbuddy', model: 'default', workspace,
+      workspace,
       inputs: [{ type: 'file', source: fileSource }, { type: 'image', source: imageSource }],
     });
     const registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
@@ -136,7 +136,7 @@ test('inline file and image blobs are ingested into workspace without persisting
   try {
     const service = new TaskService(control);
     const input = baseRequest({
-      target: 'workbuddy', model: 'default', workspace,
+      workspace,
       inputs: [
         { type: 'file', blob: { name: 'brief.pdf', data_base64: fileBytes.toString('base64') } },
         { type: 'image', blob: { name: 'screen.png', data_base64: imageBytes.toString('base64') } },

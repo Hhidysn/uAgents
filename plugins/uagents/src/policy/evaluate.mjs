@@ -8,8 +8,8 @@ export function evaluateRequest(input, options = {}) {
   const request = parseRequest(input);
   const registry = options.registry ?? createRegistry();
   const descriptor = targetDescriptor(registry, request.target);
-  validateTargetCapabilities(request, descriptor);
   const model = resolveModel(registry, request.target, request.model);
+  validateTargetCapabilities(request, descriptor, model);
   validateRouteHealth(model, options.health ?? null);
   validatePolicy(request, descriptor);
   validateWorkspace(request);
@@ -43,11 +43,13 @@ export function evaluateRequest(input, options = {}) {
   };
 }
 
-function validateTargetCapabilities(request, descriptor) {
+function validateTargetCapabilities(request, descriptor, model) {
+  const files = descriptor.inputs.files && (model.inputs?.files ?? true);
+  const images = descriptor.inputs.images && (model.inputs?.images ?? true);
   if (!descriptor.modes.includes(request.mode)) fail('unsupported_capability', `Target ${request.target} does not support mode ${request.mode}.`, { category: 'policy', submission: 'not_sent' });
   if (!descriptor.inputs.text) fail('unsupported_capability', 'Target does not support text input.', { category: 'policy', submission: 'not_sent' });
-  if (request.inputs.some(input => input.type === 'file') && !descriptor.inputs.files) fail('unsupported_capability', 'Target does not support native file attachments.', { category: 'policy', submission: 'not_sent' });
-  if (request.inputs.some(input => input.type === 'image') && !descriptor.inputs.images) fail('unsupported_capability', 'Target does not support native image attachments.', { category: 'policy', submission: 'not_sent' });
+  if (request.inputs.some(input => input.type === 'file') && !files) fail('unsupported_capability', 'Target/model route does not support native file attachments.', { category: 'policy', submission: 'not_sent' });
+  if (request.inputs.some(input => input.type === 'image') && !images) fail('unsupported_capability', 'Target/model route does not support native image attachments.', { category: 'policy', submission: 'not_sent' });
   if (request.expected_outputs.length && !descriptor.outputs.files) fail('unsupported_capability', 'Target does not support file outputs.', { category: 'policy', submission: 'not_sent' });
   if (request.session?.continue_from_task_id && descriptor.resume !== true) fail('unsupported_capability', `Target ${request.target} does not support native session continuation.`, { category: 'policy', submission: 'not_sent' });
   if (request.session?.fork_from_task_id && descriptor.fork !== true) fail('unsupported_capability', `Target ${request.target} does not support native session fork.`, { category: 'policy', submission: 'not_sent' });

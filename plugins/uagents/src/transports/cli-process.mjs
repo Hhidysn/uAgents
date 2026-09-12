@@ -81,9 +81,14 @@ export function createParser(request, workspace, publish) {
       if (!object(event) || typeof event.type !== 'string') fail('invalid_event', 'Invalid native event.');
       if (event.session_id !== undefined) identity(event.session_id);
       if (event.type === 'system' && event.subtype === 'init') {
-        if (init) fail('duplicate_init', 'Repeated native initialization.');
         identity(event.session_id);
         if (typeof event.cwd !== 'string' || path.resolve(event.cwd).toLowerCase() !== path.resolve(workspace).toLowerCase()) identityError();
+        if (init) {
+          const previousModel = typeof init.model === 'string' ? init.model : null;
+          const currentModel = typeof event.model === 'string' ? event.model : null;
+          if (previousModel !== currentModel) fail('duplicate_init', 'Repeated native initialization changed the reported model.');
+          return;
+        }
         init = event;
         publish({ model_reported: typeof event.model === 'string' ? event.model : null, native_permission_mode: event.permissionMode ?? null });
       } else if (event.type === 'result') {

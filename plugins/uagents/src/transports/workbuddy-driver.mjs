@@ -13,6 +13,7 @@ export function buildWorkBuddyArgs(request) {
         ? ['--resume', request.continue_session_id]
         : ['--session-id', request.request_id]),
     '--max-turns', '6',
+    ...(typeof request.model_resolved === 'string' && request.model_resolved ? ['--model', request.model_resolved] : []),
     ...(request.mode === 'implementation' && !advisoryReadOnly ? ['--permission-mode', 'acceptEdits'] : []),
   ];
 }

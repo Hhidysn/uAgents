@@ -20,7 +20,10 @@ test('registry exposes static capability without dynamic availability', () => {
   assert.deepEqual(registry.targets.opencode.modes, ['analysis', 'implementation']);
   assert.deepEqual(registry.targets.opencode.inputs, { text: true, files: true, images: true, workspace_readable: true });
   assert.deepEqual(registry.targets.agy.inputs, { text: true, files: false, images: false, workspace_readable: true });
-  assert.deepEqual(registry.targets.workbuddy.inputs, { text: true, files: true, images: true, workspace_readable: true });
+  assert.deepEqual(registry.targets.workbuddy.inputs, { text: true, files: false, images: true, workspace_readable: true });
+  assert.equal(registry.targets.workbuddy.model_selection, 'mixed');
+  assert.equal(registry.models['workbuddy-default'].inputs.images, false);
+  assert.equal(registry.models['deepseek-v4.1-flash'].inputs.images, true);
   assert.deepEqual(registry.targets.opencode.outputs, { text: true, files: true, images: false });
   assert.equal(registry.targets.workbuddy.resume, true);
   assert.equal(registry.targets.opencode.resume, true);
@@ -69,6 +72,13 @@ test('backend defaults do not masquerade as concrete resolved models', () => {
   assert.equal(outcome.request.model_resolution.kind, 'backend_default');
 });
 
+test('WorkBuddy explicit deepseek route resolves concretely', () => {
+  const outcome = evaluateRequest(request({ target: 'workbuddy', model: 'deepseek-v4.1-flash' }));
+  assert.equal(outcome.request.model_resolved, 'deepseek-v4.1-flash');
+  assert.equal(outcome.request.route_id, 'workbuddy/deepseek-v4.1-flash');
+  assert.equal(outcome.request.model_resolution.kind, 'exact');
+});
+
 test('policy fails closed before worker launch', () => {
   assert.throws(() => evaluateRequest(request({ model: 'opencode-go/deepseek-v4-flash' })), error => error.code === 'model_unavailable' && error.submission === 'not_sent');
   assert.throws(() => evaluateRequest(request({ policy: { fallback: 'paid', max_cost_usd: null } })), { code: 'unsupported_capability' });
@@ -88,8 +98,20 @@ test('policy fails closed before worker launch', () => {
 test('attachment capability distinguishes native mapping from workspace readability', () => {
   const workspace = process.cwd();
   assert.equal(evaluateRequest(request({ workspace, inputs: [{ type: 'image', path: 'image.png' }] })).allowed, true);
-  assert.equal(evaluateRequest(request({ target: 'workbuddy', model: 'default', workspace,
-    inputs: [{ type: 'file', path: 'input.txt' }, { type: 'image', path: 'image.png' }] })).allowed, true);
+  assert.throws(() => evaluateRequest(request({ target: 'workbuddy', model: 'default', workspace,
+    inputs: [{ type: 'file', path: 'input.txt' }] })), error => (
+    error.code === 'unsupported_capability' && /native file attachments/.test(error.message) && error.submission === 'not_sent'
+  ));
+  assert.throws(() => evaluateRequest(request({ target: 'workbuddy', model: 'default', workspace,
+    inputs: [{ type: 'image', path: 'image.png' }] })), error => (
+    error.code === 'unsupported_capability' && /native image attachments/.test(error.message) && error.submission === 'not_sent'
+  ));
+  assert.equal(evaluateRequest(request({ target: 'workbuddy', model: 'deepseek-v4.1-flash', workspace,
+    inputs: [{ type: 'image', path: 'image.png' }] })).allowed, true);
+  assert.throws(() => evaluateRequest(request({ target: 'workbuddy', model: 'deepseek-v4.1-flash', workspace,
+    inputs: [{ type: 'file', path: 'input.txt' }] })), error => (
+    error.code === 'unsupported_capability' && /native file attachments/.test(error.message) && error.submission === 'not_sent'
+  ));
   assert.throws(() => evaluateRequest(request({ target: 'agy', model: 'gemini-fixture-low', workspace,
     inputs: [{ type: 'file', path: 'input.txt' }] })), error => (
     error.code === 'unsupported_capability' && /native file attachments/.test(error.message)

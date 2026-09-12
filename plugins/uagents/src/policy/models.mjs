@@ -21,6 +21,7 @@ export function resolveModel(registry, target, requested) {
     model_resolved: record.model,
     provider: record.provider,
     route_id: record.route_id,
+    inputs: record.inputs ?? null,
     model_resolution: {
       kind: requested === 'default' ? (record.kind === 'backend_default' ? 'backend_default' : requestedKind) : record.kind,
       registry_version: registry.version,

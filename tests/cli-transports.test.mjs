@@ -55,6 +55,24 @@ test('WorkBuddy validates session/cwd and preserves approval/background-task evi
   assert.equal(active.finish(0).status, 'succeeded');
 });
 
+test('WorkBuddy accepts repeated equivalent init events but rejects changed init identity', () => {
+  const input = request('workbuddy');
+  const parser = createParser(input, root, () => {});
+  const init = { type: 'system', subtype: 'init', session_id: input.request_id, cwd: root, model: 'native-default' };
+  parser.event(init);
+  parser.event({ ...init });
+  parser.event(wbResult(input.request_id));
+  assert.equal(parser.finish(0).status, 'succeeded');
+
+  const changedModel = createParser(input, root, () => {});
+  changedModel.event(init);
+  assert.throws(() => changedModel.event({ ...init, model: 'other-model' }), { code: 'duplicate_init' });
+
+  const changedCwd = createParser(input, root, () => {});
+  changedCwd.event(init);
+  assert.throws(() => changedCwd.event({ ...init, cwd: path.join(root, 'other') }), { code: 'native_session_mismatch' });
+});
+
 test('WorkBuddy continuation resumes the persisted native session instead of creating a new one', () => {
   const sourceSession = 'session_parent_123';
   const input = request('workbuddy', { continue_session_id: sourceSession });
@@ -69,6 +87,14 @@ test('WorkBuddy continuation resumes the persisted native session instead of cre
   assert.throws(() => createParser(input, root, () => {}).event({
     type: 'system', subtype: 'init', session_id: input.request_id, cwd: root, model: 'native-default',
   }), { code: 'native_session_mismatch' });
+});
+
+test('WorkBuddy explicit model route is forwarded through native --model', () => {
+  const input = request('workbuddy', { model_resolved: 'deepseek-v4.1-flash' });
+  const args = buildWorkBuddyArgs(input);
+  const modelIndex = args.indexOf('--model');
+  assert.deepEqual(args.slice(modelIndex, modelIndex + 2), ['--model', 'deepseek-v4.1-flash']);
+  assert.equal(buildWorkBuddyArgs(request('workbuddy')).includes('--model'), false);
 });
 
 test('WorkBuddy fork resumes the source session but requires a new native session identity', () => {
@@ -151,15 +177,13 @@ test('OpenCode fork selects the source session, requests --fork, and binds a new
   }), { code: 'native_session_mismatch' });
 });
 
-test('WorkBuddy maps declared files and images into native stream-json attachment blocks', () => {
+test('WorkBuddy maps declared images into native stream-json attachment blocks', () => {
   const workspace = path.join(root, 'workbuddy attachments');
   fs.mkdirSync(workspace, { recursive: true });
-  const pdf = Buffer.from('%PDF-1.7\nfixture');
   const png = pngFixture(2, 3);
-  fs.writeFileSync(path.join(workspace, 'brief.pdf'), pdf);
   fs.writeFileSync(path.join(workspace, 'screen.png'), png);
   const input = request('workbuddy', {
-    inputs: [{ type: 'file', path: 'brief.pdf' }, { type: 'image', path: 'screen.png' }],
+    inputs: [{ type: 'image', path: 'screen.png' }],
   });
   const snapshots = snapshotInputs(workspace, input.inputs);
   assert.deepEqual(buildWorkBuddyArgs(input).slice(0, 5), ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json']);
@@ -169,9 +193,6 @@ test('WorkBuddy maps declared files and images into native stream-json attachmen
   assert.equal(message.message.role, 'user');
   assert.equal(message.message.content[0].type, 'text');
   assert.deepEqual(message.message.content[1], {
-    type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdf.toString('base64') },
-  });
-  assert.deepEqual(message.message.content[2], {
     type: 'image', source: { type: 'base64', media_type: 'image/png', data: png.toString('base64') }, original_filename: 'screen.png',
   });
   const entry = path.join(workspace, 'codebuddy.js');
@@ -181,7 +202,7 @@ test('WorkBuddy maps declared files and images into native stream-json attachmen
   assert.equal(driver.args.includes('--input-format'), true);
   assert.equal(driver.args.includes('stream-json'), true);
   assert.throws(() => buildWorkBuddyInput(input, workspace, []), { code: 'input_changed' });
-  fs.writeFileSync(path.join(workspace, 'brief.pdf'), '%PDF-1.7\nchanged');
+  fs.writeFileSync(path.join(workspace, 'screen.png'), pngFixture(3, 4));
   assert.throws(() => buildWorkBuddyInput(input, workspace, snapshots), { code: 'input_changed' });
 });
 

@@ -1,14 +1,17 @@
 # uAgents
 
 uAgents 是供 Codex 使用的本地统一 Agent 调度插件。当前发行标识为
-`0.2.0-alpha.1+codex.20260913014746`，把 agy/Gemini、WorkBuddy、OpenCode、豆包工作和
+`0.2.0-alpha.1+codex.20260913030454`，把 agy/Gemini、WorkBuddy、OpenCode、豆包工作和
 TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时明确保留各目标不同的
 模型、文件、权限、取消和桌面连接能力。
 
 先看：[Council 当前状态](docs/status/2026-09-12-council-current.md) · [Dynamic Model Discovery 当前状态](docs/status/2026-09-12-dynamic-model-discovery-current.md) · [Session Continuation / Fork 当前状态](docs/status/2026-09-10-session-continuation-current.md) · [Universal Attachment 当前状态](docs/status/2026-09-12-universal-attachment-current.md) · [文档索引](docs/README.md)
 
 > 重要边界：OpenCode 现在支持文本 `analysis` 和 `implementation`，并把声明式文件/图片输入映射为原生附件；
-> WorkBuddy 也通过其已核实的 stream-json `document` / `image` block 接入文件和图片。WorkBuddy 与 OpenCode
+> WorkBuddy 2.132.0 的 generic file 真实调用仍被拒绝，因此 `inputs.files=false`。图片能力是 model-specific：
+> backend/default `auto` 的真实 E2E 会拒绝 image-bearing request，但显式 `model=deepseek-v4.1-flash`
+> 已通过 512×512 RGB PNG 的真实多模态 E2E；该 concrete route 会下发 native `--model deepseek-v4.1-flash`。
+> WorkBuddy 与 OpenCode
 > 现在都支持显式多轮 continuation 和 fork：每一轮仍是新 Task，可以继续上一 native session，也可以从上一轮上下文派生独立 native branch。agy 当前只有 workspace
 > 可读性，没有可验证的 native attachment mapping，也没有已映射的 session continuation。
 > uAgents 负责请求、工作区、生命周期和产物验收，不提供执行沙箱；OpenCode 的原生行为通过
@@ -37,7 +40,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 | 目标 | 模式 | 输入 / 输出 | 当前关键边界 |
 | --- | --- | --- | --- |
 | agy | `analysis`、`implementation` | 文本 / 文本 + 文件 | workspace 可读但无 native file/image attachment mapping；模型必须显式指定；分析模式不是硬只读 |
-| WorkBuddy | `analysis`、`implementation` | 文本 + 文件 + 图片 / 文本 + 文件 | 文件和图片通过已核实的 stream-json inline attachment block；follow-up 通过 native `--resume <session-id>`；模型由后端决定；分析模式不是硬只读 |
+| WorkBuddy | `analysis`、`implementation` | 文本；显式 `deepseek-v4.1-flash` 可加图片 / 文本 + 文件 | `default` 继续 backend-auto 文本路线且 image=false；`deepseek-v4.1-flash` 是已批准 concrete route、会下发 native `--model` 且真实图片 E2E 成功；generic file 仍拒绝；follow-up 通过 native `--resume <session-id>`；分析模式不是硬只读 |
 | OpenCode | `analysis`、`implementation` | 文本 + 文件 + 图片 / 文本 + 文件 | 文件/图片通过 native `--file`；follow-up 通过 `run --session <session-id>`；Windows 当前源码使用 durable process/transcript，并支持 verified `execution_timeout_ms`；仅两条显式 Command Code Flash 路线 |
 | 豆包工作 | `analysis` | 文本 / 文本 | 无文件/图片；无已确认原生取消；不回显可验证模型；受管桌面实例 |
 | TRAE CN | `analysis`、`implementation` | 文本 / 文本 + 文件 | 不接受显式文件输入；无图片、无已确认原生取消；模型不可靠回显；受管桌面实例 |

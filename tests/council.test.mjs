@@ -236,6 +236,10 @@ test('git-worktree Council fans one inline blob into every member worktree witho
   const encoded = bytes.toString('base64');
   const input = council({
     mode: 'implementation', workspace_strategy: 'git-worktree', workspace: repository,
+    members: [
+      { member_id: 'implementation-a', target: 'opencode', model: route, instruction: 'Focus on implementation feasibility.' },
+      { member_id: 'implementation-b', target: 'opencode', model: route, instruction: 'Check the same attachment independently.' },
+    ],
     inputs: [{ type: 'file', blob: { name: 'requirements.pdf', data_base64: encoded } }],
   });
   const spawns = [];

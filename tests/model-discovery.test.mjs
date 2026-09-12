@@ -9,6 +9,26 @@ test('WorkBuddy help parser extracts the native supported model list', () => {
   assert.deepEqual(models.map(model => model.id), ['auto', 'hy3', 'deepseek-v4.1-flash', 'glm-5.3-flash']);
 });
 
+test('WorkBuddy discovery marks the verified concrete route configured and usable', async () => {
+  const rows = await discoverModelsForTarget('workbuddy', {
+    registry: createRegistry(),
+    adapterFactory: () => ({ discoverModels: async () => ({
+      status: 'ok', discovery: 'native_cli_help', models: [
+        { id: 'auto', route_id: null, provider: 'workbuddy' },
+        { id: 'deepseek-v4.1-flash', route_id: null, provider: 'workbuddy' },
+        { id: 'glm-5.3-flash', route_id: null, provider: 'workbuddy' },
+      ],
+    }) }),
+  });
+  const exact = rows.find(row => row.route_id === 'workbuddy/deepseek-v4.1-flash');
+  assert.equal(exact.configured, true);
+  assert.equal(exact.discovered, true);
+  assert.equal(exact.usable, true);
+  const discoveredOnly = rows.find(row => row.model === 'glm-5.3-flash');
+  assert.equal(discoveredOnly.configured, false);
+  assert.equal(discoveredOnly.admission_allowed, false);
+});
+
 test('OpenCode model parser keeps only the requested provider catalog', () => {
   const models = parseOpenCodeModelList('commandcode-goat/deepseek/deepseek-v4-flash\nother/model\ncommandcode-goat/z-ai/glm-5.3-flash\n', 'commandcode-goat');
   assert.deepEqual(models.map(model => model.route_id), [
