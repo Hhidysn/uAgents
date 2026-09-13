@@ -1,7 +1,7 @@
 # uAgents
 
 uAgents 是供 Codex 使用的本地统一 Agent 调度插件。当前发行标识为
-`0.2.0-alpha.1+codex.20260913030454`，把 agy/Gemini、WorkBuddy、OpenCode、豆包工作和
+`0.2.0-alpha.1+codex.20260913161732`，把 agy/Gemini、WorkBuddy、DeepSeek Harness、OpenCode、豆包工作和
 TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时明确保留各目标不同的
 模型、文件、权限、取消和桌面连接能力。
 
@@ -11,6 +11,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 > WorkBuddy 2.132.0 的 generic file 真实调用仍被拒绝，因此 `inputs.files=false`。图片能力是 model-specific：
 > backend/default `auto` 的真实 E2E 会拒绝 image-bearing request，但显式 `model=deepseek-v4.1-flash`
 > 已通过 512×512 RGB PNG 的真实多模态 E2E；该 concrete route 会下发 native `--model deepseek-v4.1-flash`。
+> DeepSeek Harness (`dsh`) 首版通过官方 SDK stdio JSON-RPC 接入：一 Task 一进程、显式 `deepseek-official/deepseek-flash` 路线、text + workspace only；不自动操作 Web Agent，也不把 prompt 放进 argv。Web UI 的 “DeepSeek V4.1 Flash” 展示名不能直接作为 SDK model id；0.1.5-rc.1 的 `deepseek-official` 接口实际接受 `deepseek-flash`。
 > WorkBuddy 与 OpenCode
 > 现在都支持显式多轮 continuation 和 fork：每一轮仍是新 Task，可以继续上一 native session，也可以从上一轮上下文派生独立 native branch。agy 当前只有 workspace
 > 可读性，没有可验证的 native attachment mapping，也没有已映射的 session continuation。
@@ -23,6 +24,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 - SQLite WAL 控制面；Task、Attempt、Native Process、Native Session 分离；同 UUID 与同一有效请求不会重复发送。
 - 每次调用记录 `model_requested`、`model_resolved`、`model_reported`、`model_verified`，不把配置选择冒充运行期验证。
 - `model_resolved` 保存规范模型名，完整 Provider/Model 运输路线单独保存在 `route_id`。
+- DeepSeek Harness 使用官方 `dsh --profile sdk` JSON-RPC stdio；`initialize` 绑定 workspace/provider/model，root session `running -> idle` 和 committed assistant event 共同定义完成证据。
 - `models <target>` 会把静态 allowlist 与 WorkBuddy/OpenCode 本机 native catalog/help 证据合并；发现到的新模型只展示、不自动放行，provider 登录/额度/在线状态仍保持 `unconfirmed`。
 - 原生失败以脱敏结构化错误返回；Provider 响应头、响应体和凭据内容不会写入任务记录。
 - 本地 uAgents CLI、后台 Worker 和受信任的 Agent CLI 逐层继承调用终端环境，使任意 Provider 的环境变量凭据无需硬编码即可使用；环境内容不会进入请求、SQLite 或结果。
@@ -41,6 +43,7 @@ TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物
 | --- | --- | --- | --- |
 | agy | `analysis`、`implementation` | 文本 / 文本 + 文件 | workspace 可读但无 native file/image attachment mapping；模型必须显式指定；分析模式不是硬只读 |
 | WorkBuddy | `analysis`、`implementation` | 文本；显式 `deepseek-v4.1-flash` 可加图片 / 文本 + 文件 | `default` 继续 backend-auto 文本路线且 image=false；`deepseek-v4.1-flash` 是已批准 concrete route、会下发 native `--model` 且真实图片 E2E 成功；generic file 仍拒绝；follow-up 通过 native `--resume <session-id>`；分析模式不是硬只读 |
+| DeepSeek Harness (`dsh`) | `analysis`、`implementation` | 文本 + workspace / 文本 + 文件 | 官方 SDK stdio JSON-RPC；显式 `deepseek-official/deepseek-flash`；v1 一 Task 一 SDK 进程，不开放 file/image attachment、continuation/fork 或 Web Agent automation |
 | OpenCode | `analysis`、`implementation` | 文本 + 文件 + 图片 / 文本 + 文件 | 文件/图片通过 native `--file`；follow-up 通过 `run --session <session-id>`；Windows 当前源码使用 durable process/transcript，并支持 verified `execution_timeout_ms`；仅两条显式 Command Code Flash 路线 |
 | 豆包工作 | `analysis` | 文本 / 文本 | 无文件/图片；无已确认原生取消；不回显可验证模型；受管桌面实例 |
 | TRAE CN | `analysis`、`implementation` | 文本 / 文本 + 文件 | 不接受显式文件输入；无图片、无已确认原生取消；模型不可靠回显；受管桌面实例 |
@@ -66,6 +69,7 @@ node "<plugin-root>\bin\uagents.mjs" describe council-submit
 node "<plugin-root>\bin\uagents.mjs" schema council
 node "<plugin-root>\bin\uagents.mjs" capabilities opencode
 node "<plugin-root>\bin\uagents.mjs" models opencode
+node "<plugin-root>\bin\uagents.mjs" models dsh
 node "<plugin-root>\bin\uagents.mjs" submit --request "F:\path\request.json"
 node "<plugin-root>\bin\uagents.mjs" submit --request-stdin
 node "<plugin-root>\bin\uagents.mjs" status <task-id>
@@ -155,7 +159,7 @@ Unified MCP 的 `uagents_submit` / `uagents_council_submit` 既接受 Core `inpu
 
 Codex 可能只把显式声明的环境变量交给插件 MCP 进程，因此环境变量鉴权的本机 Agent 不应默认走 MCP。CLI 与 MCP 只有在使用同一状态目录时才共享 Task/Attempt；切换入口也不得用新 UUID 重放已发送或不确定的任务。
 
-请求协议与状态解释见 [Skill 协议说明](plugins/uagents/skills/agent-dispatch/references/protocol.md)。目标差异见同目录下的 agy、WorkBuddy、OpenCode、豆包和 TRAE 说明。
+请求协议与状态解释见 [Skill 协议说明](plugins/uagents/skills/agent-dispatch/references/protocol.md)。目标差异见同目录下的 agy、WorkBuddy、DeepSeek Harness、OpenCode、豆包和 TRAE 说明。
 
 ## 开发验证
 

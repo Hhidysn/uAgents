@@ -580,6 +580,51 @@ test("9d) an npm shim discovery hint resolves and caches the real OpenCode execu
   assert.equal(store.getInstallation(CACHE_ID("opencode")).canonical_path, binary);
 });
 
+test("9f) a dsh npm shim resolves to the package JS bin entry", async (t) => {
+  const { store, apps } = makeTestEnv(t);
+  const npmRoot = path.join(apps, "dsh npm");
+  const shim = path.join(npmRoot, "dsh.cmd");
+  const packageRoot = path.join(npmRoot, "node_modules", "@deepseek-ai", "dsh");
+  const packageJson = path.join(packageRoot, "package.json");
+  const entry = path.join(packageRoot, "lib", "bin.js");
+  mkdirSync(path.dirname(entry), { recursive: true });
+  writeFileSync(shim, "@echo off", "utf8");
+  writeFileSync(packageJson, JSON.stringify({ name: "@deepseek-ai/dsh", version: "0.1.5-rc.1", bin: { dsh: "lib/bin.js" } }), "utf8");
+  writeFileSync(entry, "console.log('fixture dsh')", "utf8");
+  const stats = statSync(entry);
+  const expectedHash = createHash("sha256").update(readFileSync(entry)).digest("hex");
+  const cliManifest = manifest({
+    target: "dsh",
+    artifact_kind: "cli-entry",
+    accepted_product_names: [],
+    accepted_publishers: [],
+    accepted_executable_names: ["bin.js"],
+    path_commands: ["dsh"],
+  });
+  const fake = makeFakeRunner({
+    discover: discoverResponse([discoverCandidate(shim, "path")]),
+    verifyByPath: {
+      [entry.toLowerCase()]: verifyResponse({
+        canonical_path: entry,
+        product_name: null,
+        publisher: null,
+        file_version: null,
+        size: stats.size,
+        mtime_ms: Math.round(stats.mtimeMs),
+        sha256: null,
+      }),
+    },
+  });
+  const locator = createAgentLocator({ hostStore: store, runPowerShell: fake.runner, manifests: { dsh: cliManifest } });
+
+  const result = await locator.resolve("dsh");
+  assert.equal(result.installation.canonical_path, entry);
+  assert.equal(result.installation.sha256, expectedHash);
+  assert.equal(fake.calls.verify.length, 1);
+  assert.equal(fake.calls.verify[0].path, entry);
+  assert.equal(store.getInstallation(CACHE_ID("dsh")).canonical_path, entry);
+});
+
 test("9e) a cached OpenCode shim is not reused as the final installation entry", async (t) => {
   const { store, apps } = makeTestEnv(t);
   const npmRoot = path.join(apps, "cached npm");

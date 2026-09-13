@@ -4,7 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { AgyAdapter } from '../plugins/uagents/src/adapters/agy/adapter.mjs';
+import { DshAdapter } from '../plugins/uagents/src/adapters/dsh/adapter.mjs';
 import { OpenCodeAdapter } from '../plugins/uagents/src/adapters/opencode/adapter.mjs';
 import { WorkBuddyAdapter } from '../plugins/uagents/src/adapters/workbuddy/adapter.mjs';
 import { nativeDriver } from '../plugins/uagents/src/transports/cli-process.mjs';
@@ -22,6 +25,59 @@ const baseRequest = patch => ({
   mode: 'analysis', prompt: 'bounded', execution: { observation_timeout_ms: 5000, effort: 'medium', permission: 'native' },
   policy: { fallback: 'none', max_cost_usd: null }, ...patch,
 });
+
+function fakeDshRuntime() {
+  let child;
+  let input = '';
+  let closed = false;
+  const write = value => child.stdout.write(`${JSON.stringify(value)}\n`);
+  return {
+    spawn() {
+      child = new EventEmitter();
+      Object.assign(child, {
+        stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+        kill() {
+          if (closed) return;
+          closed = true;
+          child.stdout.end(); child.stderr.end();
+          setImmediate(() => child.emit('close', null));
+        },
+      });
+      child.stdin.setEncoding('utf8');
+      child.stdin.on('data', chunk => {
+        input += chunk;
+        let end;
+        while ((end = input.indexOf('\n')) >= 0) {
+          const line = input.slice(0, end); input = input.slice(end + 1);
+          if (!line.trim()) continue;
+          const frame = JSON.parse(line);
+          if (frame.method === 'initialize') {
+            write({ jsonrpc: '2.0', id: frame.id, result: { serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' } } });
+          } else if (frame.method === 'session/prompt') {
+            write({ jsonrpc: '2.0', method: 'session.status', params: { sessionId: frame.params.sessionId, status: 'running' } });
+            write({ jsonrpc: '2.0', id: frame.id, result: { messageId: 'msg-runtime-fixture' } });
+            write({ jsonrpc: '2.0', method: 'session.event', params: { sessionId: frame.params.sessionId, event: {
+              type: 'assistant/message', seq: 2, time: Date.now(), data: {
+                message: { role: 'assistant', source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-flash' }, content: [{ type: 'text', text: 'DSH 中文 fixture' }] },
+                usage: { input_tokens: 9, output_tokens: 4 },
+              },
+            } } });
+            write({ jsonrpc: '2.0', method: 'session.status', params: { sessionId: frame.params.sessionId, status: 'idle' } });
+          } else if (frame.method === 'shutdown') {
+            write({ jsonrpc: '2.0', id: frame.id, result: {} });
+            if (!closed) {
+              closed = true;
+              child.stdout.end(); child.stderr.end();
+              setImmediate(() => child.emit('close', 0));
+            }
+          }
+        }
+      });
+      setImmediate(() => child.emit('spawn'));
+      return child;
+    },
+  };
+}
 
 for (const target of ['agy', 'workbuddy', 'opencode']) test(`${target} adapter completes through shared runtime`, async () => {
   const control = new ControlDatabase(path.join(root, `${target}-${randomUUID()}`));
@@ -52,6 +108,33 @@ for (const target of ['agy', 'workbuddy', 'opencode']) test(`${target} adapter c
     } else {
       assert.equal(service.result(result.task_id).artifacts[0].verified, true);
     }
+  } finally { control.close(); }
+});
+
+test('dsh adapter completes through shared runtime', async () => {
+  const control = new ControlDatabase(path.join(root, `dsh-${randomUUID()}`));
+  const workspace = path.join(root, `dsh-workspace-${randomUUID()}`);
+  fs.mkdirSync(workspace, { recursive: true });
+  try {
+    const service = new TaskService(control);
+    const input = baseRequest({
+      target: 'dsh', model: 'deepseek-official/deepseek-flash', workspace,
+      mode: 'analysis', prompt: 'Return the fixture response.', expected_outputs: [],
+    });
+    const runtime = fakeDshRuntime();
+    const adapter = new DshAdapter({ testDriver: { spawn: runtime.spawn } });
+    validateAdapter(adapter);
+    const registered = service.submit(input, { adapterVersion: 'dsh-runtime-fixture-1' });
+    const result = await runTask({ service, taskId: registered.task_id, adapter });
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.attempt.submission, 'sent');
+    assert.equal(result.native.session_id, input.request_id);
+    assert.equal(result.native.task_id, 'msg-runtime-fixture');
+    assert.equal(result.model_reported, 'deepseek-flash');
+    assert.equal(result.model_verified, true);
+    const persisted = service.result(result.task_id);
+    assert.equal(persisted.response.text, 'DSH 中文 fixture');
+    assert.deepEqual(persisted.usage, { input_tokens: 9, output_tokens: 4 });
   } finally { control.close(); }
 });
 

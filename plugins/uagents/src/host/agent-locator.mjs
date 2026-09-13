@@ -1,7 +1,7 @@
 // agent-locator.mjs
 //
 // Windows agent discovery and trust verification (Gate 2.2, "Windows Agent Locator").
-// Finds installations for managed targets (Doubao, TRAE, OpenCode, WorkBuddy, agy),
+// Finds installations for managed targets (Doubao, TRAE, DSH, OpenCode, WorkBuddy, agy),
 // verifies them against per-target manifests via the fixed PowerShell script
 // (plugins/uagents/scripts/windows-host.ps1), and keeps a per-target trusted
 // installation cache in the HostStore `installations` table.
@@ -29,6 +29,7 @@ export const VERIFIER_VERSION = "windows-host-v1";
 const DEFAULT_RUNNER_TIMEOUT_MS = 20_000;
 export const CACHE_ID_PREFIX = "installation:";
 const OPEN_CODE_SHIM_NAMES = new Set(["opencode", "opencode.cmd", "opencode.ps1"]);
+const DSH_SHIM_NAMES = new Set(["dsh", "dsh.cmd", "dsh.ps1"]);
 
 // NOTE: launch_recipe intentionally does NOT live in the manifest; it stays in the
 // per-target launcher modules (Gate 4/5) because it is version-controlled executable
@@ -113,6 +114,19 @@ export const TARGET_MANIFESTS = Object.freeze({
       "%ProgramFiles%\\WorkBuddy\\resources\\app.asar.unpacked\\cli\\dist\\codebuddy.js",
     ],
     path_commands: [],
+    version_probe: "cli-version-flag",
+    profile_strategy: "inherit-env",
+    readiness_probe: "process-exit",
+    product_priority: [],
+  }),
+  dsh: Object.freeze({
+    target: "dsh",
+    artifact_kind: "cli-entry",
+    accepted_product_names: [],
+    accepted_publishers: [],
+    accepted_executable_names: ["bin.js"],
+    known_install_locations: ["%APPDATA%\\npm\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js"],
+    path_commands: ["dsh"],
     version_probe: "cli-version-flag",
     profile_strategy: "inherit-env",
     readiness_probe: "process-exit",
@@ -218,6 +232,23 @@ function isOpenCodeNativeExecutable(candidatePath) {
 // native npm-layout candidate generator as the CLI transport and never invoke
 // a shell to resolve the hint.
 async function resolveNativeExecutableCandidates(target, candidatePath) {
+  if (target === "dsh") {
+    const normalized = path.resolve(candidatePath);
+    if (path.basename(normalized).toLowerCase() === "bin.js") {
+      return (await statCandidate(normalized)) ? [normalized] : [];
+    }
+    if (!DSH_SHIM_NAMES.has(path.basename(normalized).toLowerCase())) return [];
+    const packageJson = path.join(path.dirname(normalized), "node_modules", "@deepseek-ai", "dsh", "package.json");
+    try {
+      const packageRecord = JSON.parse(await fs.readFile(packageJson, "utf8"));
+      const relative = typeof packageRecord.bin === "string" ? packageRecord.bin : packageRecord.bin?.dsh;
+      if (typeof relative !== "string" || relative.length === 0) return [];
+      const entry = path.resolve(path.dirname(packageJson), relative);
+      return (await statCandidate(entry)) ? [entry] : [];
+    } catch {
+      return [];
+    }
+  }
   if (target !== "opencode" || process.platform !== "win32") return [candidatePath];
   if (isOpenCodeNativeExecutable(candidatePath)) return [candidatePath];
 

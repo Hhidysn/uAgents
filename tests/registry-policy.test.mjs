@@ -21,6 +21,7 @@ test('registry exposes static capability without dynamic availability', () => {
   assert.deepEqual(registry.targets.opencode.inputs, { text: true, files: true, images: true, workspace_readable: true });
   assert.deepEqual(registry.targets.agy.inputs, { text: true, files: false, images: false, workspace_readable: true });
   assert.deepEqual(registry.targets.workbuddy.inputs, { text: true, files: false, images: true, workspace_readable: true });
+  assert.deepEqual(registry.targets.dsh.inputs, { text: true, files: false, images: false, workspace_readable: true });
   assert.equal(registry.targets.workbuddy.model_selection, 'mixed');
   assert.equal(registry.models['workbuddy-default'].inputs.images, false);
   assert.equal(registry.models['deepseek-v4.1-flash'].inputs.images, true);
@@ -77,6 +78,28 @@ test('WorkBuddy explicit deepseek route resolves concretely', () => {
   assert.equal(outcome.request.model_resolved, 'deepseek-v4.1-flash');
   assert.equal(outcome.request.route_id, 'workbuddy/deepseek-v4.1-flash');
   assert.equal(outcome.request.model_resolution.kind, 'exact');
+});
+
+test('DeepSeek Harness route is explicit and keeps attachments closed in v1', () => {
+  const workspace = process.cwd();
+  const outcome = evaluateRequest(request({
+    target: 'dsh', model: 'deepseek-official/deepseek-flash', workspace,
+  }));
+  assert.equal(outcome.allowed, true);
+  assert.equal(outcome.request.model_resolved, 'deepseek-flash');
+  assert.equal(outcome.request.provider, 'deepseek-official');
+  assert.equal(outcome.request.route_id, 'deepseek-official/deepseek-flash');
+  assert.throws(() => evaluateRequest(request({
+    target: 'dsh', model: 'deepseek-official/deepseek-v4.1-flash', workspace,
+  })), error => error.code === 'model_unavailable' && error.submission === 'not_sent');
+  assert.throws(() => evaluateRequest(request({
+    target: 'dsh', model: 'deepseek-official/deepseek-flash', workspace,
+    inputs: [{ type: 'file', path: 'requirements.md' }],
+  })), error => error.code === 'unsupported_capability' && error.submission === 'not_sent');
+  assert.throws(() => evaluateRequest(request({
+    target: 'dsh', model: 'deepseek-official/deepseek-flash', workspace,
+    inputs: [{ type: 'image', path: 'screen.png' }],
+  })), error => error.code === 'unsupported_capability' && error.submission === 'not_sent');
 });
 
 test('policy fails closed before worker launch', () => {

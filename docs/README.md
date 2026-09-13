@@ -4,6 +4,7 @@
 
 ## 当前先读
 
+- [DeepSeek Harness SDK Target 当前状态](status/2026-09-13-dsh-sdk-target-current.md)：`dsh` 官方 SDK stdio JSON-RPC 接入、显式 DeepSeek route、v1 能力边界与本机 runtime 证据。
 - [Dynamic Model Discovery 当前状态](status/2026-09-12-dynamic-model-discovery-current.md)：WorkBuddy/OpenCode 本机模型 catalog/help 与静态 allowlist 的合并证据和 provider 边界。
 - [Council 当前状态](status/2026-09-12-council-current.md)：当前统一入口，覆盖 fan-out、worktree、diff、local validation evidence、adopt 与显式 cleanup 生命周期。
 - [CLI Schema Discovery 当前状态](status/2026-09-10-cli-schema-discovery-current.md)：CLI `describe` / `schema request` 的 machine-readable contract、source of truth 与验证边界。
@@ -15,6 +16,7 @@
 
 ## 设计与实施
 
+- [DeepSeek Harness SDK Target 设计](superpowers/specs/2026-09-13-deepseek-harness-sdk-target-design.md)
 - [Dynamic Model Discovery 设计](superpowers/specs/2026-09-12-dynamic-model-discovery-design.md)
 - [First-class Council 设计](superpowers/specs/2026-09-10-first-class-council-design.md)
 - [Council Worktree Isolation 设计](superpowers/specs/2026-09-11-council-worktree-isolation-design.md)
@@ -44,6 +46,7 @@
 
 ## 验证证据
 
+- [DeepSeek Harness SDK Target / real provider E2E 验证（2026-09-13）](verification/2026-09-13-dsh-sdk-target.md)
 - [Codex 插件刷新实机验收（2026-09-13）](verification/2026-09-13-plugin-refresh.md)
 - [Dynamic Model Discovery provider-free 验证（2026-09-12）](verification/2026-09-12-dynamic-model-discovery.md)
 - [Council Worktree Isolation 实机 implementation E2E（2026-09-11）](verification/2026-09-11-real-council-worktree-implementation-e2e.md)
@@ -89,6 +92,7 @@
 - [统一请求与结果协议](../plugins/uagents/skills/agent-dispatch/references/protocol.md)
 - [Council lifecycle](../plugins/uagents/skills/agent-dispatch/references/council.md)
 - [agy / Gemini](../plugins/uagents/skills/agent-dispatch/references/agy.md)
+- [DeepSeek Harness](../plugins/uagents/skills/agent-dispatch/references/dsh.md)
 - [WorkBuddy](../plugins/uagents/skills/agent-dispatch/references/workbuddy.md)
 - [OpenCode](../plugins/uagents/skills/agent-dispatch/references/opencode-council.md)
 - [豆包工作](../plugins/uagents/skills/agent-dispatch/references/doubao-work.md)
