@@ -9,7 +9,7 @@ Date: 2026-09-06 (Asia/Shanghai). Workspace: `F:\documents\software\uAgents`.
 - Advisory read-only instructions reach all five targets at dispatch without changing the stored request or idempotency hashes. WorkBuddy advisory requests no longer enable `acceptEdits` implicitly.
 - CLI/MCP launch and recovery integration is wired. Synchronous and asynchronous worker startup failures remain recoverable with the same UUID. Rejected reconciliation evidence cannot overwrite the prior response.
 
-Design and plan: [design](../superpowers/specs/2026-09-05-runtime-reliability-fixes-design.md), [plan](../superpowers/plans/2026-09-05-runtime-reliability-fixes.md). Three GPT-5.6 Luna Max workers implemented bounded slices; the primary integrated and verified the result.
+Design and plan: [design](../history/superpowers/specs/2026-09-05-runtime-reliability-fixes-design.md), [plan](../history/superpowers/plans/2026-09-05-runtime-reliability-fixes.md). Three GPT-5.6 Luna Max workers implemented bounded slices; the primary integrated and verified the result.
 
 ## Executed checks
 

@@ -1,224 +1,123 @@
 # uAgents
 
-uAgents 是供 Codex 使用的本地统一 Agent 调度插件。当前发行标识为
-`0.2.0-alpha.1+codex.20260913161732`，把 agy/Gemini、WorkBuddy、DeepSeek Harness、OpenCode、豆包工作和
-TRAE CN 接到同一套请求、能力、任务状态、结果、错误和产物协议，同时明确保留各目标不同的
-模型、文件、权限、取消和桌面连接能力。
+uAgents 是一个面向 Codex 的本地统一 Agent 调度插件。它把多个本机 Agent 接到同一套 Task、状态、结果、附件、会话和 Council 工作流中，同时保留各目标自己的模型与原生能力。
 
-先看：[Council 当前状态](docs/status/2026-09-12-council-current.md) · [Dynamic Model Discovery 当前状态](docs/status/2026-09-12-dynamic-model-discovery-current.md) · [Session Continuation / Fork 当前状态](docs/status/2026-09-10-session-continuation-current.md) · [Universal Attachment 当前状态](docs/status/2026-09-12-universal-attachment-current.md) · [文档索引](docs/README.md)
+当前发行标识：`0.2.0-alpha.1+codex.20260913161732`。
 
-> 重要边界：OpenCode 现在支持文本 `analysis` 和 `implementation`，并把声明式文件/图片输入映射为原生附件；
-> WorkBuddy 2.132.0 的 generic file 真实调用仍被拒绝，因此 `inputs.files=false`。图片能力是 model-specific：
-> backend/default `auto` 的真实 E2E 会拒绝 image-bearing request，但显式 `model=deepseek-v4.1-flash`
-> 已通过 512×512 RGB PNG 的真实多模态 E2E；该 concrete route 会下发 native `--model deepseek-v4.1-flash`。
-> DeepSeek Harness (`dsh`) 首版通过官方 SDK stdio JSON-RPC 接入：一 Task 一进程、显式 `deepseek-official/deepseek-flash` 路线、text + workspace only；不自动操作 Web Agent，也不把 prompt 放进 argv。Web UI 的 “DeepSeek V4.1 Flash” 展示名不能直接作为 SDK model id；0.1.5-rc.1 的 `deepseek-official` 接口实际接受 `deepseek-flash`。
-> WorkBuddy 与 OpenCode
-> 现在都支持显式多轮 continuation 和 fork：每一轮仍是新 Task，可以继续上一 native session，也可以从上一轮上下文派生独立 native branch。agy 当前只有 workspace
-> 可读性，没有可验证的 native attachment mapping，也没有已映射的 session continuation。
-> uAgents 负责请求、工作区、生命周期和产物验收，不提供执行沙箱；OpenCode 的原生行为通过
-> `execution.native_args` 控制。
+## 支持的 Agent
 
-核心特性：
+| Target | Analysis | Implementation | File input | Image input | Continue / Fork |
+| --- | --- | --- | --- | --- | --- |
+| agy | ✅ | ✅ | — | — | — |
+| WorkBuddy | ✅ | ✅ | — | `deepseek-v4.1-flash` ✅ | ✅ / ✅ |
+| DeepSeek Harness (`dsh`) | ✅ | ✅ | — | — | — |
+| OpenCode | ✅ | ✅ | ✅ | ✅ | ✅ / ✅ |
+| 豆包工作 | ✅ | — | — | — | — |
+| TRAE CN | ✅ | ✅ | — | — | — |
 
-- 一个 `agent-dispatch` Skill、一个本地优先 CLI、一个可选 stdio MCP Server，共用同一 Node.js Core。
-- SQLite WAL 控制面；Task、Attempt、Native Process、Native Session 分离；同 UUID 与同一有效请求不会重复发送。
-- 每次调用记录 `model_requested`、`model_resolved`、`model_reported`、`model_verified`，不把配置选择冒充运行期验证。
-- `model_resolved` 保存规范模型名，完整 Provider/Model 运输路线单独保存在 `route_id`。
-- DeepSeek Harness 使用官方 `dsh --profile sdk` JSON-RPC stdio；`initialize` 绑定 workspace/provider/model，root session `running -> idle` 和 committed assistant event 共同定义完成证据。
-- `models <target>` 会把静态 allowlist 与 WorkBuddy/OpenCode 本机 native catalog/help 证据合并；发现到的新模型只展示、不自动放行，provider 登录/额度/在线状态仍保持 `unconfirmed`。
-- 原生失败以脱敏结构化错误返回；Provider 响应头、响应体和凭据内容不会写入任务记录。
-- 本地 uAgents CLI、后台 Worker 和受信任的 Agent CLI 逐层继承调用终端环境，使任意 Provider 的环境变量凭据无需硬编码即可使用；环境内容不会进入请求、SQLite 或结果。
-- 外部发送前持久化 `possibly_sent`；发送后不确定状态不自动换 UUID、模型或 Provider 重放。
-- workspace 重叠租约、fencing token、统一附件快照（类型/MIME/尺寸/字节数/SHA-256）、不可变产物捕获与 SHA-256 验证。
-- 附件既可继续用 workspace 相对 `{type,path}`、绝对本地 `{type,source}`，也可用 `{type,blob:{name,data_base64}}` 直接传宿主/connector 已取得的文件 bytes；Unified MCP 还可直接接收 `attachments:[{type,local_path,name?}]`，让聊天宿主把已物化临时文件交给 uAgents 而无需手工 base64。外部附件最终都复用同一 `.uagents/inputs/`、snapshot 与 target mapping 链路。
-- WorkBuddy/OpenCode 支持 `session.continue_from_task_id` 和 `session.fork_from_task_id`：新 Task 可以继续上一 native session，或从它派生独立 native branch；uAgents 不重放历史 prompt。
-- First-class Council 把 2–16 个成员组织成一个持久化 fan-out/fan-in 单元；默认 `analysis + shared`。`implementation + git-worktree` 可并行产出独立候选，再通过 `council-diff` 比较、`council-validate` 记录单步或多步 named 本地测试证据、显式 `council-adopt` 采纳、显式 `council-cleanup` 回收；成员仍是普通 Task，不自动投票、merge、总结或后台 GC。
-- `status`/`list` 只读本地状态；只有显式 `reconcile`（或针对已有 durable process 的 `resume`）才恢复已有原生执行观察，绝不重发原 prompt。
-- 受管生命周期：`submit` 自动发现、验证并缓存本机入口；豆包/TRAE 在专用隔离 Profile 中自动启动并跨 Task DB 用 Host lease 防双开；首次登录后同 UUID `submit` 或 `resume` 在原 Attempt 上恢复；`stop` 只停止所有权证据完整的实例。
-- 资源冲突时有界排队；未发送任务可用同 UUID 恢复，任务租约和原子 Attempt claim 防止重复发送。受管桌面恢复绑定原实例，`advisory-read-only` 会传递只读提示并关闭 WorkBuddy 隐式编辑自动接受。
+完整能力矩阵、批准模型路线和目标差异见 [当前 Agent 能力](docs/current/agents.md)。
 
-## 目标能力速览
+## 快速开始
 
-| 目标 | 模式 | 输入 / 输出 | 当前关键边界 |
-| --- | --- | --- | --- |
-| agy | `analysis`、`implementation` | 文本 / 文本 + 文件 | workspace 可读但无 native file/image attachment mapping；模型必须显式指定；分析模式不是硬只读 |
-| WorkBuddy | `analysis`、`implementation` | 文本；显式 `deepseek-v4.1-flash` 可加图片 / 文本 + 文件 | `default` 继续 backend-auto 文本路线且 image=false；`deepseek-v4.1-flash` 是已批准 concrete route、会下发 native `--model` 且真实图片 E2E 成功；generic file 仍拒绝；follow-up 通过 native `--resume <session-id>`；分析模式不是硬只读 |
-| DeepSeek Harness (`dsh`) | `analysis`、`implementation` | 文本 + workspace / 文本 + 文件 | 官方 SDK stdio JSON-RPC；显式 `deepseek-official/deepseek-flash`；v1 一 Task 一 SDK 进程，不开放 file/image attachment、continuation/fork 或 Web Agent automation |
-| OpenCode | `analysis`、`implementation` | 文本 + 文件 + 图片 / 文本 + 文件 | 文件/图片通过 native `--file`；follow-up 通过 `run --session <session-id>`；Windows 当前源码使用 durable process/transcript，并支持 verified `execution_timeout_ms`；仅两条显式 Command Code Flash 路线 |
-| 豆包工作 | `analysis` | 文本 / 文本 | 无文件/图片；无已确认原生取消；不回显可验证模型；受管桌面实例 |
-| TRAE CN | `analysis`、`implementation` | 文本 / 文本 + 文件 | 不接受显式文件输入；无图片、无已确认原生取消；模型不可靠回显；受管桌面实例 |
-
-`implementation` 与 `workspace-write` 不是同一件事：前者表示目标允许调用其原生编辑流程，后者要求
-uAgents 自身强制工作区写入边界。`execution.permission` 为 Schema 1.0 兼容字段，不再作为能力准入门槛；
-需要的原生审批或执行行为应通过目标自己的 `execution.native_args` 配置。当前 uAgents 不提供执行沙箱，
-因此不能把产物校验当成安全隔离。
-
-当前附件能力、已安装 cache 与源码工作树的边界、验证证据及待补齐项见
-[Universal Attachment 当前状态](docs/status/2026-09-12-universal-attachment-current.md)。
-
-## 使用
-
-本地 Codex 默认直接运行 CLI。插件根目录取当前安装版本中包含 `skills/agent-dispatch` 的目录，不要把缓存版本号写死。CLI 使用相同 Core，默认状态目录是 `%LOCALAPPDATA%\uAgents\v1`：
+插件安装后，从当前插件根目录运行统一 CLI：
 
 ```powershell
 node "<plugin-root>\bin\uagents.mjs" targets
-node "<plugin-root>\bin\uagents.mjs" describe
-node "<plugin-root>\bin\uagents.mjs" describe submit
-node "<plugin-root>\bin\uagents.mjs" schema request
-node "<plugin-root>\bin\uagents.mjs" describe council-submit
-node "<plugin-root>\bin\uagents.mjs" schema council
 node "<plugin-root>\bin\uagents.mjs" capabilities opencode
 node "<plugin-root>\bin\uagents.mjs" models opencode
-node "<plugin-root>\bin\uagents.mjs" models dsh
 node "<plugin-root>\bin\uagents.mjs" submit --request "F:\path\request.json"
-node "<plugin-root>\bin\uagents.mjs" submit --request-stdin
 node "<plugin-root>\bin\uagents.mjs" status <task-id>
 node "<plugin-root>\bin\uagents.mjs" result <task-id>
-node "<plugin-root>\bin\uagents.mjs" council-submit --request "F:\path\council.json"
-node "<plugin-root>\bin\uagents.mjs" council-status <council-id>
-node "<plugin-root>\bin\uagents.mjs" council-result <council-id>
-node "<plugin-root>\bin\uagents.mjs" council-diff <council-id>
-node "<plugin-root>\bin\uagents.mjs" schema council-validation
-node "<plugin-root>\bin\uagents.mjs" schema council-validation-profiles
-node "<plugin-root>\bin\uagents.mjs" council-validate <council-id> --all --validation "F:\path\validation.json"
-node "<plugin-root>\bin\uagents.mjs" council-validate <council-id> --all --profile pre-adopt
-node "<plugin-root>\bin\uagents.mjs" council-adopt <council-id> --member <member-id> --workspace "F:\project"
-node "<plugin-root>\bin\uagents.mjs" council-cleanup <council-id> --member <member-id>
-node "<plugin-root>\bin\uagents.mjs" council-cleanup <council-id> --all --force
 ```
 
-`submit` 必须且只能选择 `--request FILE` 或 `--request-stdin`。stdin 适用于调用方可以把输入与命令文本分离的场景；不要把 prompt 或完整 JSON 放入进程参数。
+`submit` 也支持 `--request-stdin`。Prompt 和完整请求 JSON 不需要放进进程参数。
 
-CLI-first 调用不再需要只靠 Skill prose 猜参数：`describe [command]` 返回 machine-readable 的 CLI command contract，`schema request` / `schema council` 返回 Task/Council 的 Draft 2020-12 JSON Schema；这些 discovery 都是纯本地只读，不创建 Runtime/Task，也不联系 Provider。MCP 入口继续通过 `tools/list` 暴露自己的 input schema。
-
-`models <target>` 是 no-prompt native discovery：WorkBuddy 从本机 CLI help 读取 supported labels，OpenCode 从本机 `models <provider> --pure` catalog 读取 route。结果同时标记 `configured`、`admission_allowed`、`discovered` 和 `usable`；`usable` 只表示 allowlist 与本机 catalog 的交集，不证明 provider authentication/quota/live availability。详见 [Dynamic Model Discovery 当前状态](docs/status/2026-09-12-dynamic-model-discovery-current.md)。
-
-Core 附件输入有三种等价入口：`{"type":"file","path":"requirements.md"}` / `{"type":"image","path":"assets/screenshot.png"}` 直接引用 workspace 内文件；`{"type":"file","source":"F:\\Downloads\\brief.pdf"}` 可引用 workspace 外的绝对本地路径；宿主/connector 已经取得文件 bytes 时可直接使用 `{"type":"file","blob":{"name":"brief.pdf","data_base64":"..."}}`。`source` / `blob` 都会在注册前归一化为 `.uagents/inputs/...` 下的 workspace-relative attachment；后续 snapshot 和 target mapping 与 `path` 输入完全共用。uAgents Core 不解析 Drive/Slack/邮件等 opaque connector ID。
-
-Unified MCP 为聊天/connector host 再提供一个不进入 Core schema 的便捷入口：`attachments:[{"type":"file","local_path":"C:\\host-temp\\upload.tmp","name":"brief.pdf"}]`。宿主已经有本地临时文件时应优先用它，而不是自己读取并 base64；MCP 层会在进入 Runtime 前转成现有 blob contract。临时 `local_path` 不进入 Task/Council 历史，也不参与最终 request identity；相同 name/bytes 即使重试时 temp path 改变，仍可保持同 UUID 幂等。
-
-WorkBuddy/OpenCode 的下一轮对话仍然 submit 一个新的请求和新的 UUID，只需增加：
-
-```json
-"session": { "continue_from_task_id": "上一轮-uAgents-task-uuid" }
-```
-
-如果要从上一轮上下文分叉一条独立会话，则使用：
-
-```json
-"session": { "fork_from_task_id": "上一轮-uAgents-task-uuid" }
-```
-
-两个 selector 严格二选一。source Task 必须已经结束，并与新 Task 使用同一个 target 和 workspace。uAgents 只读取上一 Task 已持久化的 native session id；不会把旧 response/history 拼回 prompt。`continue_from_task_id` 保持相同 native session，`fork_from_task_id` 必须得到新的 native session；`resume <task-id>` 仍然只是恢复/观察同一个已有 Task，不会发送新 prompt。
-
-Council 默认用于独立多 Agent analysis。示例：
+最小请求示例：
 
 ```json
 {
   "schema_version": "1.0",
-  "council_id": "<uuid>",
-  "strategy": "fanout",
-  "prompt": "Review this change.",
+  "request_id": "<uuid>",
+  "target": "dsh",
+  "model": "deepseek-official/deepseek-flash",
+  "mode": "analysis",
   "workspace": "F:\\project",
-  "members": [
-    { "member_id": "architecture", "target": "workbuddy", "model": "default", "instruction": "Focus on architecture." },
-    { "member_id": "feasibility", "target": "opencode", "model": "commandcode-goat/deepseek/deepseek-v4-flash", "instruction": "Focus on implementation feasibility." }
-  ]
+  "prompt": "Review this repository and summarize the main risks."
 }
 ```
 
-Council 当前完整生命周期统一记录在 [Council 当前状态](docs/status/2026-09-12-council-current.md)。兼容默认是 `analysis + shared`；并行改代码使用 `implementation + git-worktree`，随后可 `council-diff` 比较、`council-validate` 在各 candidate worktree 中执行单条 argv 或有序 named checks（例如 lint/typecheck/test/build）并记录 evidence。项目也可以把常用 checks 提交到 source workspace 的 `.uagents/validation-profiles.json`，再用 `--profile pre-adopt` 对所有候选应用同一标准。之后显式 `council-adopt` 采纳、最后显式 `council-cleanup` 回收 worktree/branch。uAgents 不自动选 winner、synthesis、commit、merge 或后台 cleanup。
-
-受管生命周期命令（Host 状态固定在 `%LOCALAPPDATA%\uAgents\host-v1`，不受 `--state-dir` 影响）：
-
-```powershell
-node "<plugin-root>\bin\uagents.mjs" ensure <target> [--refresh]
-node "<plugin-root>\bin\uagents.mjs" resume <task-id>
-node "<plugin-root>\bin\uagents.mjs" stop <target>
-```
-
-`ensure` 发现、验证并缓存安装；对桌面目标启动或复用专用实例，但不发送 Prompt。`probe` 保持只读、不启动。`resume` 可恢复无活跃 Worker 的 `registered/queued` 未发送任务，或发送前登录等待，均沿用原 Attempt；对于已经存在 durable native process 的非终态 OpenCode Task，`resume` 会转入同 Attempt reconcile，只读取 process/transcript 并继续观察，绝不重新发送 prompt。`reconcile` 同样不会自动使用 OpenCode `--session`/`--continue` 续写会话。durable OpenCode 的取消或 observation timeout 只结束当前观察，不代表 native process 已取消；workspace guard 会保留到死亡/静默得到证明。Windows 当前源码的 `execution_timeout_ms` 使用两个独立 detached guardian、短 TTL fenced claim、PID/start-time/executable ownership 与 process-tree quiescence 执行本地 execution deadline；单个 guardian 在 ready 后死亡时，另一 guardian 仍可接管 deadline。即使本地 tree 已确认静默，也不会冒充 provider/native 已确认 cancelled。当前可信 ownership inspector 为 Windows 实现，因此非 Windows OpenCode 暂时继续使用旧 uninterrupted transport。`stop` 拒绝接管用户日常窗口或未知进程。
-
-`.mcp.json` 注册的 `uagents-unified` 是兼容入口，供没有本地 Shell 或明确要求 MCP 的宿主使用：
+精确字段和命令参数以 CLI discovery 为准：
 
 ```text
-uagents_list_targets       uagents_get_capabilities
-uagents_list_models        uagents_probe
-uagents_submit             uagents_status
-uagents_result             uagents_cancel
-uagents_council_submit     uagents_council_status
-uagents_council_result     uagents_council_diff
-uagents_council_validate   uagents_council_adopt
-uagents_council_cleanup
-uagents_list_tasks         uagents_reconcile
-uagents_ensure             uagents_resume
-uagents_stop
+uagents describe
+uagents describe <command>
+uagents schema request
+uagents schema council
+uagents schema council-validation
+uagents schema council-validation-profiles
 ```
 
-Unified MCP 的 `uagents_submit` / `uagents_council_submit` 既接受 Core `inputs`，也接受 host-only `attachments:[{type,local_path,name?}]`，两者严格二选一。host attachment 会先转成现有 blob，再沿用同一个 `.uagents/inputs` / snapshot / Council fan-out / target mapping。MCP 不会把 opaque connector file-id 直接传给 target；connector host 仍需先取得 bytes 或物化成本地文件。
+## 用户功能
 
-Codex 可能只把显式声明的环境变量交给插件 MCP 进程，因此环境变量鉴权的本机 Agent 不应默认走 MCP。CLI 与 MCP 只有在使用同一状态目录时才共享 Task/Attempt；切换入口也不得用新 UUID 重放已发送或不确定的任务。
+### 附件
 
-请求协议与状态解释见 [Skill 协议说明](plugins/uagents/skills/agent-dispatch/references/protocol.md)。目标差异见同目录下的 agy、WorkBuddy、DeepSeek Harness、OpenCode、豆包和 TRAE 说明。
+Core 支持 workspace 相对路径、本地绝对 source 和 inline blob。Unified MCP 还支持宿主已经物化的本地临时附件。不同 target 是否真正支持 file/image 由目标能力决定。
+
+详见 [当前附件能力](docs/current/attachments.md)。
+
+### 多轮会话
+
+WorkBuddy 和 OpenCode 支持继续上一 native session，或从上一轮上下文 fork 独立分支。每一轮仍然是新的 uAgents Task。
+
+详见 [当前会话能力](docs/current/sessions.md)。
+
+### Council
+
+Council 可以把同一任务 fan-out 给多个 Agent。分析任务可共享 workspace；并行实现任务可使用独立 Git worktree，并支持 diff、validation、adopt 和 cleanup。
+
+详见 [当前 Council 能力](docs/current/council.md)。
+
+### 模型发现
+
+`models <target>` 会展示静态批准路线和可获得的本机模型发现证据。发现到模型不等于自动批准，也不代表 Provider 登录、额度或在线状态已经确认。
+
+详见 [当前模型与路由](docs/current/models.md)。
+
+### 本机生命周期
+
+uAgents 可以发现并验证 Agent 安装；桌面目标使用受管实例。`status` / `result` 只读本地状态，`resume` / `reconcile` 不会把一个已经发送过的 Prompt 自动换 UUID 重放。
+
+详见 [当前 Runtime 与生命周期](docs/current/runtime.md)。
+
+## Unified MCP
+
+没有本地 Shell、或宿主明确要求 MCP 时，可以使用插件提供的 `uagents-unified` stdio MCP Server。CLI 和 MCP 共用同一 Core contract。
+
+详见 [MCP Reference](docs/reference/mcp.md)。
+
+## 当前限制
+
+- uAgents 是 orchestration 层，不提供执行沙箱。
+- WorkBuddy generic file attachment 当前不可用；图片只对已验证的显式 `deepseek-v4.1-flash` 路线开放。
+- DSH v1 只开放 text + workspace，当前不开放 file/image attachment、continuation 或 fork。
+- Council 不自动选择 winner、自动 synthesis、自动 merge 或后台 cleanup。
+- Dynamic model discovery 只提供本机 evidence，不自动扩大 allowlist。
+
+## 文档
+
+- [当前实现](docs/current/README.md)：现在已经实现并可使用的功能。
+- [协议与命令 Reference](docs/reference/README.md)：稳定 contract、CLI/MCP 和 capability 语义。
+- [Verification](docs/verification/)：provider-free、实机和真实 Provider 验证证据。
+- [History](docs/history/README.md)：旧架构、设计讨论、实施计划、评审和历史状态快照。
+- [文档总入口](docs/README.md)：文档维护规则与完整导航。
 
 ## 开发验证
 
-需要 Node.js `>=22.13.0`；本机验证版本为 Node 24.13.0。`node:sqlite` 在当前版本仍可能输出实验性警告。
+需要 Node.js `>=22.13.0`。
 
 ```powershell
 npm test
 npm --prefix plugins/uagents/mcp/unified test
-python C:\Users\24590\.codex\skills\.system\skill-creator\scripts\quick_validate.py plugins/uagents/skills/agent-dispatch
-python C:\Users\24590\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py plugins/uagents
 ```
 
-## 设计与证据
-
-- [Codex 插件刷新实机验收（2026-09-13）](docs/verification/2026-09-13-plugin-refresh.md)
-- [Dynamic Model Discovery 当前状态](docs/status/2026-09-12-dynamic-model-discovery-current.md)
-- [Dynamic Model Discovery 设计](docs/superpowers/specs/2026-09-12-dynamic-model-discovery-design.md)
-- [Dynamic Model Discovery provider-free 验证](docs/verification/2026-09-12-dynamic-model-discovery.md)
-- [Council 当前状态](docs/status/2026-09-12-council-current.md)
-- [统一 Runtime 设计](docs/superpowers/specs/2026-09-04-uagents-unified-agent-runtime-design.md)
-- [Runtime 可靠性修复设计](docs/superpowers/specs/2026-09-05-runtime-reliability-fixes-design.md)
-- [Verified Execution Timeout 设计](docs/superpowers/specs/2026-09-06-verified-execution-timeout-design.md)
-- [Native Session Continuation 设计](docs/superpowers/specs/2026-09-10-native-session-continuation-design.md)
-- [Native Session Fork / Branch 设计](docs/superpowers/specs/2026-09-10-native-session-fork-design.md)
-- [First-class Council 设计](docs/superpowers/specs/2026-09-10-first-class-council-design.md)
-- [Council Worktree Isolation 设计](docs/superpowers/specs/2026-09-11-council-worktree-isolation-design.md)
-- [Council Candidate Comparison 设计](docs/superpowers/specs/2026-09-11-council-candidate-comparison-design.md)
-- [Explicit Candidate Adopt 设计](docs/superpowers/specs/2026-09-11-explicit-candidate-adopt-design.md)
-- [Council Cleanup 设计](docs/superpowers/specs/2026-09-12-council-cleanup-design.md)
-- [Council Candidate Validation 设计](docs/superpowers/specs/2026-09-12-council-candidate-validation-design.md)
-- [Multi-step Candidate Validation 设计](docs/superpowers/specs/2026-09-12-multi-step-candidate-validation-design.md)
-- [Validation Profiles 设计](docs/superpowers/specs/2026-09-12-validation-profiles-design.md)
-- [Attachment Host UX Integration 设计](docs/superpowers/specs/2026-09-12-attachment-host-ux-integration-design.md)
-- [Explicit Candidate Adopt 验证](docs/verification/2026-09-11-explicit-candidate-adopt.md)
-- [Council Cleanup provider-free 验证](docs/verification/2026-09-12-council-cleanup.md)
-- [Council Candidate Validation provider-free / 真实候选验证](docs/verification/2026-09-12-council-candidate-validation.md)
-- [Multi-step Candidate Validation provider-free / 真实候选验证](docs/verification/2026-09-12-multi-step-candidate-validation.md)
-- [Validation Profiles provider-free 验证](docs/verification/2026-09-12-validation-profiles.md)
-- [Attachment Host UX Integration provider-free 验证](docs/verification/2026-09-12-attachment-host-ux-integration.md)
-- [Council Candidate Comparison 验证](docs/verification/2026-09-11-council-candidate-comparison.md)
-- [Council Worktree Isolation 实机 implementation E2E](docs/verification/2026-09-11-real-council-worktree-implementation-e2e.md)
-- [Council Worktree Isolation provider-free 验证](docs/verification/2026-09-11-council-worktree-isolation.md)
-- [First-class Council 实机 E2E](docs/verification/2026-09-11-real-first-class-council-e2e.md)
-- [First-class Council provider-free 验证](docs/verification/2026-09-10-first-class-council.md)
-- [Native Session Fork provider-free 验证](docs/verification/2026-09-10-session-fork.md)
-- [Runtime 可靠性修复验证](docs/verification/2026-09-06-runtime-reliability-fixes.md)
-- [Universal Attachment Input 验证](docs/verification/2026-09-09-universal-attachment-input.md)
-- [Connector / Blob Attachment Input 设计](docs/superpowers/specs/2026-09-12-connector-blob-attachment-input-design.md)
-- [Connector / Blob Attachment Input 验证](docs/verification/2026-09-12-connector-blob-attachment-input.md)
-- [统一 Runtime 实施计划](docs/superpowers/plans/2026-09-04-uagents-unified-agent-runtime-implementation.md)
-- [受管 Agent 生命周期设计](docs/superpowers/specs/2026-09-04-uagents-managed-agent-lifecycle-design.md)
-- [受管生命周期实施计划](docs/superpowers/plans/2026-09-05-uagents-managed-agent-lifecycle-implementation.md)
-- [Verified Execution Timeout 实施计划](docs/superpowers/plans/2026-09-06-verified-execution-timeout-plan.md)
-- [当前状态与能力矩阵](docs/status/2026-09-06-current-status.md)
-- [历史进度快照](docs/status/2026-09-02-current-progress.md)
-- [受管桌面启动契约验证（Gate 0 spike）](docs/verification/2026-09-05-managed-launch-spike.md)
-- [SQLite/Windows spike](docs/verification/2026-09-04-sqlite-windows-spike.md)
-- [候选 CLI 调用契约](docs/verification/2026-09-03-cli-candidate-contracts.md)：Claude Code、Grok、Pi 仍只是候选，不在 target allowlist。
-- [历史干净安装验证](docs/verification/2026-09-02-clean-plugin-install.md)
-- [第三方资料索引](docs/research-index.md)
-
-旧的两个目标专用 MCP 已从插件声明中移除；其 CDP/gateway 运输、TRAE 可追溯上游包、许可证和第三方通知仍保留。桌面 Agent 由 uAgents 以专用隔离 Profile 自动启动和管理：不自动登录、不批准操作、不购买额度、不接管用户日常窗口，也不静默切换付费路线。
+Skill 和 Plugin validator 的具体命令见 [当前 Runtime 与生命周期](docs/current/runtime.md)。

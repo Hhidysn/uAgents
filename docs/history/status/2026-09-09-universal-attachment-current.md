@@ -69,7 +69,7 @@ dispatch 前再次验证，target transport 不需要理解 `source`，附件 by
 ## 验证状态
 
 provider-free contract 与回归证据见
-[Universal Attachment Input 验证](../verification/2026-09-09-universal-attachment-input.md)。当前完整门禁为 Core
+[Universal Attachment Input 验证](../../verification/2026-09-09-universal-attachment-input.md)。当前完整门禁为 Core
 273/273 + MCP 11/9/4，共 **297/297**；Skill validator、plugin validator 和 `git diff --check` 同时通过。
 本轮没有执行任何真实 OpenCode、WorkBuddy、agy 或其他 provider prompt。
 

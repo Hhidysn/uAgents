@@ -115,4 +115,4 @@ usage          7907 input / 9 output
 - 自动 provider/model 选择；
 - discovered model 自动 admission。
 
-设计见 [DeepSeek Harness SDK Target 设计](../superpowers/specs/2026-09-13-deepseek-harness-sdk-target-design.md)，验证见 [SDK / real provider E2E 验证](../verification/2026-09-13-dsh-sdk-target.md)。
+设计见 [DeepSeek Harness SDK Target 设计](../superpowers/specs/2026-09-13-deepseek-harness-sdk-target-design.md)，验证见 [SDK / real provider E2E 验证](../../verification/2026-09-13-dsh-sdk-target.md)。

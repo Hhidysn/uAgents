@@ -71,8 +71,8 @@ Unified MCP 使用同名 `uagents_council_*` tools。
 
 真实 provider 证据见：
 
-- [First-class Council 实机 E2E](../verification/2026-09-11-real-first-class-council-e2e.md)
-- [Implementation Worktree 实机 E2E](../verification/2026-09-11-real-council-worktree-implementation-e2e.md)
+- [First-class Council 实机 E2E](../../verification/2026-09-11-real-first-class-council-e2e.md)
+- [Implementation Worktree 实机 E2E](../../verification/2026-09-11-real-council-worktree-implementation-e2e.md)
 
 provider-free diff/validation/adopt/cleanup 证据分别保存在对应 verification 文档。
 

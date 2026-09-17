@@ -77,7 +77,7 @@ host temp path 不进入 request identity 或持久化历史；相同 request UU
 
 blob ingestion 本身可完全 provider-free 验证。真实 WorkBuddy 2.132.0 E2E 已在 2026-09-13 验证出两层边界：generic `document -> input_file` 在 backend/default route 返回 `400 Parse message failed: unsupported content type ... file`，因此 WorkBuddy `files=false`；backend-selected `auto` 也拒绝 image-bearing request。但显式 native `--model deepseek-v4.1-flash` 对一张 512×512 RGB PNG 成功返回 `RED_OK`，因此 target transport 恢复 `images=true`，同时 `workbuddy-default` route 以 model-specific input policy 收紧为 `images=false`，只有批准的 `deepseek-v4.1-flash` route 保持 `images=true`。
 
-验证证据见 [Connector / Blob Attachment Input 验证](../verification/2026-09-12-connector-blob-attachment-input.md)、[Attachment Host UX Integration 验证](../verification/2026-09-12-attachment-host-ux-integration.md)、[WorkBuddy generic file 真实 E2E](../verification/2026-09-13-real-workbuddy-file-attachment-e2e.md) 与 [WorkBuddy image 真实 E2E](../verification/2026-09-13-real-workbuddy-image-attachment-e2e.md)。
+验证证据见 [Connector / Blob Attachment Input 验证](../../verification/2026-09-12-connector-blob-attachment-input.md)、[Attachment Host UX Integration 验证](../../verification/2026-09-12-attachment-host-ux-integration.md)、[WorkBuddy generic file 真实 E2E](../../verification/2026-09-13-real-workbuddy-file-attachment-e2e.md) 与 [WorkBuddy image 真实 E2E](../../verification/2026-09-13-real-workbuddy-image-attachment-e2e.md)。
 
 ## 当前验证
 

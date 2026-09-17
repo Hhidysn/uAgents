@@ -112,10 +112,10 @@ Unified MCP        7/7
 Total           317/317
 ```
 
-Fork 的 provider-free runtime fixture 已覆盖 WorkBuddy 和 OpenCode：`source S1 -> fork S2 -> continue S2`，并验证 S2 必须不同于 S1。详见 [Native Session Fork provider-free 验证](../verification/2026-09-10-session-fork.md)。
+Fork 的 provider-free runtime fixture 已覆盖 WorkBuddy 和 OpenCode：`source S1 -> fork S2 -> continue S2`，并验证 S2 必须不同于 S1。详见 [Native Session Fork provider-free 验证](../../verification/2026-09-10-session-fork.md)。
 
 真实 fork provider E2E 也已在用户明确授权后通过，详见
-[Native Session Fork 实机验证](../verification/2026-09-10-real-session-fork-e2e.md)：
+[Native Session Fork 实机验证](../../verification/2026-09-10-real-session-fork-e2e.md)：
 
 - WorkBuddy 父 Task `066ebc69-87b3-4c16-b289-33c15d2e0477` 的 native session 为同名 UUID，fork Task
   `bb8884f8-c158-4316-8aaf-f3f283e70c58` 得到新的 native session
@@ -127,7 +127,7 @@ Fork 的 provider-free runtime fixture 已覆盖 WorkBuddy 和 OpenCode：`sourc
 两家目标都证明了 source context 被继承且 fork identity 发生变化。测试 workspace 最终为空，没有 Agent 文件写入。
 
 真实 provider E2E 也已在用户明确授权后完成，详见
-[Native Session Continuation 实机验证](../verification/2026-09-10-real-session-continuation-e2e.md)：
+[Native Session Continuation 实机验证](../../verification/2026-09-10-real-session-continuation-e2e.md)：
 
 - WorkBuddy 第一轮 Task `fc71c8a0-acca-4bfc-a5ee-7d9a9ed98597` 返回 `ACK WB-CONT-9X2M7Q`；
   第二轮 Task `fb554a1a-2c19-4461-80fb-c6615059ff2b` 通过 `continue_from_task_id` 继续同一 native

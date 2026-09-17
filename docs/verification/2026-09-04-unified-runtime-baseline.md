@@ -24,7 +24,7 @@
 ```text
 .gitignore
 README.md
-docs/status/2026-09-02-current-progress.md
+docs/history/status/2026-09-02-current-progress.md
 plugins/uagents/.codex-plugin/plugin.json
 plugins/uagents/mcp/doubao/dist/server.mjs
 plugins/uagents/mcp/doubao/src/store.mjs

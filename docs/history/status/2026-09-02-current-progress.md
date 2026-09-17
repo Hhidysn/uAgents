@@ -41,7 +41,7 @@
 
 ## 尚未接入
 
-Claude Code、Grok、Pi 只有 help 级候选契约，不在 target allowlist；Cursor Agent 未发现；独立 Gemini CLI 未接入。候选证据见[候选 CLI 调用契约](../verification/2026-09-03-cli-candidate-contracts.md)。Codex 原生 `luna_max`、`sol_max`、`explorer`、`web_researcher`、`council_runner` 仍属于全局编排层，不复制进插件。
+Claude Code、Grok、Pi 只有 help 级候选契约，不在 target allowlist；Cursor Agent 未发现；独立 Gemini CLI 未接入。候选证据见[候选 CLI 调用契约](../../verification/2026-09-03-cli-candidate-contracts.md)。Codex 原生 `luna_max`、`sol_max`、`explorer`、`web_researcher`、`council_runner` 仍属于全局编排层，不复制进插件。
 
 ## 下一步
 
@@ -52,4 +52,4 @@ Claude Code、Grok、Pi 只有 help 级候选契约，不在 target allowlist；
 5. 评估图片输入、原生 resume/cancel、真正 enforced-read-only 与 Agent Profile 层。
 6. 公开发布前补顶层许可证、版本/变更日志和完整供应链清单。
 
-统一设计、受管生命周期设计与 Gate 记录见[统一 Runtime 设计](../superpowers/specs/2026-09-04-uagents-unified-agent-runtime-design.md)、[受管生命周期设计](../superpowers/specs/2026-09-04-uagents-managed-agent-lifecycle-design.md)与[实施计划](../superpowers/plans/2026-09-05-uagents-managed-agent-lifecycle-implementation.md)；受管启动契约证据见[启动 spike 验证](../verification/2026-09-05-managed-launch-spike.md)。
+统一设计、受管生命周期设计与 Gate 记录见[统一 Runtime 设计](../superpowers/specs/2026-09-04-uagents-unified-agent-runtime-design.md)、[受管生命周期设计](../superpowers/specs/2026-09-04-uagents-managed-agent-lifecycle-design.md)与[实施计划](../superpowers/plans/2026-09-05-uagents-managed-agent-lifecycle-implementation.md)；受管启动契约证据见[启动 spike 验证](../../verification/2026-09-05-managed-launch-spike.md)。

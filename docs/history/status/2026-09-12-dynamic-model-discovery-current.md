@@ -67,7 +67,7 @@ agy、Doubao、TRAE 当前没有新增 native dynamic discovery；它们继续�
 
 本功能只执行本机 no-prompt CLI metadata/catalog 命令。本轮没有发送 WorkBuddy/OpenCode prompt，没有执行 provider-billable E2E，也没有启用 OpenCode native `--refresh`。
 
-详细设计见 [Dynamic Model Discovery 设计](../superpowers/specs/2026-09-12-dynamic-model-discovery-design.md)，验证证据见 [Dynamic Model Discovery 验证](../verification/2026-09-12-dynamic-model-discovery.md)。
+详细设计见 [Dynamic Model Discovery 设计](../superpowers/specs/2026-09-12-dynamic-model-discovery-design.md)，验证证据见 [Dynamic Model Discovery 验证](../../verification/2026-09-12-dynamic-model-discovery.md)。
 
 ## 当前验证
 

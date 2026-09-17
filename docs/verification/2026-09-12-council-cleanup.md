@@ -19,6 +19,6 @@
 - CLI discovery 暴露 `--member | --all` 二选一与 `--force`；
 - Unified MCP 暴露 `uagents_council_cleanup`。
 
-最终完整测试计数见 [Council 当前状态](../status/2026-09-12-council-current.md)。
+最终完整测试计数见 [Council 历史状态快照](../history/status/2026-09-12-council-current.md)。
 
 本轮最终门禁：Council + CLI targeted 26/26，Unified MCP targeted 7/7；完整 Core 297/297、Doubao MCP 11/11、TRAE MCP 9/9、Unified MCP 7/7，总计 324/324。

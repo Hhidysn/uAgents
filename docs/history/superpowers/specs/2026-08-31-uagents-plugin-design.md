@@ -1,6 +1,6 @@
 # uAgents 插件设计
 
-日期：2026-08-31，2026-09-02 更新。状态：CLI、豆包 MCP 与 TRAE MCP 的仓库内实现已完成；`0.1.0-alpha.6` 已通过个人 marketplace 干净安装，等待新 Codex 任务验证宿主拾取。当前清单与实施顺序见[进度和下一步](../../status/2026-09-02-current-progress.md)，外部通用 runner 的取舍见 [sub-agents-skills 对比](../../reviews/2026-09-02-sub-agents-skills-comparison.md)。最新证据见[CLI 实施记录](../../verification/2026-08-31-cli-runtime.md)、[豆包 MCP 验证](../../verification/2026-09-01-doubao-mcp.md)、[TRAE MCP 验证](../../verification/2026-09-02-trae-mcp.md)和[干净安装验证](../../verification/2026-09-02-clean-plugin-install.md)。
+日期：2026-08-31，2026-09-02 更新。状态：CLI、豆包 MCP 与 TRAE MCP 的仓库内实现已完成；`0.1.0-alpha.6` 已通过个人 marketplace 干净安装，等待新 Codex 任务验证宿主拾取。当前清单与实施顺序见[进度和下一步](../../status/2026-09-02-current-progress.md)，外部通用 runner 的取舍见 [sub-agents-skills 对比](../../reviews/2026-09-02-sub-agents-skills-comparison.md)。最新证据见[CLI 实施记录](../../../verification/2026-08-31-cli-runtime.md)、[豆包 MCP 验证](../../../verification/2026-09-01-doubao-mcp.md)、[TRAE MCP 验证](../../../verification/2026-09-02-trae-mcp.md)和[干净安装验证](../../../verification/2026-09-02-clean-plugin-install.md)。
 
 ## 1. 目标、范围和成功标准
 
@@ -22,7 +22,7 @@ Codex 是主力开发者和编排入口。用户希望在 Codex 实际决定委�
 5. 安装、环境准备、执行任务分开；安装不会自动启动桌面应用、开启 CDP、发送模型请求或修改全局路由。
 6. 新机器在完成显式环境准备后可以运行，发行版不依赖本机 `third-part-research/` 或原来的绝对源码路径。
 
-当前实施已推进到三个 CLI 的基础切片：agy/WorkBuddy 文件任务、OpenCode 独立文本提案；验证结果见[CLI 接入记录](../../verification/2026-08-31-cli-adapters.md)。非目标包括双向 Agent 通信平台、自动消耗每日额度的定时任务、统一聊天 UI、云端控制桌面、多租户任务服务、修改供应商登录或绕过权限。
+当前实施已推进到三个 CLI 的基础切片：agy/WorkBuddy 文件任务、OpenCode 独立文本提案；验证结果见[CLI 接入记录](../../../verification/2026-08-31-cli-adapters.md)。非目标包括双向 Agent 通信平台、自动消耗每日额度的定时任务、统一聊天 UI、云端控制桌面、多租户任务服务、修改供应商登录或绕过权限。
 
 ## 2. 方案比较和决定
 

@@ -90,13 +90,13 @@ node plugins/uagents/bin/uagents.mjs capabilities opencode
 ## OpenCode 证据链
 
 1. 源码 Registry 将 OpenCode 定义为 `modes: ['analysis', 'implementation']`、`inputs.files: true`、`outputs.files: true`：
-   [builtins.mjs](../../plugins/uagents/src/registry/builtins.mjs#L21)。
+   [builtins.mjs](../../../plugins/uagents/src/registry/builtins.mjs#L21)。
 2. Policy 在注册前仍拒绝不匹配的模式、文件输入和文件输出，并拒绝覆盖 OpenCode dispatcher-owned 参数：
-   [evaluate.mjs](../../plugins/uagents/src/policy/evaluate.mjs#L32)。
+   [evaluate.mjs](../../../plugins/uagents/src/policy/evaluate.mjs#L32)。
 3. 回归测试验证 `implementation` 可到达 Adapter、无 `expected_outputs` 时可成功，并在声明输出时复用共享产物捕获：
-   [unified-cli-adapters.test.mjs](../../tests/unified-cli-adapters.test.mjs#L58)。
+   [unified-cli-adapters.test.mjs](../../../tests/unified-cli-adapters.test.mjs#L58)。
 4. OpenCode driver 将已验证的工作区文件映射为重复的 `--file <absolute-path>` 参数，并按请求顺序透传非冲突原生参数：
-   [opencode-driver.mjs](../../plugins/uagents/src/transports/opencode-driver.mjs)。
+   [opencode-driver.mjs](../../../plugins/uagents/src/transports/opencode-driver.mjs)。
 5. `--pure` 不再默认添加；`--auto`、`--agent` 和 `--variant` 仅在 `execution.native_args` 中请求时发送。
 6. 旧缓存查询结果只代表旧版本的能力；新缓存已返回：
 
@@ -110,7 +110,7 @@ node plugins/uagents/bin/uagents.mjs capabilities opencode
    该结果属于新安装缓存；旧缓存仍保留但不再是当前 marketplace 的安装版本。
 
 7. 当前 OpenCode reference 已说明新的 implementation、文件输入/输出和 native args 契约：
-   [opencode-council.md](../../plugins/uagents/skills/agent-dispatch/references/opencode-council.md)。
+   [opencode-council.md](../../../plugins/uagents/skills/agent-dispatch/references/opencode-council.md)。
 
 因此，当前安装缓存中的 OpenCode 已可用于独立方案、代码审查、文本分析和文件实现任务；仍须接受其原生权限、
 模型不回显，以及本报告列出的 session resume、原生取消和多模态等边界。Windows CLI 安装发现与真实可执行文件
@@ -148,7 +148,7 @@ node plugins/uagents/bin/uagents.mjs capabilities opencode
 当前源码在 2026-09-09 cleanup/architecture consolidation 后的最近完整门禁为：Core 266 项、豆包 MCP 11 项、TRAE MCP 9 项、
 Unified MCP 2 项，共 **288/288** 通过；`agent-dispatch` skill validator、插件 validator 和
 `git diff --check` 同时通过。2026-09-07 安装发布候选另有独立安装验收；前序 Runtime 修复记录仍见
-[2026-09-06 Runtime reliability repair verification](../verification/2026-09-06-runtime-reliability-fixes.md)。
+[2026-09-06 Runtime reliability repair verification](../../verification/2026-09-06-runtime-reliability-fixes.md)。
 
 独立新启动的 `codex exec` 进程实际读取上述新缓存路径，并返回 `targets`、`capabilities opencode` 和
 `models opencode`；其中 OpenCode 为 `implementation`、`inputs.files=true`、`outputs.files=true`。此前 app
