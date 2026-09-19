@@ -9,7 +9,7 @@ import {
 } from "../runtime/leases.mjs";
 import { isHostForbiddenKeyName } from "../sensitive-fields.mjs";
 
-const SCHEMA_VERSION = "1";
+const SCHEMA_VERSION = "2";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS metadata (
@@ -26,6 +26,17 @@ CREATE TABLE IF NOT EXISTS installations (
 CREATE TABLE IF NOT EXISTS managed_instances (
   instance_id TEXT PRIMARY KEY,
   payload TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS model_discovery_cache (
+  cache_key TEXT PRIMARY KEY,
+  target TEXT NOT NULL,
+  identity_fingerprint TEXT NOT NULL,
+  scope_key TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  observed_at_ms INTEGER NOT NULL,
+  attempt_started_at_ms INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 
@@ -75,6 +86,8 @@ export class HostStore {
   #installDelete;
   #instanceUpsert;
   #instanceGet;
+  #modelDiscoveryUpsert;
+  #modelDiscoveryGet;
   #inTransaction = false;
 
   constructor({ env = process.env } = {}) {
@@ -98,6 +111,20 @@ export class HostStore {
         "ON CONFLICT(instance_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at"
     );
     this.#instanceGet = db.prepare("SELECT payload FROM managed_instances WHERE instance_id = ?");
+    this.#modelDiscoveryUpsert = db.prepare(
+      "INSERT INTO model_discovery_cache " +
+        "(cache_key, target, identity_fingerprint, scope_key, payload, observed_at_ms, attempt_started_at_ms, updated_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+        "ON CONFLICT(cache_key) DO UPDATE SET " +
+        "target = excluded.target, identity_fingerprint = excluded.identity_fingerprint, scope_key = excluded.scope_key, " +
+        "payload = excluded.payload, observed_at_ms = excluded.observed_at_ms, " +
+        "attempt_started_at_ms = excluded.attempt_started_at_ms, updated_at = excluded.updated_at " +
+        "WHERE excluded.attempt_started_at_ms >= model_discovery_cache.attempt_started_at_ms"
+    );
+    this.#modelDiscoveryGet = db.prepare(
+      "SELECT target, identity_fingerprint, scope_key, payload, observed_at_ms, attempt_started_at_ms " +
+        "FROM model_discovery_cache WHERE cache_key = ?"
+    );
   }
 
   upsertInstallation(id, payload) {
@@ -128,6 +155,59 @@ export class HostStore {
   getManagedInstance(instanceId) {
     const row = this.#instanceGet.get(instanceId);
     return row === undefined ? null : JSON.parse(row.payload);
+  }
+
+  upsertModelDiscovery(cacheKey, record) {
+    if (typeof cacheKey !== "string" || cacheKey.length === 0) {
+      throw new HostStoreError("invalid_input", "cacheKey must be a non-empty string");
+    }
+    if (!record || typeof record !== "object" || Array.isArray(record)) {
+      throw new HostStoreError("invalid_input", "model discovery record must be an object");
+    }
+    const {
+      target,
+      identity_fingerprint: identityFingerprint,
+      scope_key: scopeKey,
+      observed_at_ms: observedAtMs,
+      attempt_started_at_ms: attemptStartedAtMs,
+      ...payload
+    } = record;
+    if (
+      typeof target !== "string" || !target ||
+      typeof identityFingerprint !== "string" || !identityFingerprint ||
+      typeof scopeKey !== "string" || !scopeKey ||
+      !Number.isSafeInteger(observedAtMs) || observedAtMs < 0 ||
+      !Number.isSafeInteger(attemptStartedAtMs) || attemptStartedAtMs < 0
+    ) {
+      throw new HostStoreError("invalid_input", "model discovery record identity and timestamps are required");
+    }
+    assertWritable(payload, new WeakSet());
+    this.#modelDiscoveryUpsert.run(
+      cacheKey,
+      target,
+      identityFingerprint,
+      scopeKey,
+      JSON.stringify(payload),
+      observedAtMs,
+      attemptStartedAtMs,
+      Date.now()
+    );
+  }
+
+  getModelDiscovery(cacheKey) {
+    if (typeof cacheKey !== "string" || cacheKey.length === 0) {
+      throw new HostStoreError("invalid_input", "cacheKey must be a non-empty string");
+    }
+    const row = this.#modelDiscoveryGet.get(cacheKey);
+    if (row === undefined) return null;
+    return {
+      target: row.target,
+      identity_fingerprint: row.identity_fingerprint,
+      scope_key: row.scope_key,
+      observed_at_ms: Number(row.observed_at_ms),
+      attempt_started_at_ms: Number(row.attempt_started_at_ms),
+      ...JSON.parse(row.payload),
+    };
   }
 
   markManagedInstanceStale(instanceId, { now = Date.now() } = {}) {

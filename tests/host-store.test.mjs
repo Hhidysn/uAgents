@@ -43,15 +43,15 @@ test("resolveHostRoot rejects missing or relative LOCALAPPDATA", () => {
   assert.throws(() => resolveHostRoot({ LOCALAPPDATA: 42 }), invalidWorkspace);
 });
 
-test("opens host.db in WAL mode with task-schema leases table and schema_version=1", (t) => {
+test("opens host.db in WAL mode with host schema version 2", (t) => {
   const { store } = withStore(t);
   const tables = store
     .raw("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
     .map((row) => row.name);
-  assert.deepEqual(tables, ["installations", "leases", "managed_instances", "metadata"]);
+  assert.deepEqual(tables, ["installations", "leases", "managed_instances", "metadata", "model_discovery_cache"]);
   assert.equal(store.raw("PRAGMA journal_mode")[0].journal_mode, "wal");
   const [version] = store.raw("SELECT value FROM metadata WHERE key = 'schema_version'");
-  assert.equal(version.value, "1");
+  assert.equal(version.value, "2");
   const columns = store.raw("PRAGMA table_info(leases)").map((col) => col.name);
   assert.deepEqual(columns, [
     "resource_key",
@@ -62,6 +62,36 @@ test("opens host.db in WAL mode with task-schema leases table and schema_version
     "expires_at_ms",
     "metadata_json",
   ]);
+});
+
+test("model discovery cache persists snapshots and rejects older refresh overwrites", (t) => {
+  const { store, env } = withStore(t);
+  const first = {
+    target: "agy",
+    identity_fingerprint: "identity-a",
+    scope_key: "scope-a",
+    observed_at_ms: 2_000,
+    attempt_started_at_ms: 1_900,
+    discovery_method: "native_cli_catalog",
+    models: [{ id: "gemini-new" }],
+  };
+  store.upsertModelDiscovery("models-a", first);
+  assert.deepEqual(store.getModelDiscovery("models-a"), first);
+
+  store.upsertModelDiscovery("models-a", {
+    ...first,
+    observed_at_ms: 1_500,
+    attempt_started_at_ms: 1_000,
+    models: [{ id: "gemini-old" }],
+  });
+  assert.deepEqual(store.getModelDiscovery("models-a"), first);
+
+  const reopened = new HostStore({ env });
+  try {
+    assert.deepEqual(reopened.getModelDiscovery("models-a"), first);
+  } finally {
+    reopened.close();
+  }
 });
 
 test("constructor only accepts env injection; task root cannot move host root or host.db", (t) => {
@@ -157,6 +187,17 @@ test("rejects payloads containing forbidden keys at any depth, case-insensitive"
   );
   assert.throws(
     () => store.upsertManagedInstance("m", { auth: { clientSecret: "zzz" } }),
+    invalidInput
+  );
+  assert.throws(
+    () => store.upsertModelDiscovery("models", {
+      target: "agy",
+      identity_fingerprint: "i",
+      scope_key: "s",
+      observed_at_ms: 1,
+      attempt_started_at_ms: 1,
+      models: [{ token: "x" }],
+    }),
     invalidInput
   );
   assert.throws(() => store.upsertInstallation("k", { My_Prompt_Text: 1 }), invalidInput);

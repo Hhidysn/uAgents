@@ -72,7 +72,7 @@ export class TraeAdapter {
   }
 
   async discoverModels() {
-    return { models: [{ id: null, route_id: 'trae-default', provider: 'trae', kind: 'backend_default' }], discovery: 'configured' };
+    return { status: 'configured_only', models: [], discovery: 'configured' };
   }
 
   async probe(request, context = {}) {

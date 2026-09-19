@@ -57,10 +57,12 @@ export class CliAdapter {
     };
   }
 
-  async discoverModels({ registry = BUILTIN_REGISTRY } = {}) {
-    if (this.target === 'agy') return { models: [], discovery: 'explicit-pattern' };
-    if (this.target === 'workbuddy' || this.target === 'opencode') {
-      return discoverCliModelCatalog(this.target, { entryOverride: await this.#verifiedEntry(), registry });
+  async discoverModels({ registry = BUILTIN_REGISTRY, verifiedEntry = null } = {}) {
+    if (this.target === 'agy' || this.target === 'workbuddy' || this.target === 'opencode') {
+      return discoverCliModelCatalog(this.target, {
+        entryOverride: typeof verifiedEntry === 'string' && verifiedEntry ? verifiedEntry : await this.#verifiedEntry(),
+        registry,
+      });
     }
     return { models: [], discovery: 'unsupported', status: 'unsupported' };
   }

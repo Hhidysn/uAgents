@@ -139,7 +139,7 @@ export function createToolHandlers(runtime) {
   return {
     uagents_list_targets: async () => runtime.listTargets(),
     uagents_get_capabilities: async input => runtime.capabilities(input.target),
-    uagents_list_models: async input => runtime.listModels(input.target),
+    uagents_list_models: async input => runtime.listModels(input.target, { refresh: input.refresh === true }),
     uagents_probe: async input => runtime.probe(input.target, { model: input.model ?? 'default' }),
     uagents_submit: async input => runtime.submit(normalizeHostAttachmentRequest(input)),
     uagents_council_submit: async input => runtime.submitCouncil(normalizeHostAttachmentRequest(input)),

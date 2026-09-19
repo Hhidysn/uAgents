@@ -30,6 +30,14 @@ uagents_council_cleanup
 
 具体 input schema 通过 MCP `tools/list` 提供。
 
+`uagents_list_models` 接受：
+
+```json
+{ "target": "agy", "refresh": true }
+```
+
+`refresh=true` 与 CLI `models <target> --refresh` 语义相同：仅刷新本机 native model catalog cache，不创建 Provider task。
+
 ## Host attachments
 
 `uagents_submit` / `uagents_council_submit` 可以使用 Core `inputs`，也可以使用 host-only：

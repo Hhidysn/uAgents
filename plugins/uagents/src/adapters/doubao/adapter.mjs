@@ -19,7 +19,7 @@ export class DoubaoAdapter {
   }
 
   async discoverModels() {
-    return { models: [{ id: null, route_id: 'doubao-default', provider: 'doubao', kind: 'backend_default' }], discovery: 'configured' };
+    return { status: 'configured_only', models: [], discovery: 'configured' };
   }
 
   // Managed instances run on a supervisor-assigned loopback port; the bridge

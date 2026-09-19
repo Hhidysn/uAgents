@@ -11,7 +11,7 @@ node <plugin-root>/bin/uagents.mjs <command>
 ```text
 targets
 capabilities <target>
-models <target>
+models <target> [--refresh]
 describe
 describe <command>
 schema request
@@ -21,6 +21,8 @@ schema council-validation-profiles
 ```
 
 这些命令不创建 Provider task。
+
+`models --refresh` 仅绕过 uAgents 的 model discovery cache；它不会提交 Prompt，也不会改变静态/pattern admission policy。
 
 ## Task
 

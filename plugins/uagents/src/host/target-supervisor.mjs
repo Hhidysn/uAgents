@@ -711,7 +711,11 @@ export function createTargetSupervisor({
     return hostStore.releaseLease(lease);
   }
 
-  return { inspect, ensure, reconcile, stop, renewInstanceLease, releaseInstanceLease, hostStore };
+  async function resolveInstallation(target) {
+    return installationFrom(await locator.resolve(target));
+  }
+
+  return { inspect, ensure, reconcile, stop, renewInstanceLease, releaseInstanceLease, resolveInstallation, hostStore };
 }
 
 // Shared host control-plane factory for every entrypoint (CLI, unified MCP,

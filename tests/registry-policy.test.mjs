@@ -23,6 +23,7 @@ test('registry exposes static capability without dynamic availability', () => {
   assert.deepEqual(registry.targets.workbuddy.inputs, { text: true, files: false, images: true, workspace_readable: true });
   assert.deepEqual(registry.targets.dsh.inputs, { text: true, files: false, images: false, workspace_readable: true });
   assert.equal(registry.targets.workbuddy.model_selection, 'mixed');
+  assert.equal(registry.models['gemini-3.8-flash-medium'].route_id, 'agy/gemini-3.8-flash-medium');
   assert.equal(registry.models['workbuddy-default'].inputs.images, false);
   assert.equal(registry.models['deepseek-v4.1-flash'].inputs.images, true);
   assert.deepEqual(registry.targets.opencode.outputs, { text: true, files: true, images: false });
@@ -43,6 +44,8 @@ test('user registry configuration can only tighten built-in capability', () => {
   assert.equal(registry.targets.agy.permissions.workspace_write, false);
   assert.equal(registry.targets.agy.permissions.native, false);
   assert.throws(() => createRegistry({ models: { 'unknown/model': { enabled: true } } }), { code: 'invalid_model' });
+  const noAgyVerifiedRoute = createRegistry({ models: { 'gemini-3.8-flash-medium': { enabled: false } } });
+  assert.equal(noAgyVerifiedRoute.models['gemini-3.8-flash-medium'].enabled, false);
 });
 
 test('health cache expires to unknown rather than retaining availability', () => {

@@ -23,7 +23,7 @@ test('discovery commands expose configured routes plus local native model eviden
   const capabilities = await execute(['capabilities', 'opencode']);
   assert.deepEqual(capabilities.data.modes, ['analysis', 'implementation']);
   assert.equal('available' in capabilities.data, false);
-  const models = await execute(['models', 'opencode'], { adapterFactory: () => ({ discoverModels: async () => ({
+  const models = await execute(['models', 'opencode'], { supervisor: null, adapterFactory: () => ({ discoverModels: async () => ({
     status: 'ok', discovery: 'native_cli_catalog', models: [
       { id: 'deepseek-v4-flash', route_id: 'commandcode-goat/deepseek/deepseek-v4-flash', provider: 'commandcode-goat/deepseek' },
       { id: 'deepseek-v4-pro', route_id: 'commandcode-goat/deepseek/deepseek-v4-pro', provider: 'commandcode-goat/deepseek' },
@@ -35,6 +35,8 @@ test('discovery commands expose configured routes plus local native model eviden
   ]);
   assert.equal(models.data.find(model => model.route_id === 'commandcode-goat/deepseek/deepseek-v4-flash').usable, true);
   assert.equal(models.data.find(model => model.route_id === 'commandcode-goat/deepseek/deepseek-v4-pro').configured, false);
+  const describedModels = await execute(['describe', 'models'], { env: {} });
+  assert.deepEqual(describedModels.data.options.map(option => option.name), ['--refresh']);
 });
 
 test('CLI discovery exposes commands and submit arguments without opening runtime state', async () => {

@@ -23,7 +23,19 @@ export async function execute(argv, options = {}) {
   if (command === 'capabilities') return ok({ target: subject, ...targetDescriptor(registry, required(subject, 'target')) });
   if (command === 'models') {
     const target = required(subject, 'target'); targetDescriptor(registry, target);
-    return ok(await discoverModelsForTarget(target, { registry, adapterFactory: options.adapterFactory ?? adapterFor }));
+    const ownsSupervisor = !('supervisor' in options);
+    const supervisor = ownsSupervisor ? await createSupervisor() : options.supervisor;
+    try {
+      return ok(await discoverModelsForTarget(target, {
+        registry,
+        adapterFactory: options.adapterFactory ?? adapterFor,
+        refresh: values.refresh === true,
+        cacheStore: supervisor?.hostStore ?? null,
+        resolveInstallation: supervisor?.resolveInstallation ?? null,
+      }));
+    } finally {
+      if (ownsSupervisor) supervisor?.hostStore?.close?.();
+    }
   }
   if (command === 'describe') {
     if (values.format === 'table') fail('usage', 'describe is machine-readable JSON only.');

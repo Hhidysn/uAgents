@@ -109,6 +109,18 @@ test('MCP model listing merges configured routes with native discovery evidence'
   } finally { runtime.close(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('MCP model listing forwards explicit refresh to the shared runtime', async () => {
+  let observed = null;
+  const handlers = createToolHandlers({
+    async listModels(target, options) {
+      observed = { target, options };
+      return [];
+    },
+  });
+  assert.deepEqual(await handlers.uagents_list_models({ target: 'agy', refresh: true }), []);
+  assert.deepEqual(observed, { target: 'agy', options: { refresh: true } });
+});
+
 test('MCP submit accepts host-materialized file and image sources and normalizes them before storage', async () => {
   fs.mkdirSync(base, { recursive: true });
   const root = fs.mkdtempSync(path.join(base, 'unified-attachments-'));

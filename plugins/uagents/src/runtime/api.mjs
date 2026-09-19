@@ -44,8 +44,14 @@ export class UnifiedRuntime {
 
   capabilities(target) { return { target, ...targetDescriptor(this.registry, target) }; }
 
-  async listModels(target) {
-    return discoverModelsForTarget(target, { registry: this.registry, adapterFactory: this.adapterFactory });
+  async listModels(target, { refresh = false } = {}) {
+    return discoverModelsForTarget(target, {
+      registry: this.registry,
+      adapterFactory: this.adapterFactory,
+      refresh,
+      cacheStore: this.supervisor?.hostStore ?? null,
+      resolveInstallation: this.supervisor?.resolveInstallation ?? null,
+    });
   }
 
   async probe(target, { model = 'default' } = {}) {

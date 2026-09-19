@@ -37,6 +37,7 @@ export const BUILTIN_REGISTRY = Object.freeze({
       lifecycle: { managed: true, auto_launch: true, profile: 'isolated', ensure: true, resume: true, stop: true } }),
   }),
   models: Object.freeze({
+    'gemini-3.8-flash-medium': Object.freeze({ target: 'agy', model: 'gemini-3.8-flash-medium', provider: 'agy', route_id: 'agy/gemini-3.8-flash-medium', kind: 'exact', enabled: true, opt_in: false }),
     'workbuddy-default': Object.freeze({ target: 'workbuddy', model: null, provider: 'workbuddy', route_id: 'workbuddy-default', kind: 'backend_default', enabled: true, opt_in: false, inputs: { files: false, images: false } }),
     'deepseek-v4.1-flash': Object.freeze({ target: 'workbuddy', model: 'deepseek-v4.1-flash', provider: 'workbuddy', route_id: 'workbuddy/deepseek-v4.1-flash', kind: 'exact', enabled: true, opt_in: false, inputs: { files: false, images: true } }),
     'deepseek-official/deepseek-flash': Object.freeze({ target: 'dsh', model: 'deepseek-flash', provider: 'deepseek-official', route_id: 'deepseek-official/deepseek-flash', kind: 'exact', enabled: true, opt_in: false }),

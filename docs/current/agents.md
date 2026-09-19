@@ -25,7 +25,10 @@ uagents capabilities <target>
 - Agent 可以读取初始化 workspace。
 - 当前没有经过 uAgents 验证的 native file/image attachment mapping。
 - 当前没有 continuation/fork mapping。
-- 模型必须使用静态批准路线显式选择。
+- 模型必须显式选择；没有 default model。
+- `gemini-3.8-flash-medium` 是已真实验证的 configured route。
+- `uagents models agy` 通过 native `agy models` 自动发现本机 catalog；其它 `gemini-*`
+  可按现有 pattern admission 使用，但发现到的 Claude/GPT 等模型不会自动放行。
 
 ## WorkBuddy
 

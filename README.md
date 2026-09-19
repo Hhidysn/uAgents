@@ -79,7 +79,9 @@ Council 可以把同一任务 fan-out 给多个 Agent。分析任务可共享 wo
 
 ### 模型发现
 
-`models <target>` 会展示静态批准路线和可获得的本机模型发现证据。发现到模型不等于自动批准，也不代表 Provider 登录、额度或在线状态已经确认。
+`models <target>` 会展示批准路线和可获得的本机模型发现证据。agy、WorkBuddy、OpenCode 的 native catalog
+使用 10 分钟本机缓存，可用 `models <target> --refresh` 显式刷新。发现到模型不等于自动批准，也不代表
+Provider 登录、额度或在线状态已经确认。
 
 详见 [当前模型与路由](docs/current/models.md)。
 
