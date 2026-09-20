@@ -1,4 +1,5 @@
 import { AgyAdapter } from './agy/adapter.mjs';
+import { CodexAdapter } from './codex/adapter.mjs';
 import { DoubaoAdapter } from './doubao/adapter.mjs';
 import { DshAdapter } from './dsh/adapter.mjs';
 import { OpenCodeAdapter } from './opencode/adapter.mjs';
@@ -8,6 +9,7 @@ import { fail } from '../protocol/errors.mjs';
 
 export function adapterFor(target, options) {
   if (target === 'agy') return new AgyAdapter(options);
+  if (target === 'codex') return new CodexAdapter(options);
   if (target === 'doubao') return new DoubaoAdapter(options);
   if (target === 'dsh') return new DshAdapter(options);
   if (target === 'workbuddy') return new WorkBuddyAdapter(options);

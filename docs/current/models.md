@@ -85,6 +85,17 @@ deepseek-official/deepseek-flash
 
 DeepSeek Harness Web UI 的展示名不等于 SDK API model id。uAgents 使用已真实验证的 SDK route，不根据 UI label 自动转换或扩大 allowlist。
 
+## Codex CLI
+
+当前批准路线：
+
+```text
+gpt-6-astra
+gpt-5.6-luna
+```
+
+`gpt-5.6-luna` 已通过本机 Codex CLI 原生请求及安装版 uAgents `submit` / `result` 的真实模型调用，见 [2026-09-20 验证记录](../verification/2026-09-20-codex-luna-installed-e2e.md)。Codex CLI v1 当前没有可靠的 no-prompt native model catalog，`models codex` 展示 configured-only route；没有自动 default，提交仍需显式传入模型。`probe codex --model gpt-5.6-luna` 和 `probe codex --model gpt-6-astra` 都是 version-only，本身不能证明 Provider 当前可用。Native JSONL 没有可信模型自报字段，故 Luna 真实调用成功时 `model_verified=false` 仍为准确的模型身份记录。
+
 ## OpenCode
 
 当前批准路线包括：
@@ -98,5 +109,5 @@ commandcode-goat/z-ai/glm-5.3-flash
 
 ## 其它 target
 
-DSH 当前只展示 configured route。Doubao/TRAE 继续使用 backend/default contract，没有可靠 native catalog 时不猜模型。
-这三类 configured-only target 不创建 native catalog cache。
+Codex/DSH 当前只展示 configured route。Doubao/TRAE 继续使用 backend/default contract，没有可靠 native catalog 时不猜模型。
+这四类 configured-only target 不创建 native catalog cache。

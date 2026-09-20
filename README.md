@@ -2,13 +2,14 @@
 
 uAgents 是一个面向 Codex 的本地统一 Agent 调度插件。它把多个本机 Agent 接到同一套 Task、状态、结果、附件、会话和 Council 工作流中，同时保留各目标自己的模型与原生能力。
 
-当前发行标识：`0.2.0-alpha.1+codex.20260913161732`。
+当前本地插件构建：`0.2.0-alpha.1+codex.202609201839luna`。
 
 ## 支持的 Agent
 
 | Target | Analysis | Implementation | File input | Image input | Continue / Fork |
 | --- | --- | --- | --- | --- | --- |
 | agy | ✅ | ✅ | — | — | — |
+| Codex CLI (`codex`) | ✅ | ✅ | — | — | — |
 | WorkBuddy | ✅ | ✅ | — | `deepseek-v4.1-flash` ✅ | ✅ / ✅ |
 | DeepSeek Harness (`dsh`) | ✅ | ✅ | — | — | — |
 | OpenCode | ✅ | ✅ | ✅ | ✅ | ✅ / ✅ |
@@ -45,6 +46,22 @@ node "<plugin-root>\bin\uagents.mjs" result <task-id>
   "prompt": "Review this repository and summarize the main risks."
 }
 ```
+
+使用已通过安装版真实任务验收的 Codex CLI / GPT-5.6 Luna 时，将请求中的 `target` 设为 `codex`、`model` 设为 `gpt-5.6-luna`，并填写自己的工作区和新 UUID。例如：
+
+```json
+{
+  "schema_version": "1.0",
+  "request_id": "<new-uuid>",
+  "target": "codex",
+  "model": "gpt-5.6-luna",
+  "mode": "analysis",
+  "workspace": "F:\\project",
+  "prompt": "Summarize the repository's architecture."
+}
+```
+
+保存为 `request.json` 后使用上面的 `submit --request` 命令；通过 `status` / `result` 查询，不要为尚未确认结果的任务更换 UUID 重发。Codex 的 `probe` 只检查本机 CLI 版本，不是模型在线可用性测试。真实安装版 Luna 验收记录见 [Verification](docs/verification/2026-09-20-codex-luna-installed-e2e.md)。
 
 精确字段和命令参数以 CLI discovery 为准：
 
@@ -102,6 +119,7 @@ uAgents 可以发现并验证 Agent 安装；桌面目标使用受管实例。`s
 - uAgents 是 orchestration 层，不提供执行沙箱。
 - WorkBuddy generic file attachment 当前不可用；图片只对已验证的显式 `deepseek-v4.1-flash` 路线开放。
 - DSH v1 只开放 text + workspace，当前不开放 file/image attachment、continuation 或 fork。
+- Codex CLI v1 使用显式 `gpt-6-astra` 或 `gpt-5.6-luna`，支持 text + workspace；native file/image 和跨 Task continuation/fork 暂未开放。
 - Council 不自动选择 winner、自动 synthesis、自动 merge 或后台 cleanup。
 - Dynamic model discovery 只提供本机 evidence，不自动扩大 allowlist。
 

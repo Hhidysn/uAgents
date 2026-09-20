@@ -1,7 +1,7 @@
 // agent-locator.mjs
 //
 // Windows agent discovery and trust verification (Gate 2.2, "Windows Agent Locator").
-// Finds installations for managed targets (Doubao, TRAE, DSH, OpenCode, WorkBuddy, agy),
+// Finds installations for managed targets (Doubao, TRAE, DSH, Codex, OpenCode, WorkBuddy, agy),
 // verifies them against per-target manifests via the fixed PowerShell script
 // (plugins/uagents/scripts/windows-host.ps1), and keeps a per-target trusted
 // installation cache in the HostStore `installations` table.
@@ -30,6 +30,7 @@ const DEFAULT_RUNNER_TIMEOUT_MS = 20_000;
 export const CACHE_ID_PREFIX = "installation:";
 const OPEN_CODE_SHIM_NAMES = new Set(["opencode", "opencode.cmd", "opencode.ps1"]);
 const DSH_SHIM_NAMES = new Set(["dsh", "dsh.cmd", "dsh.ps1"]);
+const CODEX_SHIM_NAMES = new Set(["codex", "codex.cmd", "codex.ps1"]);
 
 // NOTE: launch_recipe intentionally does NOT live in the manifest; it stays in the
 // per-target launcher modules (Gate 4/5) because it is version-controlled executable
@@ -127,6 +128,19 @@ export const TARGET_MANIFESTS = Object.freeze({
     accepted_executable_names: ["bin.js"],
     known_install_locations: ["%APPDATA%\\npm\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js"],
     path_commands: ["dsh"],
+    version_probe: "cli-version-flag",
+    profile_strategy: "inherit-env",
+    readiness_probe: "process-exit",
+    product_priority: [],
+  }),
+  codex: Object.freeze({
+    target: "codex",
+    artifact_kind: "cli-entry",
+    accepted_product_names: [],
+    accepted_publishers: [],
+    accepted_executable_names: ["codex.js"],
+    known_install_locations: ["%APPDATA%\\npm\\node_modules\\@openai\\codex\\bin\\codex.js"],
+    path_commands: ["codex"],
     version_probe: "cli-version-flag",
     profile_strategy: "inherit-env",
     readiness_probe: "process-exit",
@@ -232,6 +246,21 @@ function isOpenCodeNativeExecutable(candidatePath) {
 // native npm-layout candidate generator as the CLI transport and never invoke
 // a shell to resolve the hint.
 async function resolveNativeExecutableCandidates(target, candidatePath) {
+  if (target === "codex") {
+    const normalized = path.resolve(candidatePath);
+    if (path.basename(normalized).toLowerCase() === "codex.js") {
+      return (await statCandidate(normalized)) ? [normalized] : [];
+    }
+    if (!CODEX_SHIM_NAMES.has(path.basename(normalized).toLowerCase())) return [];
+    const packageJson = path.join(path.dirname(normalized), "node_modules", "@openai", "codex", "package.json");
+    try {
+      const record = JSON.parse(await fs.readFile(packageJson, "utf8"));
+      const relative = typeof record.bin === "string" ? record.bin : record.bin?.codex;
+      if (typeof relative !== "string" || !relative) return [];
+      const entry = path.resolve(path.dirname(packageJson), relative);
+      return path.basename(entry).toLowerCase() === "codex.js" && await statCandidate(entry) ? [entry] : [];
+    } catch { return []; }
+  }
   if (target === "dsh") {
     const normalized = path.resolve(candidatePath);
     if (path.basename(normalized).toLowerCase() === "bin.js") {

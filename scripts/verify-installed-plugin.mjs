@@ -24,7 +24,7 @@ assert.equal(manifest.skills, './skills/');
 assert.equal(manifest.mcpServers, './.mcp.json');
 assert.deepEqual(Object.keys(mcpConfig.mcpServers), ['unified']);
 
-const references = ['agy.md', 'workbuddy.md', 'opencode-council.md', 'doubao-work.md', 'trae-cn.md'];
+const references = ['agy.md', 'codex.md', 'workbuddy.md', 'dsh.md', 'opencode-council.md', 'doubao-work.md', 'trae-cn.md'];
 const skillRoot = path.join(pluginRoot, 'skills', 'agent-dispatch');
 assert.ok(fs.statSync(path.join(skillRoot, 'SKILL.md')).isFile());
 for (const reference of references) {
@@ -169,6 +169,16 @@ const result = {
     'uagents_cancel',
     'uagents_list_tasks',
     'uagents_reconcile',
+    'uagents_ensure',
+    'uagents_stop',
+    'uagents_resume',
+    'uagents_council_submit',
+    'uagents_council_status',
+    'uagents_council_result',
+    'uagents_council_diff',
+    'uagents_council_validate',
+    'uagents_council_adopt',
+    'uagents_council_cleanup',
   ])],
 };
 

@@ -625,6 +625,44 @@ test("9f) a dsh npm shim resolves to the package JS bin entry", async (t) => {
   assert.equal(store.getInstallation(CACHE_ID("dsh")).canonical_path, entry);
 });
 
+test("9g) a Codex npm shim resolves to the package JS bin entry", async (t) => {
+  const { store, apps } = makeTestEnv(t);
+  const npmRoot = path.join(apps, "codex npm");
+  const shim = path.join(npmRoot, "codex.cmd");
+  const packageRoot = path.join(npmRoot, "node_modules", "@openai", "codex");
+  const packageJson = path.join(packageRoot, "package.json");
+  const entry = path.join(packageRoot, "bin", "codex.js");
+  mkdirSync(path.dirname(entry), { recursive: true });
+  writeFileSync(shim, "@echo off", "utf8");
+  writeFileSync(packageJson, JSON.stringify({ name: "@openai/codex", version: "0.153.4", bin: { codex: "bin/codex.js" } }), "utf8");
+  writeFileSync(entry, "console.log('fixture codex')", "utf8");
+  const stats = statSync(entry);
+  const expectedHash = createHash("sha256").update(readFileSync(entry)).digest("hex");
+  const cliManifest = manifest({
+    target: "codex",
+    artifact_kind: "cli-entry",
+    accepted_product_names: [],
+    accepted_publishers: [],
+    accepted_executable_names: ["codex.js"],
+    path_commands: ["codex"],
+  });
+  const fake = makeFakeRunner({
+    discover: discoverResponse([discoverCandidate(shim, "path")]),
+    verifyByPath: {
+      [entry.toLowerCase()]: verifyResponse({
+        canonical_path: entry, product_name: null, publisher: null, file_version: null,
+        size: stats.size, mtime_ms: Math.round(stats.mtimeMs), sha256: null,
+      }),
+    },
+  });
+  const locator = createAgentLocator({ hostStore: store, runPowerShell: fake.runner, manifests: { codex: cliManifest } });
+  const result = await locator.resolve("codex");
+  assert.equal(result.installation.canonical_path, entry);
+  assert.equal(result.installation.sha256, expectedHash);
+  assert.equal(fake.calls.verify[0].path, entry);
+  assert.equal(store.getInstallation(CACHE_ID("codex")).canonical_path, entry);
+});
+
 test("9e) a cached OpenCode shim is not reused as the final installation entry", async (t) => {
   const { store, apps } = makeTestEnv(t);
   const npmRoot = path.join(apps, "cached npm");

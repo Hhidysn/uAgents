@@ -1,10 +1,11 @@
 # 当前 Agent 与能力
 
-uAgents 当前提供 6 个 target。表格表示 uAgents 已经开放的能力，不等于目标产品理论上可能支持的全部功能。
+uAgents 当前提供 7 个 target。表格表示 uAgents 已经开放的能力，不等于目标产品理论上可能支持的全部功能。
 
 | Target | Modes | File input | Image input | Continue | Fork | Transport |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | `agy` | analysis / implementation | false | false | false | false | CLI |
+| `codex` | analysis / implementation | false | false | false | false | CLI JSONL |
 | `workbuddy` | analysis / implementation | false | model-specific | true | true | CLI |
 | `dsh` | analysis / implementation | false | false | false | false | SDK JSON-RPC stdio |
 | `opencode` | analysis / implementation | true | true | true | true | CLI |
@@ -29,6 +30,15 @@ uagents capabilities <target>
 - `gemini-3.8-flash-medium` 是已真实验证的 configured route。
 - `uagents models agy` 通过 native `agy models` 自动发现本机 catalog；其它 `gemini-*`
   可按现有 pattern admission 使用，但发现到的 Claude/GPT 等模型不会自动放行。
+
+## Codex CLI (`codex`)
+
+- 当前批准 route：`gpt-6-astra` 和 `gpt-5.6-luna`，必须显式选择，没有 default。Luna 已通过本机原生调用和 uAgents 安装版真实任务验收，见 [验证记录](../verification/2026-09-20-codex-luna-installed-e2e.md)。
+- 使用本机 Codex npm 安装版 `exec --json`，任务正文走 stdin，返回 native thread ID、最终 assistant 文本和 usage。
+- text + workspace、analysis / implementation；原生 file/image input 与跨 Task resume/fork 暂不开放。
+- 不覆盖用户 Codex 原生权限设置，不添加默认沙箱或自动授权参数。
+- `probe` 只验证 CLI 版本；当前没有 Codex 模型自报证据，所以真实任务成功后 `model_reported=null`、`model_verified=false` 仍属预期，不等于任务失败或模型路线未经真实调用。
+- CLI 启动器的 `close` 不证明全部原生子进程或 Provider turn 已终止；取消、超时或传输异常后的不确定状态不可自动重发。
 
 ## WorkBuddy
 

@@ -20,6 +20,9 @@ test('registry exposes static capability without dynamic availability', () => {
   assert.deepEqual(registry.targets.opencode.modes, ['analysis', 'implementation']);
   assert.deepEqual(registry.targets.opencode.inputs, { text: true, files: true, images: true, workspace_readable: true });
   assert.deepEqual(registry.targets.agy.inputs, { text: true, files: false, images: false, workspace_readable: true });
+  assert.deepEqual(registry.targets.codex.inputs, { text: true, files: false, images: false, workspace_readable: true });
+  assert.equal(registry.models['gpt-6-astra'].route_id, 'codex/gpt-6-astra');
+  assert.equal(registry.models['gpt-5.6-luna'].route_id, 'codex/gpt-5.6-luna');
   assert.deepEqual(registry.targets.workbuddy.inputs, { text: true, files: false, images: true, workspace_readable: true });
   assert.deepEqual(registry.targets.dsh.inputs, { text: true, files: false, images: false, workspace_readable: true });
   assert.equal(registry.targets.workbuddy.model_selection, 'mixed');
@@ -103,6 +106,16 @@ test('DeepSeek Harness route is explicit and keeps attachments closed in v1', ()
     target: 'dsh', model: 'deepseek-official/deepseek-flash', workspace,
     inputs: [{ type: 'image', path: 'screen.png' }],
   })), error => error.code === 'unsupported_capability' && error.submission === 'not_sent');
+});
+
+test('Codex Luna is an explicit concrete route, not a new default', () => {
+  const outcome = evaluateRequest(request({ target: 'codex', model: 'gpt-5.6-luna' }));
+  assert.equal(outcome.allowed, true);
+  assert.equal(outcome.request.model_resolved, 'gpt-5.6-luna');
+  assert.equal(outcome.request.route_id, 'codex/gpt-5.6-luna');
+  assert.equal(outcome.request.model_verified, false);
+  assert.equal(createRegistry().defaults.codex, undefined);
+  assert.throws(() => evaluateRequest(request({ target: 'codex', model: 'gpt-5.6-luna-unknown' })), { code: 'model_unavailable' });
 });
 
 test('policy fails closed before worker launch', () => {

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { AgyAdapter } from '../plugins/uagents/src/adapters/agy/adapter.mjs';
+import { CodexAdapter } from '../plugins/uagents/src/adapters/codex/adapter.mjs';
 import { DshAdapter } from '../plugins/uagents/src/adapters/dsh/adapter.mjs';
 import { OpenCodeAdapter } from '../plugins/uagents/src/adapters/opencode/adapter.mjs';
 import { WorkBuddyAdapter } from '../plugins/uagents/src/adapters/workbuddy/adapter.mjs';
@@ -20,6 +21,7 @@ const root = path.resolve('.local', 'test-runs', randomUUID(), 'unified adapters
 fs.mkdirSync(root, { recursive: true });
 const fakeCli = fileURLToPath(new URL('./fixtures/fake-cli.mjs', import.meta.url));
 const fakeAgy = fileURLToPath(new URL('./fixtures/fake-agy.mjs', import.meta.url));
+const fakeCodex = fileURLToPath(new URL('./fixtures/fake-codex-cli.mjs', import.meta.url));
 const baseRequest = patch => ({
   schema_version: '1.0', request_id: randomUUID(), target: 'opencode', model: 'commandcode-goat/deepseek/deepseek-v4-flash',
   mode: 'analysis', prompt: 'bounded', execution: { observation_timeout_ms: 5000, effort: 'medium', permission: 'native' },
@@ -135,6 +137,72 @@ test('dsh adapter completes through shared runtime', async () => {
     const persisted = service.result(result.task_id);
     assert.equal(persisted.response.text, 'DSH 中文 fixture');
     assert.deepEqual(persisted.usage, { input_tokens: 9, output_tokens: 4 });
+  } finally { control.close(); }
+});
+
+test('Codex CLI completes through shared TaskService and preserves the native thread', async () => {
+  const control = new ControlDatabase(path.join(root, `codex-${randomUUID()}`));
+  const workspace = path.join(root, `codex-workspace-${randomUUID()}`);
+  fs.mkdirSync(workspace, { recursive: true });
+  try {
+    const service = new TaskService(control);
+    const input = baseRequest({
+      target: 'codex', model: 'gpt-6-astra', workspace, mode: 'implementation', prompt: 'Return the fixture.',
+      expected_outputs: [{ path: 'codex-result.txt', type: 'file', required: true, max_bytes: 1024 }],
+    });
+    let child;
+    const adapter = new CodexAdapter({ testDriver: { spawn() {
+      child = new EventEmitter();
+      Object.assign(child, {
+        stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+        kill() { child.stdout.end(); child.stderr.end(); setImmediate(() => child.emit('close', null)); },
+      });
+      child.stdin.on('finish', () => {
+        fs.writeFileSync(path.join(workspace, 'codex-result.txt'), 'fixture artifact');
+        for (const value of [
+          { type: 'thread.started', thread_id: 'codex-shared-runtime-thread' },
+          { type: 'turn.started' },
+          { type: 'item.completed', item: { type: 'agent_message', text: 'Codex 中文 fixture' } },
+          { type: 'turn.completed', usage: { input_tokens: 19, output_tokens: 3 } },
+        ]) child.stdout.write(JSON.stringify(value) + '\n');
+        child.stdout.end(); child.stderr.end();
+        setImmediate(() => child.emit('close', 0));
+      });
+      setImmediate(() => child.emit('spawn'));
+      return child;
+    } } });
+    const registered = service.submit(input, { adapterVersion: 'codex-runtime-fixture-1' });
+    const result = await runTask({ service, taskId: registered.task_id, adapter });
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.attempt.submission, 'sent');
+    assert.equal(result.native.session_id, 'codex-shared-runtime-thread');
+    assert.equal(result.model_requested, 'gpt-6-astra');
+    assert.equal(result.model_reported, null);
+    assert.equal(result.model_verified, false);
+    const persisted = service.result(result.task_id);
+    assert.equal(persisted.response.text, 'Codex 中文 fixture');
+    assert.deepEqual(persisted.usage, { input_tokens: 19, output_tokens: 3 });
+    assert.equal(persisted.artifacts[0].verified, true);
+  } finally { control.close(); }
+});
+
+test('Codex CLI TaskService runs a real local process fixture without a provider', async () => {
+  const control = new ControlDatabase(path.join(root, `codex-process-${randomUUID()}`));
+  const workspace = path.join(root, `codex-process-workspace-${randomUUID()}`);
+  fs.mkdirSync(workspace, { recursive: true });
+  try {
+    const service = new TaskService(control);
+    const registered = service.submit(baseRequest({
+      target: 'codex', model: 'gpt-6-astra', workspace, mode: 'analysis', prompt: 'Write the fixture answer.',
+    }), { adapterVersion: 'codex-local-process-fixture-1' });
+    const adapter = new CodexAdapter({ entryResolver: async () => ({ canonical_path: fakeCodex }) });
+    const status = await runTask({ service, taskId: registered.task_id, adapter });
+    assert.equal(status.status, 'succeeded');
+    assert.equal(status.native.session_id, 'codex-real-process-fixture');
+    assert.equal(status.model_verified, false);
+    const result = service.result(status.task_id);
+    assert.equal(result.response.text, 'Codex subprocess fixture 中文');
+    assert.deepEqual(result.usage, { input_tokens: 11, output_tokens: 5 });
   } finally { control.close(); }
 });
 

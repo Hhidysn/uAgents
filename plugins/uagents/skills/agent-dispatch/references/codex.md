@@ -1,0 +1,11 @@
+# Codex CLI (`codex`)
+
+Use `target=codex` with an explicit approved model: `gpt-6-astra` or `gpt-5.6-luna`. Luna's exact native selector was checked with an actual Codex CLI provider request on 2026-09-20. Codex uses its installed npm package JS entry (`@openai/codex/bin/codex.js`) and the user's existing Codex authentication and native configuration. uAgents invokes `codex exec --json --model <approved-model> --cd <workspace> -` with the task prompt on stdin. Never pass the prompt in argv.
+
+V1 supports `analysis` and `implementation` text tasks and workspace access; existing uAgents `expected_outputs` capture files after completion. The adapter does not inject Codex sandbox, bypass, automatic approval, login or credential options. Native Codex permissions remain those of the local Codex configuration; `analysis` is not an enforced filesystem restriction.
+
+Native evidence: `thread.started.thread_id` becomes `native_session_id`; final assistant text comes from completed `agent_message`, and successful execution requires `turn.completed`, an exit code of zero and non-empty text. The JSONL output has no trusted model self-report, so `model_reported=null` and `model_verified=false` are expected even when `model_requested`/`model_resolved` match the explicit approved selector.
+
+JSONL events for this v1 route must describe one thread and one turn. Duplicate turns, changed thread IDs, or assistant messages after completion are not evidence of success. When cancellation, timeout or transport failure occurs, uAgents waits a bounded period for the CLI launcher to close; if it does not, execution stays indeterminate. `launcher_close_confirmed` only describes the spawned npm JS process, **not** independently verified termination of every native descendant or the provider turn. Do not replay an indeterminate task automatically.
+
+`probe codex --model gpt-5.6-luna` (or `gpt-6-astra`) only runs `--version` and returns `scope=version_only`, `submission=not_sent`. `models codex` is configured-only until a reliable native no-prompt catalog is available. V1 does not expose native file/image attachments, cross-Task `resume/fork`, or durable Codex thread reconciliation. `cancel` stops local execution but must not claim that remote generation has been confirmed cancelled. Do not automatically retry a sent/indeterminate task.

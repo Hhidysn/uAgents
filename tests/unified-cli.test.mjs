@@ -19,7 +19,7 @@ const request = patch => ({
 test('discovery commands expose configured routes plus local native model evidence', async () => {
   const targets = await execute(['targets']);
   assert.equal(targets.ok, true);
-  assert.deepEqual(targets.data, ['agy', 'workbuddy', 'dsh', 'opencode', 'doubao', 'trae']);
+  assert.deepEqual(targets.data, ['agy', 'codex', 'workbuddy', 'dsh', 'opencode', 'doubao', 'trae']);
   const capabilities = await execute(['capabilities', 'opencode']);
   assert.deepEqual(capabilities.data.modes, ['analysis', 'implementation']);
   assert.equal('available' in capabilities.data, false);
