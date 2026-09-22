@@ -1,6 +1,6 @@
 import { BUILTIN_REGISTRY } from '../../registry/builtins.mjs';
 import { fail } from '../../protocol/errors.mjs';
-import { invokeCodexExec, locateCodexEntry, probeCodexVersion } from '../../transports/codex-process.mjs';
+import { codexExecArgs, invokeCodexExec, locateCodexEntry, probeCodexVersion } from '../../transports/codex-process.mjs';
 
 export class CodexAdapter {
   #entryResolver;
@@ -40,7 +40,17 @@ export class CodexAdapter {
   }
 
   async prepare(request, context = {}) {
-    return { request, entry: await this.#entry(context), taskDirectory: context.taskDirectory ?? request.workspace };
+    const session = context.session ?? null;
+    if (Boolean(request.session) !== Boolean(session) || request.session &&
+        (session.action !== (request.session.fork_from_task_id ? 'fork' : 'continue') ||
+          session.from_task_id !== (request.session.continue_from_task_id ?? request.session.fork_from_task_id))) {
+      fail('invalid_native_session', 'Codex native session binding is missing or mismatched.', {
+        category: 'policy', submission: 'not_sent',
+      });
+    }
+    const entry = await this.#entry(context);
+    codexExecArgs(request, request.workspace, entry, session); // Fail before dispatch/checkpoint for invalid persisted identities.
+    return { request, entry, session, taskDirectory: context.taskDirectory ?? request.workspace };
   }
 
   async dispatch(prepared, context) {
@@ -50,6 +60,7 @@ export class CodexAdapter {
       entry: prepared.entry,
       request: prepared.request,
       workspace: prepared.request.workspace,
+      session: prepared.session,
       spawnImpl: this.testDriver?.spawn,
       signal: context.signal,
       isCancelRequested: context.isCancelRequested,

@@ -15,6 +15,7 @@ import { nativeDriver } from '../plugins/uagents/src/transports/cli-process.mjs'
 import { validateAdapter } from '../plugins/uagents/src/adapters/contract.mjs';
 import { ControlDatabase } from '../plugins/uagents/src/store/database.mjs';
 import { TaskService } from '../plugins/uagents/src/runtime/task-service.mjs';
+import { createRegistry } from '../plugins/uagents/src/registry/registry.mjs';
 import { runTask } from '../plugins/uagents/src/runtime/worker.mjs';
 
 const root = path.resolve('.local', 'test-runs', randomUUID(), 'unified adapters');
@@ -22,11 +23,20 @@ fs.mkdirSync(root, { recursive: true });
 const fakeCli = fileURLToPath(new URL('./fixtures/fake-cli.mjs', import.meta.url));
 const fakeAgy = fileURLToPath(new URL('./fixtures/fake-agy.mjs', import.meta.url));
 const fakeCodex = fileURLToPath(new URL('./fixtures/fake-codex-cli.mjs', import.meta.url));
+const fakeCodexSessions = fileURLToPath(new URL('./fixtures/fake-codex-session-cli.mjs', import.meta.url));
 const baseRequest = patch => ({
   schema_version: '1.0', request_id: randomUUID(), target: 'opencode', model: 'commandcode-goat/deepseek/deepseek-v4-flash',
   mode: 'analysis', prompt: 'bounded', execution: { observation_timeout_ms: 5000, effort: 'medium', permission: 'native' },
   policy: { fallback: 'none', max_cost_usd: null }, ...patch,
 });
+
+function codexSessionPrototypeRegistry() {
+  const registry = structuredClone(createRegistry());
+  // Only the explicit provider-free session fixture admits the unreleased mapping.
+  registry.targets.codex.resume = true;
+  registry.targets.codex.fork = true;
+  return registry;
+}
 
 function fakeDshRuntime() {
   let child;
@@ -203,6 +213,75 @@ test('Codex CLI TaskService runs a real local process fixture without a provider
     const result = service.result(status.task_id);
     assert.equal(result.response.text, 'Codex subprocess fixture 中文');
     assert.deepEqual(result.usage, { input_tokens: 11, output_tokens: 5 });
+  } finally { control.close(); }
+});
+
+test('Codex native exec starts, continues, forks and continues branch through persisted TaskService state', async () => {
+  const control = new ControlDatabase(path.join(root, `codex-sessions-${randomUUID()}`));
+  const workspace = path.join(root, `codex-sessions-workspace-${randomUUID()}`);
+  fs.mkdirSync(workspace, { recursive: true });
+  const adapter = new CodexAdapter({ entryResolver: async () => ({ canonical_path: fakeCodexSessions }) });
+  try {
+    const service = new TaskService(control, { registry: codexSessionPrototypeRegistry() });
+    const execute = async (prompt, session = null) => {
+      const input = baseRequest({ target: 'codex', model: 'gpt-5.6-luna', workspace,
+        prompt, ...(session ? { session } : {}) });
+      const registered = service.submit(input, { adapterVersion: 'codex-sessions-fixture' });
+      const result = await runTask({ service, taskId: registered.task_id, adapter });
+      assert.equal(result.status, 'succeeded');
+      assert.equal(result.attempt.submission, 'sent');
+      assert.equal(result.native.status, 'completed');
+      return { input, result };
+    };
+    const first = await execute('fixture-turn-1');
+    const continued = await execute('fixture-turn-2', { continue_from_task_id: first.input.request_id });
+    assert.equal(continued.result.native.session_id, first.result.native.session_id);
+    assert.deepEqual(service.payload(continued.input.request_id).payload.session, {
+      action: 'continue', from_task_id: first.input.request_id, native_session_id: first.result.native.session_id,
+    });
+
+    assert.throws(() => service.submit(baseRequest({ target: 'codex', model: 'gpt-5.6-luna', workspace,
+      session: { fork_from_task_id: first.input.request_id } })), { code: 'invalid_request' });
+    const fork = await execute('fixture-turn-3', { fork_from_task_id: continued.input.request_id });
+    assert.notEqual(fork.result.native.session_id, first.result.native.session_id);
+    const branch = await execute('fixture-turn-4', { continue_from_task_id: fork.input.request_id });
+    assert.equal(branch.result.native.session_id, fork.result.native.session_id);
+    const duplicate = service.submit(branch.input, { adapterVersion: 'codex-sessions-fixture' });
+    assert.equal(duplicate.duplicate, true);
+    assert.equal(duplicate.task_id, branch.input.request_id);
+    const journal = JSON.parse(fs.readFileSync(path.join(workspace, '.codex-session-fixture.json'), 'utf8'));
+    assert.deepEqual(journal.calls.map(call => call.action), ['start', 'resume', 'fork', 'resume']);
+    assert.deepEqual(journal.calls.map(call => call.source), [null,
+      first.result.native.session_id, first.result.native.session_id, fork.result.native.session_id]);
+    assert.equal(journal.calls.length, 4); // Duplicate Task never generated another native turn.
+    assert.equal(journal.threads[first.result.native.session_id].length, 2);
+    assert.equal(journal.threads[fork.result.native.session_id].length, 4);
+    assert.equal(service.result(branch.result.task_id).response.text, 'fixture resume 4');
+    assert.deepEqual(service.result(branch.result.task_id).usage, { input_tokens: 6, output_tokens: 3 });
+  } finally { control.close(); }
+});
+
+test('Codex session admission rejects unconfirmed source, wrong target and workspace before dispatch', async () => {
+  const control = new ControlDatabase(path.join(root, `codex-source-policy-${randomUUID()}`));
+  const workspace = path.join(root, `codex-source-policy-workspace-${randomUUID()}`);
+  const other = path.join(root, `codex-source-policy-other-${randomUUID()}`);
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.mkdirSync(other, { recursive: true });
+  try {
+    const service = new TaskService(control, { registry: codexSessionPrototypeRegistry() });
+    const pending = baseRequest({ target: 'codex', model: 'gpt-5.6-luna', workspace });
+    service.submit(pending);
+    assert.throws(() => service.submit(baseRequest({ target: 'codex', model: 'gpt-5.6-luna', workspace,
+      session: { continue_from_task_id: pending.request_id } })), { code: 'invalid_request' });
+    const initial = baseRequest({ target: 'codex', model: 'gpt-5.6-luna', workspace, prompt: 'fixture-turn-policy' });
+    const registered = service.submit(initial);
+    const completed = await runTask({ service, taskId: registered.task_id,
+      adapter: new CodexAdapter({ entryResolver: async () => ({ canonical_path: fakeCodexSessions }) }) });
+    assert.equal(completed.status, 'succeeded');
+    assert.throws(() => service.submit(baseRequest({ target: 'codex', model: 'gpt-5.6-luna', workspace: other,
+      session: { continue_from_task_id: initial.request_id } })), { code: 'invalid_workspace' });
+    assert.throws(() => service.submit(baseRequest({ target: 'opencode', workspace,
+      session: { continue_from_task_id: initial.request_id } })), { code: 'unsupported_capability' });
   } finally { control.close(); }
 });
 

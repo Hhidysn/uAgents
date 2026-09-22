@@ -38,4 +38,4 @@ OpenCode continuation 使用 `run --session <session-id>`；fork 增加 `--fork`
 
 `session.continue_from_task_id` / `fork_from_task_id` 创建新的 Task，并发送新的 prompt。
 
-当前其它 target 没有经过验证的 continuation/fork mapping，因此保持关闭。
+Codex CLI 的 exec `resume/fork` 映射有内部原型，但尚未完成真实多轮 Provider 验证，当前 `capabilities codex` 仍保持 `resume=false`、`fork=false`；其它未验收 target 也继续关闭。

@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { childEnvironment } from '../runtime/child-environment.mjs';
 import { fail } from '../protocol/errors.mjs';
+import { uuidPattern } from '../protocol/schema.mjs';
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const VERSION_TIMEOUT_MS = 10_000;
@@ -26,8 +27,17 @@ export function locateCodexEntry(env = process.env, entryOverride = null) {
   return path.resolve(found);
 }
 
-export function codexExecArgs(request, workspace, entry) {
-  return [entry, 'exec', '--json', '--model', request.model_resolved, '--cd', workspace, '-'];
+export function codexExecArgs(request, workspace, entry, session = null) {
+  if (!session) return [entry, 'exec', '--json', '--model', request.model_resolved, '--cd', workspace, '-'];
+  if (!['continue', 'fork'].includes(session.action) || !uuidPattern.test(session.native_session_id ?? '')) {
+    fail('invalid_native_session', 'Codex continuation/fork requires an explicit native UUID from a completed source task.', {
+      category: 'user', submission: 'not_sent',
+    });
+  }
+  // Native exec resume/fork have no --cd option. cwd is pinned by spawn;
+  // avoid --last or any implicit native session selection.
+  return [entry, 'exec', session.action === 'continue' ? 'resume' : 'fork', '--json', '--model',
+    request.model_resolved, session.native_session_id, '-'];
 }
 
 export function buildCodexPrompt(request, workspace) {
@@ -68,7 +78,7 @@ export function probeCodexVersion(entry, { spawnImpl = spawn } = {}) {
   });
 }
 
-export function createCodexParser(onAccepted = () => {}) {
+export function createCodexParser(onAccepted = () => {}, session = null) {
   let threadId = null;
   let turnStarted = false;
   let turnCompleted = false;
@@ -85,6 +95,10 @@ export function createCodexParser(onAccepted = () => {}) {
       if (event.type === 'thread.started') {
         if (turnStarted || typeof event.thread_id !== 'string' || !event.thread_id || (threadId && threadId !== event.thread_id)) {
           throw Object.assign(new Error('Codex thread identity mismatch.'), { code: 'native_session_mismatch' });
+        }
+        if (session?.action === 'continue' && event.thread_id !== session.native_session_id ||
+            session?.action === 'fork' && event.thread_id === session.native_session_id) {
+          throw Object.assign(new Error('Codex continuation/fork thread identity mismatch.'), { code: 'native_session_mismatch' });
         }
         if (!threadId) { threadId = event.thread_id; onAccepted(threadId); }
       } else if (event.type === 'turn.started') {
@@ -131,14 +145,15 @@ export function createCodexParser(onAccepted = () => {}) {
 }
 
 export function invokeCodexExec({ entry, request, workspace, publish = () => {}, onAccepted = () => {},
-  signal = null, isCancelRequested = null, spawnImpl = spawn, closeGraceMs = CLOSE_GRACE_MS } = {}) {
+  session = null, signal = null, isCancelRequested = null, spawnImpl = spawn, closeGraceMs = CLOSE_GRACE_MS } = {}) {
   if (signal?.aborted || isCancelRequested?.()) {
     return Promise.resolve({ status: 'cancelled', error: 'cancelled_before_send', submission: 'not_sent' });
   }
+  const args = codexExecArgs(request, workspace, entry, session);
   return new Promise(resolve => {
     let child;
     try {
-      child = spawnImpl(process.execPath, codexExecArgs(request, workspace, entry), {
+      child = spawnImpl(process.execPath, args, {
         cwd: workspace, windowsHide: true, env: childEnvironment(), stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch {
@@ -149,7 +164,7 @@ export function invokeCodexExec({ entry, request, workspace, publish = () => {},
     const parser = createCodexParser(threadId => {
       publish({ native_session_id: threadId });
       onAccepted({ session_id: threadId, task_id: null, status: 'accepted' });
-    });
+    }, session);
     let sent = false;
     let finished = false;
     let buffer = '';

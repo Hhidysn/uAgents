@@ -71,7 +71,7 @@ test('Codex adapter exposes text/workspace and explicit route only', () => {
   assert.equal(descriptor.transport, 'cli-jsonl');
   assert.equal(descriptor.model_selection, 'explicit');
   assert.deepEqual(descriptor.inputs, { text: true, files: false, images: false, workspace_readable: true });
-  assert.equal(descriptor.resume, false);
+  assert.equal(descriptor.resume, false); // Native bridge is not published until real multi-turn E2E succeeds.
   assert.equal(descriptor.fork, false);
 });
 
@@ -80,6 +80,56 @@ test('Codex exec carries Luna model selection only in dispatcher-owned argv', ()
   const args = codexExecArgs(current, workspace, entry);
   assert.deepEqual(args, [entry, 'exec', '--json', '--model', 'gpt-5.6-luna', '--cd', workspace, '-']);
   assert.equal(args.includes(current.prompt), false);
+});
+
+test('Codex exec resume/fork pin explicit UUID without inheriting unsafe flags or putting prompt in argv', () => {
+  const current = request({ model_resolved: 'gpt-5.6-luna', prompt: 'secret follow-up prompt' });
+  const source = randomUUID();
+  for (const [action, command] of [['continue', 'resume'], ['fork', 'fork']]) {
+    const args = codexExecArgs(current, workspace, entry, { action, native_session_id: source });
+    assert.deepEqual(args, [entry, 'exec', command, '--json', '--model', 'gpt-5.6-luna', source, '-']);
+    assert.equal(args.includes('--last'), false);
+    assert.equal(args.includes('--cd'), false); // cwd is pinned by spawn for resume/fork.
+    assert.equal(args.includes(current.prompt), false);
+    assert.equal(args.some(part => part.startsWith('--dangerously')), false);
+  }
+  for (const invalid of [{ action: 'continue', native_session_id: 'not-a-uuid' },
+    { action: 'fork', native_session_id: '' }, { action: 'unknown', native_session_id: source }]) {
+    assert.throws(() => codexExecArgs(current, workspace, entry, invalid), {
+      code: 'invalid_native_session', submission: 'not_sent',
+    });
+  }
+});
+
+test('Codex continuation must retain thread identity and fork must return a new thread', () => {
+  const source = randomUUID();
+  const continued = createCodexParser(() => {}, { action: 'continue', native_session_id: source });
+  continued.event({ type: 'thread.started', thread_id: source });
+  continued.event({ type: 'turn.started' });
+  continued.event({ type: 'item.completed', item: { type: 'agent_message', text: 'follow-up' } });
+  continued.event({ type: 'turn.completed' });
+  assert.equal(continued.finish(0).status, 'succeeded');
+  assert.throws(() => createCodexParser(() => {}, { action: 'continue', native_session_id: source })
+    .event({ type: 'thread.started', thread_id: randomUUID() }), { code: 'native_session_mismatch' });
+  const fork = createCodexParser(() => {}, { action: 'fork', native_session_id: source });
+  fork.event({ type: 'thread.started', thread_id: randomUUID() });
+  assert.throws(() => createCodexParser(() => {}, { action: 'fork', native_session_id: source })
+    .event({ type: 'thread.started', thread_id: source }), { code: 'native_session_mismatch' });
+});
+
+test('Codex adapter rejects mismatched session binding before native send', async () => {
+  const current = request({ session: { continue_from_task_id: randomUUID() } });
+  const adapter = new CodexAdapter({ testDriver: { spawn() { throw Error('must not spawn'); } } });
+  await assert.rejects(() => adapter.prepare(current, { verifiedEntry: entry }), {
+    code: 'invalid_native_session', submission: 'not_sent',
+  });
+  await assert.rejects(() => adapter.prepare(current, {
+    verifiedEntry: entry, session: { action: 'continue', from_task_id: current.session.continue_from_task_id,
+      native_session_id: 'not-a-uuid' },
+  }), { code: 'invalid_native_session', submission: 'not_sent' });
+  await assert.rejects(() => adapter.prepare(request(), {
+    verifiedEntry: entry, session: { action: 'continue', native_session_id: randomUUID() },
+  }), { code: 'invalid_native_session', submission: 'not_sent' });
 });
 
 test('Codex exec uses stdin for prompt, explicit model and workspace without injected permission flags', async () => {

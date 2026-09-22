@@ -1,6 +1,6 @@
 # uAgents 文档
 
-文档按“用户入口、当前实现、稳定协议、验证证据、历史记录”分层。只有 `README.md`、`docs/current/` 和 `docs/reference/` 用来描述当前产品行为。
+文档按“用户入口、当前实现、稳定协议、待实现功能、验证证据、历史记录”分层。只有 `README.md`、`docs/current/` 和 `docs/reference/` 用来描述当前产品行为。
 
 ## 文档层级
 
@@ -10,6 +10,7 @@
 | `docs/current/` | 当前已经实现的功能细节 | 是 |
 | `docs/reference/` | 稳定协议、命令和 capability 语义 | 是 |
 | `docs/verification/` | 测试、实机和 Provider E2E 证据 | 证据，不作为功能定义 |
+| `docs/roadmap.md` | 待实现功能、新 Agent 候选与阶段验收门槛 | 否；属于规划 |
 | `docs/history/` | 旧架构、设计方案讨论、计划、评审、历史状态 | 否 |
 
 维护规则：
@@ -42,6 +43,13 @@
 ## 验证证据
 
 验证记录继续保存在 [verification/](verification/)。其中可以包含日期、版本、真实请求 UUID、测试计数和失败过程；这些内容用于证明能力，而不是定义能力。
+
+## 待实现功能
+
+- [Roadmap：Codex 后续能力、现有 Agent 补充及 Claude Code / Pi Agent 研究](roadmap.md)
+- [Codex CLI v2 设计提案](history/superpowers/specs/2026-09-20-codex-cli-v2-design.md)
+
+以上属于规划，不表示功能已开放；当前可用能力仍以 `docs/current/` 为准。
 
 ## 历史文档
 

@@ -23,7 +23,6 @@ export class TaskService {
 
   submit(input, { adapterVersion = null } = {}) {
     const evaluated = evaluateRequest(input, { registry: this.registry, health: this.health });
-    const session = this.#resolveSession(evaluated.request);
     const normalizedInputs = ingestAttachmentInputs(evaluated.request.workspace, evaluated.request.inputs);
     const normalized = normalizedInputs === evaluated.request.inputs ? evaluated : {
       ...evaluated,
@@ -40,6 +39,10 @@ export class TaskService {
         const resumed = this.#resumePreflightInTransaction(database, existing.task_id, { now });
         return { ...this.#statusWith(database, existing.task_id), duplicate: true, ...(resumed ? { resumed: true } : {}) };
       }
+
+      // Repeated requests return their original identity even when later
+      // native turns have advanced that thread since first registration.
+      const session = this.#resolveSession(normalized.request);
 
       const taskId = normalized.request.request_id;
       const attemptId = randomUUID();
@@ -386,8 +389,25 @@ export class TaskService {
     if (!['succeeded', 'failed'].includes(source.status)) {
       fail('invalid_request', `Session source task must be finished; current status is ${source.status}.`, { category: 'user', submission: 'not_sent' });
     }
+    if (request.target === 'codex' && (source.status !== 'succeeded' || source.native?.status !== 'completed')) {
+      fail('invalid_request', 'Codex session source must have a confirmed successful native turn.', {
+        category: 'user', submission: 'not_sent',
+      });
+    }
     if (!source.native?.session_id) {
       fail('invalid_request', 'Session source task has no persisted native session ID.', { category: 'user', submission: 'not_sent' });
+    }
+    if (request.target === 'codex') {
+      const latestThreadTurn = this.control.raw.prepare(`SELECT t.task_id FROM native_sessions n
+        JOIN attempts a ON a.attempt_id = n.attempt_id
+        JOIN tasks t ON t.task_id = a.task_id
+        WHERE n.target = 'codex' AND n.native_session_id = ?
+        ORDER BY n.id DESC LIMIT 1`).get(source.native.session_id);
+      if (latestThreadTurn?.task_id !== sourceTaskId) {
+        fail('invalid_request', 'Codex source Task is not the latest accepted turn on its native thread.', {
+          category: 'user', submission: 'not_sent',
+        });
+      }
     }
     const sourceRequest = this.payload(sourceTaskId).request;
     if (canonicalWorkspace(sourceRequest.workspace) !== canonicalWorkspace(request.workspace)) {

@@ -115,6 +115,11 @@ test('Codex Luna is an explicit concrete route, not a new default', () => {
   assert.equal(outcome.request.route_id, 'codex/gpt-5.6-luna');
   assert.equal(outcome.request.model_verified, false);
   assert.equal(createRegistry().defaults.codex, undefined);
+  assert.equal(createRegistry().targets.codex.resume, false);
+  assert.equal(createRegistry().targets.codex.fork, false);
+  assert.throws(() => evaluateRequest(request({ target: 'codex', model: 'gpt-5.6-luna',
+    workspace: process.cwd(), session: { continue_from_task_id: randomUUID() } })),
+  { code: 'unsupported_capability' });
   assert.throws(() => evaluateRequest(request({ target: 'codex', model: 'gpt-5.6-luna-unknown' })), { code: 'model_unavailable' });
 });
 
