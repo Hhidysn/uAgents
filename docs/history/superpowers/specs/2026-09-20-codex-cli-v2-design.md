@@ -4,6 +4,8 @@
 
 2026-09-23 实施补充：先在现有 exec transport 中完成了 `resume/fork` 的候选桥接与无 Provider 的真实子进程多轮 fixture，见 [验证记录](../../../verification/2026-09-23-codex-session-prototype.md)。由于真实 Luna 新建 Turn 命中额度限制，跨 Task 会话能力**尚未开放**；app-server、强恢复和审批仍属后续独立设计。
 
+2026-09-23 后续进展：app-server 内部路径、持久化传输选择、标准 Worker 的真实 Astra 多轮及崩溃恢复夹具已完成，详见 [app-server 验证记录](../../../verification/2026-09-23-codex-app-server-spike.md)。本文件其余内容仍是原始设计提案；公开 capability 与已安装插件尚未切换。
+
 ## 1. 已验证基线、目标与非目标
 
 当前 v1：`target=codex`，显式 `gpt-6-astra` 或 `gpt-5.6-luna`；`exec --json`、text + workspace、analysis/implementation、最终 assistant text、usage 和 native Thread ID。Luna 已通过安装版真实 `submit/result` E2E；`gpt-6-astra` 是准入配置，不代表已完成 provider-bearing 验收。原生图片、跨 Task continuation/fork 和可证明的进程树取消/恢复仍未开放。

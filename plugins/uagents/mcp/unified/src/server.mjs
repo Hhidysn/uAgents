@@ -94,6 +94,7 @@ export const requestSchema = z.object({
     effort: z.enum(['low', 'medium', 'high', 'max']).optional(),
     permission: z.enum(['native', 'advisory-read-only', 'enforced-read-only', 'workspace-write', 'full-access']).optional(),
     native_args: z.array(z.string().min(1).max(4_096)).max(64).optional(),
+    codex_transport: z.literal('app-server').optional(),
   }).strict().optional(),
   policy: z.object({ fallback: z.string().optional(), max_cost_usd: z.number().nonnegative().nullable().optional() }).strict().optional(),
 }).strict().refine(value => !(value.inputs && value.attachments), {

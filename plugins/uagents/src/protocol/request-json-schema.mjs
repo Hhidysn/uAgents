@@ -74,6 +74,7 @@ export function requestJsonSchema() {
           effort: { type: 'string', enum: [...EXECUTION_EFFORTS], default: 'medium' },
           permission: { type: 'string', enum: [...EXECUTION_PERMISSIONS], default: 'native' },
           native_args: { type: 'array', maxItems: REQUEST_LIMITS.native_args, default: [], items: byteString(REQUEST_LIMITS.native_arg_bytes) },
+          codex_transport: { const: 'app-server', description: 'Explicit Windows/Astra Codex app-server preview; omitted requests keep exec.' },
         },
       },
       policy: {

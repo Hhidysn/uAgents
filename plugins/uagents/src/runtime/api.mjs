@@ -156,7 +156,16 @@ export class UnifiedRuntime {
 
   async reconcile(taskId) {
     const status = this.service.status(taskId);
-    return reconcileTask({ service: this.service, taskId, adapter: this.adapterFactory(status.target), supervisor: this.supervisor });
+    const possibleAppServer = status.target === 'codex' && !status.native &&
+      status.attempt?.submission === 'may_have_been_sent' && Boolean(this.control.raw.prepare(`
+        SELECT 1 FROM events WHERE task_id = ? AND attempt_id = ? AND type = 'dispatch.possibly_sent'
+          AND json_type(payload_json, '$.native_session_id') = 'text'
+          AND json_type(payload_json, '$.installation_fingerprint') = 'text'
+        LIMIT 1`).get(taskId, status.attempt.attempt_id));
+    const appServer = status.target === 'codex' &&
+      (status.native?.evidence_ref === 'codex:app-server-thread-turn' || possibleAppServer);
+    const adapter = this.adapterFactory(status.target, appServer ? { transport: 'app-server' } : undefined);
+    return reconcileTask({ service: this.service, taskId, adapter, supervisor: this.supervisor });
   }
 }
 

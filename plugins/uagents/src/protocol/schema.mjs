@@ -6,7 +6,7 @@ export const SCHEMA_VERSION = '1.0';
 export const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const REQUEST_FIELD_NAMES = Object.freeze(['schema_version', 'request_id', 'target', 'model', 'mode', 'prompt', 'workspace', 'inputs', 'expected_outputs', 'execution', 'policy', 'session']);
-export const EXECUTION_FIELD_NAMES = Object.freeze(['observation_timeout_ms', 'execution_timeout_ms', 'effort', 'permission', 'native_args']);
+export const EXECUTION_FIELD_NAMES = Object.freeze(['observation_timeout_ms', 'execution_timeout_ms', 'effort', 'permission', 'native_args', 'codex_transport']);
 export const POLICY_FIELD_NAMES = Object.freeze(['fallback', 'max_cost_usd']);
 export const SESSION_FIELD_NAMES = Object.freeze(['continue_from_task_id', 'fork_from_task_id']);
 export const INPUT_FIELD_NAMES = Object.freeze(['type', 'path', 'source', 'blob']);
@@ -120,7 +120,11 @@ function parseExecution(input) {
   const nativeArgs = arrayOf(value.native_args ?? [], 'execution.native_args', REQUEST_LIMITS.native_args, parseNativeArg);
   if (!EFFORTS.has(effort)) fail('invalid_request', 'execution.effort is invalid.');
   if (!PERMISSIONS.has(permission)) fail('invalid_request', 'execution.permission is invalid.');
-  return { observation_timeout_ms: observation, execution_timeout_ms: value.execution_timeout_ms ?? null, effort, permission, native_args: nativeArgs };
+  if (value.codex_transport !== undefined && value.codex_transport !== 'app-server') {
+    fail('invalid_request', 'execution.codex_transport must be app-server when specified.');
+  }
+  return { observation_timeout_ms: observation, execution_timeout_ms: value.execution_timeout_ms ?? null, effort, permission, native_args: nativeArgs,
+    ...(value.codex_transport ? { codex_transport: value.codex_transport } : {}) };
 }
 
 function parseNativeArg(value, index) {

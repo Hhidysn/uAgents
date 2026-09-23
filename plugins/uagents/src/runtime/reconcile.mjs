@@ -26,6 +26,18 @@ function acceptedCheckpoint(service, taskId, attemptId) {
   }
 }
 
+function possibleCodexThread(service, taskId, attemptId) {
+  const row = service.control.raw.prepare(`SELECT payload_json FROM events
+    WHERE task_id = ? AND attempt_id = ? AND type = 'dispatch.possibly_sent'
+    ORDER BY sequence DESC LIMIT 1`).get(taskId, attemptId);
+  if (!row) return null;
+  try {
+    const payload = JSON.parse(row.payload_json);
+    return payload?.target === 'codex' && typeof payload.native_session_id === 'string' &&
+      payload.native_session_id ? payload.native_session_id : null;
+  } catch { return null; }
+}
+
 function managedLifecycleFromCheckpoint(checkpoint) {
   if (!checkpoint || !Object.prototype.hasOwnProperty.call(checkpoint, 'lifecycle')) return null;
   const lifecycle = checkpoint.lifecycle;
@@ -48,7 +60,10 @@ function currentEvidence(service, taskId) {
 export async function reconcileTask({ service, taskId, adapter, leaseOptions = {}, supervisor = null }) {
   const current = service.status(taskId);
   const durableProcess = current.attempt ? getNativeProcess(service.control, current.attempt.attempt_id) : null;
-  if (!current.native && !durableProcess) fail('reconcile_unsupported', 'Task has no persisted native identity or durable process.', { submission: current.attempt.submission });
+  const possibleThread = current.target === 'codex' && ['starting', 'indeterminate'].includes(current.status) &&
+    current.attempt?.submission === 'may_have_been_sent'
+    ? possibleCodexThread(service, taskId, current.attempt.attempt_id) : null;
+  if (!current.native && !durableProcess && !possibleThread) fail('reconcile_unsupported', 'Task has no persisted native identity or durable process.', { submission: current.attempt.submission });
   if (typeof adapter.reconcile !== 'function') fail('reconcile_unsupported', 'Adapter does not support native reconciliation.', { submission: current.attempt.submission });
   const stored = service.payload(taskId);
   const leases = acquireExecutionLeases(service.control, {
@@ -110,9 +125,11 @@ export async function reconcileTask({ service, taskId, adapter, leaseOptions = {
     // only used for Doubao's message cursor, which is not a secret and was not
     // part of the native_sessions schema in older stores.
     const acceptedHandle = checkpoint?.handle;
-    const native = Number.isInteger(acceptedHandle?.user_message_index)
-      ? { ...current.native, user_message_index: acceptedHandle.user_message_index }
-      : current.native;
+    const native = possibleThread && !current.native
+      ? { session_id: possibleThread, task_id: null, status: null, evidence_ref: 'codex:app-server-possible-turn' }
+      : Number.isInteger(acceptedHandle?.user_message_index)
+        ? { ...current.native, user_message_index: acceptedHandle.user_message_index }
+        : current.native;
     const dispatchCheckpoint = (kind, payload = {}) => persistCheckpoint(service.control, {
       taskId,
       attemptId: current.attempt.attempt_id,

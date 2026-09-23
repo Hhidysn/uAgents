@@ -44,3 +44,11 @@ error:            native_turn_failed
 1. 额度可用后，重新使用新的任务链做真实 `start → continue → fork → branch-continue`，断言上下文记忆与 native Thread identity；随后从正式安装插件缓存验收。
 2. 不能声称 exec 桥接拥有可靠的跨进程 reconciliation、进程树终止、Turn 回执修复或 app-server 审批/事件能力。后续需检查并发中同一 Thread 的来源最新性及未决 Turn 保护；本原型目前不对外开放。
 3. 图片/文件原生输入保持关闭；Codex JSONL 无可信模型身份自报，`model_verified=false` 仍是正确记录。
+
+## 同日补充：排队后的来源复核
+
+源码增加了 Codex session Task 在取得 workspace lease、完成 adapter 准备之后、发送 prompt 之前的来源复核。复核使用已持久化的来源绑定，拒绝已被其它 Turn 推进的源线程；若同一源 Task 的另一个请求可能已经发送但没有获得原生线程 ID，也拒绝新发送。后者保持原任务的不确定状态，不自动重放。
+
+新增真实 Node 子进程 fixture 覆盖“两个续接及一个 fork 先排队，首个续接完成后其余请求发送前失败”和“前序 Prompt 已读取但没有 `thread.started`，同源后续请求发送前失败”。执行 `node --test --test-concurrency=4 tests/codex-cli.test.mjs tests/unified-cli-adapters.test.mjs`：**40/40 PASS**；`git diff --check` 通过。公开 capability 仍为 `resume=false`、`fork=false`，安装版插件未更新。
+
+本机用量查询显示 `gpt-5.6-luna` 对应的推理额度窗口已用满；没有消耗重置额度或再次发送 Luna Provider Prompt。因此这次补充仍不构成真实多轮 Provider 验收。

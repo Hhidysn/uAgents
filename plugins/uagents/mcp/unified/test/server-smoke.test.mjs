@@ -54,6 +54,7 @@ test('bundled stdio server initializes and lists the unified tool surface', asyn
     assert.match(submitSchema, /"image"/);
     assert.match(submitSchema, /"continue_from_task_id"/);
     assert.match(submitSchema, /"fork_from_task_id"/);
+    assert.match(submitSchema, /"codex_transport"/);
     const councilTool = listed.result.tools.find(tool => tool.name === 'uagents_council_submit');
     assert.match(JSON.stringify(councilTool.inputSchema), /"member_id"/);
     assert.match(JSON.stringify(councilTool.inputSchema), /"fanout"/);
@@ -288,6 +289,8 @@ test('MCP request schema exposes explicit task-based session continuation and fo
   assert.equal(requestSchema.safeParse({ ...input, session: { continue_from_task_id: 'latest' } }).success, false);
   assert.equal(requestSchema.safeParse({ ...input, session: {} }).success, false);
   assert.equal(requestSchema.safeParse({ ...input, session: { continue_from_task_id: randomUUID(), fork_from_task_id: randomUUID() } }).success, false);
+  assert.equal(requestSchema.safeParse({ ...input, execution: { codex_transport: 'app-server' } }).success, true);
+  assert.equal(requestSchema.safeParse({ ...input, execution: { codex_transport: 'exec' } }).success, false);
 });
 
 test('CLI request schema discovery stays structurally aligned with MCP submit schema', () => {
@@ -299,6 +302,7 @@ test('CLI request schema discovery stays structurally aligned with MCP submit sc
   assert.deepEqual(mcp.properties.mode.enum, core.properties.mode.enum);
   assert.deepEqual(mcp.properties.execution.properties.effort.enum, core.properties.execution.properties.effort.enum);
   assert.deepEqual(mcp.properties.execution.properties.permission.enum, core.properties.execution.properties.permission.enum);
+  assert.deepEqual(mcp.properties.execution.properties.codex_transport.const, core.properties.execution.properties.codex_transport.const);
   assert.deepEqual(mcp.properties.inputs.items.properties.type.enum, core.properties.inputs.items.properties.type.enum);
   assert.deepEqual(Object.keys(mcp.properties.inputs.items.properties.blob.properties), ['name', 'data_base64']);
   assert.deepEqual(Object.keys(mcp.properties.session.properties), ['continue_from_task_id', 'fork_from_task_id']);

@@ -117,10 +117,34 @@ test('Codex Luna is an explicit concrete route, not a new default', () => {
   assert.equal(createRegistry().defaults.codex, undefined);
   assert.equal(createRegistry().targets.codex.resume, false);
   assert.equal(createRegistry().targets.codex.fork, false);
+  assert.deepEqual(createRegistry().targets.codex.opt_in_transports['app-server'], {
+    models: ['gpt-6-astra'], platforms: ['win32'], resume: true, fork: true,
+  });
   assert.throws(() => evaluateRequest(request({ target: 'codex', model: 'gpt-5.6-luna',
     workspace: process.cwd(), session: { continue_from_task_id: randomUUID() } })),
   { code: 'unsupported_capability' });
   assert.throws(() => evaluateRequest(request({ target: 'codex', model: 'gpt-5.6-luna-unknown' })), { code: 'model_unavailable' });
+});
+
+test('Codex app-server opt-in only admits Astra on Windows and enables native sessions', () => {
+  const execution = { codex_transport: 'app-server' };
+  const selected = request({ target: 'codex', model: 'gpt-6-astra', execution });
+  if (process.platform === 'win32') {
+    assert.equal(evaluateRequest(selected).request.execution.codex_transport, 'app-server');
+    assert.equal(evaluateRequest(request({ ...selected, request_id: randomUUID(), workspace: process.cwd(),
+      session: { continue_from_task_id: randomUUID() } })).allowed, true);
+    assert.equal(evaluateRequest(request({ ...selected, request_id: randomUUID(), workspace: process.cwd(),
+      session: { fork_from_task_id: randomUUID() } })).allowed, true);
+  } else {
+    assert.throws(() => evaluateRequest(selected), { code: 'unsupported_capability', submission: 'not_sent' });
+  }
+  assert.throws(() => evaluateRequest(request({ target: 'codex', model: 'gpt-5.6-luna', execution })),
+    { code: 'unsupported_capability', submission: 'not_sent' });
+  assert.throws(() => evaluateRequest(request({ execution })),
+    { code: 'unsupported_capability', submission: 'not_sent' });
+  assert.throws(() => evaluateRequest(request({ target: 'codex', model: 'gpt-6-astra',
+    workspace: process.cwd(), session: { fork_from_task_id: randomUUID() } })),
+    { code: 'unsupported_capability', submission: 'not_sent' });
 });
 
 test('policy fails closed before worker launch', () => {

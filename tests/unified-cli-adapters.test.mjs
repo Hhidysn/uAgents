@@ -285,6 +285,60 @@ test('Codex session admission rejects unconfirmed source, wrong target and works
   } finally { control.close(); }
 });
 
+test('Codex queued follow-ups recheck their source before sending a prompt', async () => {
+  const control = new ControlDatabase(path.join(root, `codex-stale-source-${randomUUID()}`));
+  const workspace = path.join(root, `codex-stale-source-workspace-${randomUUID()}`);
+  fs.mkdirSync(workspace, { recursive: true });
+  const adapter = new CodexAdapter({ entryResolver: async () => ({ canonical_path: fakeCodexSessions }) });
+  try {
+    const service = new TaskService(control, { registry: codexSessionPrototypeRegistry() });
+    const input = prompt => baseRequest({ target: 'codex', model: 'gpt-5.6-luna', workspace, prompt });
+    const initial = input('fixture-turn-initial');
+    service.submit(initial);
+    assert.equal((await runTask({ service, taskId: initial.request_id, adapter })).status, 'succeeded');
+    const followUp = { ...input('fixture-turn-next'), session: { continue_from_task_id: initial.request_id } };
+    const staleContinue = { ...input('fixture-turn-stale-continue'), session: { continue_from_task_id: initial.request_id } };
+    const staleFork = { ...input('fixture-turn-stale-fork'), session: { fork_from_task_id: initial.request_id } };
+    for (const task of [followUp, staleContinue, staleFork]) service.submit(task);
+    assert.equal((await runTask({ service, taskId: followUp.request_id, adapter })).status, 'succeeded');
+    for (const task of [staleContinue, staleFork]) {
+      await assert.rejects(() => runTask({ service, taskId: task.request_id, adapter }), { code: 'invalid_request', submission: 'not_sent' });
+      assert.equal(service.status(task.request_id).attempt.submission, 'not_sent');
+    }
+    const journal = JSON.parse(fs.readFileSync(path.join(workspace, '.codex-session-fixture.json'), 'utf8'));
+    assert.deepEqual(journal.calls.map(call => call.action), ['start', 'resume']);
+  } finally { control.close(); }
+});
+
+test('Codex follow-up refuses a source with another possibly sent unaccepted turn', async () => {
+  const control = new ControlDatabase(path.join(root, `codex-unknown-source-${randomUUID()}`));
+  const workspace = path.join(root, `codex-unknown-source-workspace-${randomUUID()}`);
+  fs.mkdirSync(workspace, { recursive: true });
+  const adapter = new CodexAdapter({ entryResolver: async () => ({ canonical_path: fakeCodexSessions }) });
+  try {
+    const service = new TaskService(control, { registry: codexSessionPrototypeRegistry() });
+    const input = (prompt, session = null) => baseRequest({ target: 'codex', model: 'gpt-5.6-luna', workspace,
+      prompt, ...(session ? { session } : {}) });
+    const initial = input('fixture-turn-initial');
+    service.submit(initial);
+    assert.equal((await runTask({ service, taskId: initial.request_id, adapter })).status, 'succeeded');
+    const source = { continue_from_task_id: initial.request_id };
+    const unknown = input('fixture-turn-unknown', source);
+    const sibling = input('fixture-turn-after-unknown', source);
+    service.submit(unknown);
+    service.submit(sibling);
+    const uncertain = await runTask({ service, taskId: unknown.request_id, adapter });
+    assert.equal(uncertain.status, 'indeterminate');
+    assert.equal(uncertain.attempt.submission, 'may_have_been_sent');
+    await assert.rejects(() => runTask({ service, taskId: sibling.request_id, adapter }), {
+      code: 'submission_unknown', submission: 'not_sent',
+    });
+    assert.equal(service.status(sibling.request_id).attempt.submission, 'not_sent');
+    const journal = JSON.parse(fs.readFileSync(path.join(workspace, '.codex-session-fixture.json'), 'utf8'));
+    assert.deepEqual(journal.calls.map(call => call.action), ['start', 'resume']);
+  } finally { control.close(); }
+});
+
 test('OpenCode implementation succeeds without expected outputs and ignores legacy permission admission', async () => {
   const control = new ControlDatabase(path.join(root, `rejected-${randomUUID()}`));
   try {

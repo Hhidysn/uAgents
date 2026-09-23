@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { evaluateRequest } from '../policy/evaluate.mjs';
+import { uuidPattern } from '../protocol/schema.mjs';
 import { errorRecord, fail, redactText, UAgentsError } from '../protocol/errors.mjs';
 import { appendEvent } from '../store/database.mjs';
 import { atomicWriteJson, atomicWriteText, readTaskJson, taskDirectory } from '../store/task-files.mjs';
@@ -21,14 +22,29 @@ export class TaskService {
     this.clock = clock;
   }
 
-  submit(input, { adapterVersion = null } = {}) {
+  submit(input, { adapterVersion = null, dispatchTransport = null } = {}) {
     const evaluated = evaluateRequest(input, { registry: this.registry, health: this.health });
+    const requestedTransport = evaluated.request.execution.codex_transport ?? null;
+    if (dispatchTransport !== null &&
+        (evaluated.request.target !== 'codex' || dispatchTransport !== 'app-server')) {
+      fail('invalid_request', 'Unsupported internal Task transport.', {
+        category: 'policy', submission: 'not_sent',
+      });
+    }
+    if (requestedTransport && dispatchTransport && requestedTransport !== dispatchTransport) {
+      fail('invalid_request', 'Requested and internal Codex transports disagree.', {
+        category: 'policy', submission: 'not_sent',
+      });
+    }
+    const selectedTransport = requestedTransport ?? dispatchTransport;
     const normalizedInputs = ingestAttachmentInputs(evaluated.request.workspace, evaluated.request.inputs);
     const normalized = normalizedInputs === evaluated.request.inputs ? evaluated : {
       ...evaluated,
       request: { ...evaluated.request, inputs: normalizedInputs },
     };
-    const materialized = materializeEffectiveRequest(input, normalized, { adapter_version: adapterVersion });
+    const materialized = materializeEffectiveRequest(input, normalized, {
+      adapter_version: adapterVersion, dispatch_transport: selectedTransport,
+    });
     const now = this.clock();
     return this.control.transaction(database => {
       const existing = database.prepare('SELECT * FROM idempotency WHERE request_id = ?').get(normalized.request.request_id);
@@ -43,6 +59,11 @@ export class TaskService {
       // Repeated requests return their original identity even when later
       // native turns have advanced that thread since first registration.
       const session = this.#resolveSession(normalized.request);
+      if (requestedTransport && session && session.native_transport !== requestedTransport) {
+        fail('invalid_native_session', 'Codex app-server requires an app-server source Task.', {
+          category: 'policy', submission: 'not_sent',
+        });
+      }
 
       const taskId = normalized.request.request_id;
       const attemptId = randomUUID();
@@ -56,6 +77,7 @@ export class TaskService {
           prompt: normalized.request.prompt,
           input_snapshots: materialized.input_snapshots,
           session,
+          ...(selectedTransport ? { dispatch_transport: selectedTransport } : {}),
         });
         atomicWriteJson(path.join(directory, 'decision.json'), normalized.decision);
 
@@ -75,6 +97,7 @@ export class TaskService {
           .run(taskId, materialized.raw_request_hash, materialized.effective_request_hash, taskId);
         appendEvent(database, { taskId, attemptId, type: 'task.registered', payload: {
           route_id: normalized.request.route_id,
+          ...(selectedTransport ? { dispatch_transport: selectedTransport } : {}),
           ...(session?.action === 'continue' ? { continued_from_task_id: session.from_task_id } : {}),
           ...(session?.action === 'fork' ? { forked_from_task_id: session.from_task_id } : {}),
         }, now });
@@ -300,6 +323,44 @@ export class TaskService {
     });
   }
 
+  assertSessionReadyForDispatch(taskId, attemptId, lease) {
+    const stored = this.payload(taskId);
+    if (stored.request.target !== 'codex' || !stored.request.session) return;
+    return this.control.transaction(database => {
+      assertFencing(database, lease, this.clock());
+      const attempt = database.prepare('SELECT submission FROM attempts WHERE task_id = ? AND attempt_id = ?')
+        .get(taskId, attemptId);
+      if (!attempt || attempt.submission !== 'not_sent') {
+        fail('invalid_state_transition', 'Codex session must be checked before its prompt is sent.', {
+          category: 'conflict', submission: attempt?.submission ?? 'not_sent',
+        });
+      }
+      const current = this.#resolveSession(stored.request);
+      const bound = stored.payload.session;
+      if (!bound || current.action !== bound.action || current.from_task_id !== bound.from_task_id ||
+          current.native_session_id !== bound.native_session_id ||
+          current.native_turn_id !== bound.native_turn_id || current.native_transport !== bound.native_transport ||
+          current.installation_fingerprint !== bound.installation_fingerprint) {
+        fail('invalid_request', 'Codex session source changed after Task registration.', {
+          category: 'conflict', submission: 'not_sent',
+        });
+      }
+      // A prior request with no accepted thread identity may already have
+      // reached Codex. Its source boundary cannot be reused safely.
+      const unresolved = database.prepare(`SELECT t.task_id FROM tasks t
+        JOIN attempts a ON a.task_id = t.task_id
+        WHERE t.target = 'codex' AND t.task_id != ? AND a.submission = 'may_have_been_sent'
+          AND (json_extract(t.decision_json, '$.session.continue_from_task_id') = ?
+            OR json_extract(t.decision_json, '$.session.fork_from_task_id') = ?)
+        LIMIT 1`).get(taskId, current.from_task_id, current.from_task_id);
+      if (unresolved) {
+        fail('submission_unknown', 'Another Codex task may have sent a turn from this source.', {
+          category: 'conflict', submission: 'not_sent', details: { task_id: unresolved.task_id },
+        });
+      }
+    });
+  }
+
   transition(taskId, next, { attemptId, lease = null, evidenceStrength = 0, sameNativeIdentity = false, event = {}, now = this.clock() } = {}) {
     return this.control.transaction(database => {
       if (lease) assertFencing(database, lease, now);
@@ -350,6 +411,15 @@ export class TaskService {
           native_identity: status.native?.session_id ?? status.native?.task_id ?? null,
         };
       }
+      if (status.target === 'codex' && status.status === 'starting' &&
+          attempt?.submission === 'may_have_been_sent' && !status.native) {
+        const checkpoint = database.prepare(`SELECT 1 FROM events WHERE task_id = ? AND attempt_id = ?
+          AND type = 'dispatch.possibly_sent'
+          AND json_type(payload_json, '$.native_session_id') = 'text'
+          AND json_type(payload_json, '$.installation_fingerprint') = 'text'
+          LIMIT 1`).get(taskId, attempt.attempt_id);
+        if (checkpoint) return { ...status, mode: 'reconcile', native_identity: null };
+      }
       if (status.status === 'waiting_user' && attempt?.submission === 'not_sent' && !status.native && !nativeProcess && this.#waitingPhase(database, taskId) === 'preflight_login') {
         this.#requeueWaitingAttempt(database, taskId, attempt.attempt_id, now);
         return { ...this.#statusWith(database, taskId), mode: 'preflight' };
@@ -397,7 +467,16 @@ export class TaskService {
     if (!source.native?.session_id) {
       fail('invalid_request', 'Session source task has no persisted native session ID.', { category: 'user', submission: 'not_sent' });
     }
-    if (request.target === 'codex') {
+    const appServerSource = request.target === 'codex' &&
+      source.native.evidence_ref === 'codex:app-server-thread-turn' &&
+      uuidPattern.test(source.native.task_id ?? '');
+    if (request.target === 'codex' && source.native.evidence_ref === 'codex:app-server-thread-turn' &&
+        !appServerSource) {
+      fail('invalid_native_session', 'Codex app-server source has no verified native Turn ID.', {
+        category: 'policy', submission: 'not_sent',
+      });
+    }
+    if (request.target === 'codex' && (action === 'continue' || !appServerSource)) {
       const latestThreadTurn = this.control.raw.prepare(`SELECT t.task_id FROM native_sessions n
         JOIN attempts a ON a.attempt_id = n.attempt_id
         JOIN tasks t ON t.task_id = a.task_id
@@ -413,7 +492,22 @@ export class TaskService {
     if (canonicalWorkspace(sourceRequest.workspace) !== canonicalWorkspace(request.workspace)) {
       fail('invalid_workspace', 'Native session continuation or fork must use the same workspace as the source task.', { category: 'user', submission: 'not_sent' });
     }
-    return { action, from_task_id: sourceTaskId, native_session_id: source.native.session_id };
+    let appServerBinding = {};
+    if (appServerSource) {
+      const checkpoint = this.control.raw.prepare(`SELECT payload_json FROM events
+        WHERE task_id = ? AND attempt_id = ? AND type = 'dispatch.possibly_sent'
+        ORDER BY sequence DESC LIMIT 1`).get(sourceTaskId, source.attempt.attempt_id);
+      const fingerprint = checkpoint ? JSON.parse(checkpoint.payload_json)?.installation_fingerprint : null;
+      if (typeof fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(fingerprint)) {
+        fail('invalid_native_session', 'Codex source Turn has no verified CLI installation fingerprint.', {
+          category: 'policy', submission: 'not_sent',
+        });
+      }
+      appServerBinding = { native_turn_id: source.native.task_id,
+        native_transport: 'app-server', installation_fingerprint: fingerprint };
+    }
+    return { action, from_task_id: sourceTaskId, native_session_id: source.native.session_id,
+      ...appServerBinding };
   }
 
   #statusWith(database, taskId) {

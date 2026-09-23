@@ -43,6 +43,17 @@ test('execution native args preserve caller order and validate bounds', () => {
   } })), { code: 'invalid_request' });
 });
 
+test('Codex app-server transport is an explicit execution option', () => {
+  const base = parseRequest(request());
+  assert.equal(Object.hasOwn(base.execution, 'codex_transport'), false);
+  const selected = parseRequest(request({ execution: {
+    observation_timeout_ms: 30_000, effort: 'high', permission: 'native', codex_transport: 'app-server',
+  } }));
+  assert.equal(selected.execution.codex_transport, 'app-server');
+  assert.throws(() => parseRequest(request({ execution: { codex_transport: 'exec' } })),
+    { code: 'invalid_request' });
+});
+
 test('workspace and file paths are validated before execution', () => {
   const workspace = path.resolve('.local', '协议 workspace');
   const source = path.resolve('.local', 'incoming', 'brief.pdf');

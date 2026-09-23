@@ -1,15 +1,15 @@
 # uAgents
 
-uAgents 是一个面向 Codex 的本地统一 Agent 调度插件。它把多个本机 Agent 接到同一套 Task、状态、结果、附件、会话和 Council 工作流中，同时保留各目标自己的模型与原生能力。
+uAgents 是一个面向 Codex 的本地统一 Agent 调度层。它把多个本机 Agent 接到同一套 Task、状态、结果、附件、会话和 Council 工作流中。沙箱、命令和文件访问权限由各 Agent 的原生配置与运行环境控制；uAgents 不代替 Agent 授权或自动批准请求。
 
-当前本地插件构建：`0.2.0-alpha.1+codex.202609201839luna`。
+当前仓库与个人 marketplace 安装构建版本见 [插件清单](plugins/uagents/.codex-plugin/plugin.json)；安装版验证见 [验证记录](docs/verification/2026-09-23-codex-app-server-spike.md)。
 
 ## 支持的 Agent
 
 | Target | Analysis | Implementation | File input | Image input | Continue / Fork |
 | --- | --- | --- | --- | --- | --- |
 | agy | ✅ | ✅ | — | — | — |
-| Codex CLI (`codex`) | ✅ | ✅ | — | — | — |
+| Codex CLI (`codex`) | ✅ | ✅ | — | — | Windows/Astra 显式预览 ✅ / ✅ |
 | WorkBuddy | ✅ | ✅ | — | `deepseek-v4.1-flash` ✅ | ✅ / ✅ |
 | DeepSeek Harness (`dsh`) | ✅ | ✅ | — | — | — |
 | OpenCode | ✅ | ✅ | ✅ | ✅ | ✅ / ✅ |
@@ -84,7 +84,7 @@ Core 支持 workspace 相对路径、本地绝对 source 和 inline blob。Unifi
 
 ### 多轮会话
 
-WorkBuddy 和 OpenCode 支持继续上一 native session，或从上一轮上下文 fork 独立分支。每一轮仍然是新的 uAgents Task。
+WorkBuddy 和 OpenCode 支持继续上一 native session，或从上一轮上下文 fork 独立分支。Codex 在 Windows 上可为 `gpt-6-astra` 显式设置 `execution.codex_transport="app-server"` 使用预览版 continuation/fork。每一轮仍然是新的 uAgents Task。
 
 详见 [当前会话能力](docs/current/sessions.md)。
 
@@ -116,10 +116,10 @@ uAgents 可以发现并验证 Agent 安装；桌面目标使用受管实例。`s
 
 ## 当前限制
 
-- uAgents 是 orchestration 层，不提供执行沙箱。
+- uAgents 只负责调度与记录，不提供执行沙箱或审批代理。Codex/OpenCode 等目标的权限由各自的原生配置控制。Codex app-server 若要求交互审批，Task 保持不确定；uAgents 不会代答，也不会自动重发该 Prompt。
 - WorkBuddy generic file attachment 当前不可用；图片只对已验证的显式 `deepseek-v4.1-flash` 路线开放。
 - DSH v1 只开放 text + workspace，当前不开放 file/image attachment、continuation 或 fork。
-- Codex CLI v1 使用显式 `gpt-6-astra` 或 `gpt-5.6-luna`，支持 text + workspace；native file/image 和跨 Task continuation/fork 暂未开放。
+- Codex CLI 默认使用显式 `gpt-6-astra` 或 `gpt-5.6-luna` 的 exec 路线，支持 text + workspace；native file/image 暂未开放。跨 Task continuation/fork 仅对 Windows/Astra 显式 app-server 预览路线开放。
 - Council 不自动选择 winner、自动 synthesis、自动 merge 或后台 cleanup。
 - Dynamic model discovery 只提供本机 evidence，不自动扩大 allowlist。
 

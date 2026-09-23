@@ -254,6 +254,9 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
     const prepared = await adapter.prepare(request, adapterContext);
     const cancelledBeforeDispatch = service.cancelUnsent(taskId, attemptId);
     if (cancelledBeforeDispatch.cancelled) return cancelledBeforeDispatch.status;
+    if (request.target === 'codex' && request.session) {
+      service.assertSessionReadyForDispatch(taskId, attemptId, fencingLease);
+    }
     let submission;
     try {
       submission = await adapter.dispatch(prepared, { ...adapterContext, checkpoint });
@@ -266,7 +269,8 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
     }
     const afterDispatch = service.status(taskId);
     if (afterDispatch.attempt.submission !== 'sent' || !afterDispatch.native) {
-      service.transition(taskId, 'indeterminate', { attemptId, lease: fencingLease, event: { error: 'native_acceptance_unconfirmed' } });
+      service.transition(taskId, 'indeterminate', { attemptId, lease: fencingLease,
+        event: { error: submission.outcome?.error ?? 'native_acceptance_unconfirmed' } });
       return service.status(taskId);
     }
 
@@ -275,7 +279,10 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
       if (heartbeatError) throw heartbeatError;
       sawEvent = true;
       const current = service.status(taskId);
-      if (current.cancel_requested) return await finishCancellation({ service, adapter, taskId, attemptId, lease: fencingLease, handle: submission.handle ?? submission });
+      if (current.cancel_requested && !(request.target === 'codex' && event.same_native_identity === true &&
+          event.evidence_strength >= 2 && ['succeeded', 'failed'].includes(event.type))) {
+        return await finishCancellation({ service, adapter, taskId, attemptId, lease: fencingLease, handle: submission.handle ?? submission });
+      }
       let next = statusFromNativeEvent(event);
       let recordedEvent = event;
       if (event.model_reported !== undefined || event.model_verification !== undefined) service.recordOutcome(taskId, {
@@ -362,6 +369,11 @@ async function finishCancellation({ service, adapter, taskId, attemptId, lease, 
   }
   const result = await adapter.cancel(handle, { taskId, attemptId });
   const next = result?.confirmed === true ? 'cancelled' : 'indeterminate';
-  service.transition(taskId, next, { attemptId, lease, event: { cancel: result ?? null } });
+  if (next === 'cancelled') service.recordOutcome(taskId, { nativeOutcome: 'cancelled', objectiveVerdict: 'cancelled', lease });
+  service.transition(taskId, next, { attemptId, lease,
+    ...(result?.confirmed ? { evidenceStrength: result.evidence_strength ?? 0 } : {}),
+    event: { cancel: result ?? null,
+      ...(next === 'indeterminate' ? { error: result?.error ?? 'cancel_remote_state_unknown' } : {}),
+      ...(result?.native_status ? { native_status: result.native_status } : {}) } });
   return service.status(taskId);
 }

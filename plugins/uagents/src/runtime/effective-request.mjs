@@ -27,6 +27,7 @@ export function materializeEffectiveRequest(originalInput, evaluated, versions =
     registry_version: request.model_resolution.registry_version,
     policy_version: versions.policy_version ?? 'policy-1.0',
     adapter_version: versions.adapter_version ?? null,
+    ...(versions.dispatch_transport ? { dispatch_transport: versions.dispatch_transport } : {}),
   };
   return { raw_request_hash: canonicalHash(rawRequest), effective_request_hash: canonicalHash(effective), effective_request: effective, input_snapshots: inputs };
 }

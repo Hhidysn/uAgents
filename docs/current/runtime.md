@@ -32,6 +32,8 @@ uagents reconcile <task-id>
 
 OpenCode 在 Windows 上可以持久化 native process/transcript，并在 Worker 重启后继续观察。Observation timeout 或本地 observer cancel 不等于 Provider/native 已确认取消。
 
+Codex 的 Windows/Astra 显式 app-server 路线保存原生 Thread/Turn 与进程证据；Worker 失联后只读复查原 Turn，不自动重新发送 Prompt。原生历史不足以证明终态时保持 `indeterminate`。Codex 的执行权限仍由其原生配置控制。
+
 ## Workspace
 
 - workspace 重叠任务受本地 lease/fencing 约束。

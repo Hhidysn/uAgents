@@ -13,18 +13,18 @@
 
 | 优先级 | 待实现能力 | 验收门槛 | 状态 |
 | --- | --- | --- | --- |
-| P0 | app-server 协议与传输兼容性验证 | 对本机版本做协议/Schema 检查、stdio 握手、模拟进程和真实只读 Turn；现有 `exec` 路线保持可用 | planned |
-| P0 | 跨 Task `continue_from_task_id` | 校验源 Task、workspace、安装/线程身份与源 Turn 终态；新 Task 续接原线程；重复请求不重复发 Turn | prototype：exec 桥接和真实子进程 fixture 已通过；额度阻塞真实 Provider E2E，未发布 |
-| P0 | 跨 Task `fork_from_task_id` | 源上下文边界明确、新原生 Thread ID、来源血缘持久化；新旧分支独立 | prototype：exec 桥接和真实子进程 fixture 已通过；额度阻塞真实 Provider E2E，未发布 |
-| P0 | 可靠取消、异常恢复与 reconcile | 保存 Thread/Turn/进程证据；发送后未知不自动重放；中断回执不误当作已终止 | planned |
+| P0 | app-server 协议与传输兼容性验证 | 对本机版本做协议/Schema 检查、stdio 握手、模拟进程和真实只读 Turn；现有 `exec` 路线保持可用 | released（Windows/Astra 显式预览）：安装缓存版 CLI 四轮真实链路通过，默认 exec 保持不变；扩大适用范围仍需恢复矩阵 |
+| P0 | 跨 Task `continue_from_task_id` | 校验源 Task、workspace、安装/线程身份与源 Turn 终态；新 Task 续接原线程；重复请求不重复发 Turn | released（Windows/Astra 显式预览）：安装版真实续接、来源分页复核及 CLI 入口/原生二进制指纹已通过；外部并发推进竞态和故障矩阵仍是后续限制 |
+| P0 | 跨 Task `fork_from_task_id` | 源上下文边界明确、新原生 Thread ID、来源血缘持久化；新旧分支独立 | released（Windows/Astra 显式预览）：安装版从较早 Task fork 并续接分支；只读历史另确认旧 Turn 边界。故障矩阵仍需补齐 |
+| P0 | 可靠取消、异常恢复与 reconcile | 保存 Thread/Turn/进程证据；发送后未知不自动重放；中断回执不误当作已终止 | prototype：进程身份与子进程树 guard 已接入并完成 Astra 验证；一次真实中断经只读查询恢复为 cancelled；三个 Worker 崩溃窗口通过跨进程 fixture。项目分页明确不支持时可回退到完整 Turn 历史，原生完整性不足仍保持不确定。极早中断的真实空 rollout 经 `thread/read` 和 `thread/turns/list` 复查均不可读，同一已接受 Turn 保持 indeterminate 且不重发；完整故障矩阵待做 |
 | P1 | 原生图片输入 | 使用现有附件哈希快照、类型和路径检查；按模型及传输验收真实图片 E2E | planned |
 | P1 | 增量进度、工具事件 | 文件变更、命令、计划及用量的有界持久化与分页；去重、脱敏 | planned |
-| P1 | 审批与用户交互 | 请求绑定 Thread/Turn/Item，明确等待、同意、拒绝、超时；无用户决定不自动批准 | planned |
+| P1 | 原生审批结果识别 | 保留 Codex 自身权限设置；交互审批无法由非交互传输完成时，记录不确定状态且不代答、不重发 | released（Windows/Astra 显式预览）：已移除 uAgents 的 Codex 审批代理；安装版夹具验证 `native_approval_required`、零审批响应和不重发，真实普通任务通过。真实 Provider 审批请求尚未在简化构建中复测 |
 | P2 | JSON Schema 结构化输出 | 原生约束 + 本地复验，Schema 不通过不伪装目标成功 | planned |
 | P2 | Code Review 模式 | 限定 diff/commit/base，结构化 findings 与可复核位置，不自动选 Council winner | planned |
 | P2 | 模型与登录/额度诊断 | no-prompt 证据与真实任务可用性分离，不把版本 probe 当成 provider 验证 | planned |
 
-实现设计见 [Codex CLI v2 提案](history/superpowers/specs/2026-09-20-codex-cli-v2-design.md)，本次实验见 [2026-09-23 续接/fork 验证记录](verification/2026-09-23-codex-session-prototype.md)。当前已发布能力见 [Agent 能力矩阵](current/agents.md)。
+实现设计见 [Codex CLI v2 提案](history/superpowers/specs/2026-09-20-codex-cli-v2-design.md)；已撤回的审批代理方案留在[历史草案](history/superpowers/specs/2026-09-24-codex-app-server-approval-design.md)。实验见 [2026-09-23 续接/fork 验证记录](verification/2026-09-23-codex-session-prototype.md)及 [app-server 验证记录](verification/2026-09-23-codex-app-server-spike.md)。当前已发布能力见 [Agent 能力矩阵](current/agents.md)。
 
 ## 已接入 Agent 的能力补充
 

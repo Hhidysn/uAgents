@@ -54,6 +54,50 @@ export function createProvisionalProcess(control, record, { lease = null, now = 
   });
 }
 
+// Interactive transports can verify their launcher before sending any RPC or
+// prompt bytes. Persist the complete identity atomically so a crash never
+// strands a provisional guard without a PID to inspect.
+export function createBoundProcess(control, record, identity, { lease = null, now = Date.now() } = {}) {
+  const attemptId = nonempty(record?.attemptId, 'attemptId');
+  const target = nonempty(record?.target, 'target');
+  const executablePath = absoluteFilePath(record?.executablePath, 'executablePath');
+  const observedPath = absoluteFilePath(identity?.executablePath, 'observed executablePath');
+  if (!sameExecutable(executablePath, observedPath)) fail('native_process_identity_mismatch',
+    'Observed native executable does not match the verified launch executable.', {
+      category: 'transport', submission: 'not_sent',
+    });
+  const launchFingerprint = digest(record?.launchFingerprint, 'launchFingerprint');
+  const executableSha256 = record?.executableSha256 === null || record?.executableSha256 === undefined
+    ? null : digest(record.executableSha256, 'executableSha256');
+  const stdoutRelpath = transcriptRelpath(record?.stdoutRelpath, 'stdoutRelpath');
+  const stderrRelpath = transcriptRelpath(record?.stderrRelpath, 'stderrRelpath');
+  const workspaceKey = record?.workspaceKey === null || record?.workspaceKey === undefined
+    ? null : nonempty(record.workspaceKey, 'workspaceKey');
+  const pid = positiveInteger(identity?.pid, 'pid');
+  const startedAt = positiveInteger(identity?.startedAtMs, 'startedAtMs');
+  const timestamp = epoch(now, 'now');
+  return control.transaction(database => {
+    assertOptionalFencing(database, lease, timestamp);
+    if (!database.prepare('SELECT 1 FROM attempts WHERE attempt_id = ?').get(attemptId)) {
+      fail('task_not_found', `Unknown attempt: ${attemptId}`);
+    }
+    if (database.prepare('SELECT 1 FROM native_processes WHERE attempt_id = ?').get(attemptId)) {
+      fail('invalid_state_transition', 'This Attempt has already consumed its native process launch slot.', {
+        category: 'conflict', submission: 'not_sent',
+      });
+    }
+    database.prepare(`INSERT INTO native_processes(
+      attempt_id, target, workspace_key, executable_path, executable_sha256, launch_fingerprint,
+      pid, process_started_at_ms, process_state, exit_code, stdout_relpath, stderr_relpath,
+      stdout_cursor_bytes, stderr_cursor_bytes, workspace_guard_state, observed_at_ms, exited_at_ms,
+      created_at_ms, updated_at_ms
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', NULL, ?, ?, 0, 0, 'held', ?, NULL, ?, ?)`)
+      .run(attemptId, target, workspaceKey, executablePath, executableSha256, launchFingerprint,
+        pid, startedAt, stdoutRelpath, stderrRelpath, timestamp, timestamp, timestamp);
+    return getNativeProcessWith(database, attemptId);
+  });
+}
+
 export function bindProcessIdentity(control, attemptId, identity, { lease = null, now = Date.now() } = {}) {
   nonempty(attemptId, 'attemptId');
   const pid = positiveInteger(identity?.pid, 'pid');

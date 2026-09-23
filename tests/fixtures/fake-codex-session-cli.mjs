@@ -29,6 +29,11 @@ if (args.length === 1 && args[0] === '--version') {
       process.stderr.write('Invalid fixture source or stdin.\n');
       process.exitCode = 1;
     } else {
+      if (prompt.includes('fixture-turn-unknown')) {
+        state.calls.push({ action, source, thread: null, model, prompt });
+        fs.writeFileSync(journal, JSON.stringify(state));
+        process.exit(0); // Prompt was consumed, but no native thread identity was confirmed.
+      }
       const thread = action === 'resume' ? source : randomUUID();
       if (action !== 'resume') state.threads[thread] = action === 'fork' ? [...state.threads[source]] : [];
       state.threads[thread].push(prompt.slice(prompt.lastIndexOf('fixture-turn-')));

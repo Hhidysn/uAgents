@@ -94,7 +94,7 @@ gpt-6-astra
 gpt-5.6-luna
 ```
 
-`gpt-5.6-luna` 已通过本机 Codex CLI 原生请求及安装版 uAgents `submit` / `result` 的真实模型调用，见 [2026-09-20 验证记录](../verification/2026-09-20-codex-luna-installed-e2e.md)。Codex CLI v1 当前没有可靠的 no-prompt native model catalog，`models codex` 展示 configured-only route；没有自动 default，提交仍需显式传入模型。`probe codex --model gpt-5.6-luna` 和 `probe codex --model gpt-6-astra` 都是 version-only，本身不能证明 Provider 当前可用。Native JSONL 没有可信模型自报字段，故 Luna 真实调用成功时 `model_verified=false` 仍为准确的模型身份记录。
+`gpt-5.6-luna` 已通过本机 Codex CLI 原生请求及安装版 uAgents `submit` / `result` 的真实模型调用，见 [2026-09-20 验证记录](../verification/2026-09-20-codex-luna-installed-e2e.md)。`gpt-6-astra` 已通过安装版 Windows app-server 显式预览路线的真实多轮续接、fork 及简化版普通任务调用，见 [app-server 验证记录](../verification/2026-09-23-codex-app-server-spike.md)。默认 `exec` 路线和显式 app-server 路线的能力范围见 [会话规则](sessions.md)。Codex CLI 当前没有可靠的 no-prompt native model catalog，`models codex` 展示 configured-only route；没有自动 default，提交仍需显式传入模型。`probe codex --model gpt-5.6-luna` 和 `probe codex --model gpt-6-astra` 都是 version-only，本身不能证明 Provider 当前可用。原生事件没有可信模型自报字段，真实调用成功时 `model_verified=false` 仍为准确的模型身份记录。
 
 ## OpenCode
 

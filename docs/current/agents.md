@@ -5,7 +5,7 @@ uAgents 当前提供 7 个 target。表格表示 uAgents 已经开放的能力�
 | Target | Modes | File input | Image input | Continue | Fork | Transport |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | `agy` | analysis / implementation | false | false | false | false | CLI |
-| `codex` | analysis / implementation | false | false | false | false | CLI JSONL |
+| `codex` | analysis / implementation | false | false | false | false | CLI JSONL；Windows/Astra 显式 app-server 预览支持 continue/fork |
 | `workbuddy` | analysis / implementation | false | model-specific | true | true | CLI |
 | `dsh` | analysis / implementation | false | false | false | false | SDK JSON-RPC stdio |
 | `opencode` | analysis / implementation | true | true | true | true | CLI |
@@ -35,7 +35,7 @@ uagents capabilities <target>
 
 - 当前批准 route：`gpt-6-astra` 和 `gpt-5.6-luna`，必须显式选择，没有 default。Luna 已通过本机原生调用和 uAgents 安装版真实任务验收，见 [验证记录](../verification/2026-09-20-codex-luna-installed-e2e.md)。
 - 使用本机 Codex npm 安装版 `exec --json`，任务正文走 stdin，返回 native thread ID、最终 assistant 文本和 usage。
-- text + workspace、analysis / implementation；原生 file/image input 与跨 Task resume/fork 暂不开放。
+- text + workspace、analysis / implementation；原生 file/image input 暂不开放。Windows 上的 `gpt-6-astra` 可在每条 Task 显式设置 `execution.codex_transport="app-server"`，获得跨 Task continuation/fork；默认 exec 路线和 Luna 仍不开放。见 [会话规则](sessions.md)。
 - 不覆盖用户 Codex 原生权限设置，不添加默认沙箱或自动授权参数。
 - `probe` 只验证 CLI 版本；当前没有 Codex 模型自报证据，所以真实任务成功后 `model_reported=null`、`model_verified=false` 仍属预期，不等于任务失败或模型路线未经真实调用。
 - CLI 启动器的 `close` 不证明全部原生子进程或 Provider turn 已终止；取消、超时或传输异常后的不确定状态不可自动重发。
@@ -79,4 +79,4 @@ uagents capabilities <target>
 
 ## 权限边界
 
-uAgents 是 orchestration 层，不提供执行沙箱。`analysis` 也不代表底层 Agent 被硬性限制为只读。目标自身的原生参数和审批行为应通过对应 native contract 控制。
+uAgents 是调度层，不提供执行沙箱或 Codex 审批代理。`analysis` 也不代表底层 Agent 被硬性限制为只读。命令、文件与网络访问权限由目标 Agent 的原生配置和运行环境控制。
