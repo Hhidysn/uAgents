@@ -15,6 +15,8 @@ export async function discoverModelsForTarget(target, {
   clock = Date.now,
   cacheStore = null,
   resolveInstallation = null,
+  acquireManagedContext = null,
+  releaseManagedContext = null,
   ttlMs = MODEL_DISCOVERY_TTL_MS,
 } = {}) {
   targetDescriptor(registry, target);
@@ -24,14 +26,33 @@ export async function discoverModelsForTarget(target, {
 
   if (!NATIVE_DISCOVERY_TARGETS.has(target)) {
     let native;
+    let managedLease = null;
+    let errorStage = 'native_discovery';
     try {
-      native = normalizeDiscovery(await adapter.discoverModels({ registry }));
+      let managed = null;
+      if (target === 'trae' && typeof acquireManagedContext === 'function') {
+        errorStage = 'managed_context';
+        const acquired = await acquireManagedContext(target);
+        managed = acquired?.managed ?? null;
+        managedLease = acquired?.lease ?? null;
+        if (!managed) {
+          const error = new Error('Managed TRAE gateway identity is unavailable.');
+          error.code = 'managed_instance_identity_mismatch';
+          throw error;
+        }
+      }
+      errorStage = 'native_discovery';
+      native = normalizeDiscovery(await adapter.discoverModels({ registry, managed }));
     } catch (error) {
-      native = failedDiscovery(error);
+      native = { ...failedDiscovery(error), discovery: target === 'trae' ? 'native_gateway_picker' : 'native_cli' };
+    } finally {
+      if (managedLease) releaseManagedContext?.(managedLease);
     }
     const evidence = native.status === 'configured_only'
       ? { status: 'configured_only', method: native.discovery, source: 'configured', stale: false }
-      : failureEvidence(native, nowMs);
+      : native.status === 'ok'
+        ? { status: 'ok', method: native.discovery, source: 'native', observed_at_ms: nowMs, stale: false }
+        : failureEvidence(native, nowMs, { stage: errorStage });
     return mergeRows({ target, registry, configured, native, evidence, stale: false });
   }
 
@@ -152,7 +173,8 @@ function mergeRows({ target, registry, configured, native, evidence, stale }) {
   const rows = configured.map(([selector, model]) => {
     const matchIndex = hasSnapshot ? findNativeModel(native.models, model) : -1;
     if (matchIndex >= 0) matched.add(matchIndex);
-    const discovered = hasSnapshot ? matchIndex >= 0 : null;
+    const discovered = model.kind === 'backend_default' && target !== 'workbuddy'
+      ? null : hasSnapshot ? matchIndex >= 0 : null;
     return {
       ...model,
       selector,
@@ -169,16 +191,17 @@ function mergeRows({ target, registry, configured, native, evidence, stale }) {
   if (!hasSnapshot) return rows;
   native.models.forEach((model, index) => {
     if (matched.has(index)) return;
-    const admissionAllowed = nativeAdmissionAllowed(registry, target, model);
+    const selection = nativeSelection(registry, target, model);
+    const admissionAllowed = selection !== null;
     rows.push({
       target,
       model: model.id ?? null,
-      route_id: model.route_id ?? null,
-      selector: null,
+      route_id: selection?.route_id ?? model.route_id ?? null,
+      selector: target === 'opencode' ? model.route_id : model.id,
       default: false,
       provider: model.provider ?? target,
       kind: 'native_discovered',
-      enabled: false,
+      enabled: admissionAllowed,
       opt_in: false,
       configured: false,
       admission_allowed: admissionAllowed,
@@ -223,20 +246,20 @@ function cachedDiscovery(cached) {
 
 function findNativeModel(models, configured) {
   if (configured.kind === 'backend_default') {
+    if (configured.target !== 'workbuddy') return -1;
     return models.findIndex(model => model.id === 'auto' || model.route_id === configured.route_id);
   }
   return models.findIndex(model => model.route_id === configured.route_id ||
     (model.id === configured.model && model.provider === configured.provider));
 }
 
-function nativeAdmissionAllowed(registry, target, model) {
+function nativeSelection(registry, target, model) {
   const selector = target === 'opencode' ? model.route_id : model.id;
-  if (typeof selector !== 'string' || !selector) return false;
+  if (typeof selector !== 'string' || !selector) return null;
   try {
-    resolveModel(registry, target, selector);
-    return true;
+    return resolveModel(registry, target, selector);
   } catch (error) {
-    if (error?.code === 'model_unavailable') return false;
+    if (error?.code === 'model_unavailable') return null;
     throw error;
   }
 }

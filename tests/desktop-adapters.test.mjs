@@ -70,6 +70,42 @@ test('TRAE identity failure happens before the possibly-sent checkpoint', async 
   assert.equal(client.sends, 0);
 });
 
+test('TRAE gateway picker models are discovered and a selected model is submitted per task', async () => {
+  const client = new TraeClient();
+  client.models = async () => ({ current: 'Auto Mode', models: ['Auto Mode', 'DeepSeek V4 Pro', 'DeepSeek V4 Pro'] });
+  const adapter = new TraeAdapter({ client, pollIntervalMs: 0 });
+  const catalog = await adapter.discoverModels();
+  assert.equal(catalog.status, 'ok');
+  assert.deepEqual(catalog.models.map(model => model.id), ['Auto Mode', 'DeepSeek V4 Pro']);
+  const control = new ControlDatabase(path.join(root, `trae-model-${randomUUID()}`));
+  try {
+    const service = new TaskService(control);
+    const task = service.submit(baseRequest({ target: 'trae', model: 'DeepSeek V4 Pro' }));
+    const result = await runTask({ service, taskId: task.task_id, adapter });
+    assert.equal(result.status, 'succeeded');
+    assert.equal(client.body.model, 'DeepSeek V4 Pro');
+    assert.equal(result.model_resolved, 'DeepSeek V4 Pro');
+    assert.equal(result.model_verified, false);
+  } finally { control.close(); }
+});
+
+test('TRAE gateway client reads the native model endpoint', async () => {
+  let called = null;
+  const client = new TraeGatewayClient({
+    port: 8788,
+    token: 'fixture',
+    fetchImpl: async (url, options) => {
+      called = { url, options };
+      return new Response(JSON.stringify({ current: 'Auto Mode', models: ['DeepSeek V4 Pro'] }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  });
+  assert.deepEqual(await client.models(), { current: 'Auto Mode', models: ['DeepSeek V4 Pro'] });
+  assert.equal(called.url, 'http://127.0.0.1:8788/api/models');
+  assert.equal(called.options.method, 'GET');
+  assert.equal(called.options.headers.Authorization, 'Bearer fixture');
+});
+
 test('TRAE quota errors are normalized after the possibly-sent checkpoint', async () => {
   const client = new TraeClient();
   client.submit = async () => { throw Object.assign(new Error('insufficient credits'), { code: 'balance_insufficient' }); };

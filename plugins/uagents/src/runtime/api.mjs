@@ -51,6 +51,8 @@ export class UnifiedRuntime {
       refresh,
       cacheStore: this.supervisor?.hostStore ?? null,
       resolveInstallation: this.supervisor?.resolveInstallation ?? null,
+      acquireManagedContext: this.supervisor?.ensure ?? null,
+      releaseManagedContext: this.supervisor?.releaseInstanceLease ?? null,
     });
   }
 

@@ -71,8 +71,17 @@ export class TraeAdapter {
     };
   }
 
-  async discoverModels() {
-    return { status: 'configured_only', models: [], discovery: 'configured' };
+  async discoverModels({ managed = null } = {}) {
+    const client = this.#clientFor({ managed });
+    const probe = publicProbe(await client.status());
+    if (!probe.identity_confirmed) fail('trae_identity_unconfirmed', probe.next_action, { submission: 'not_sent' });
+    const catalog = await client.models();
+    if (!Array.isArray(catalog?.models)) fail('model_discovery_parse_failed', 'TRAE gateway returned no model list.', { submission: 'not_sent' });
+    const models = [...new Set(catalog.models.filter(name => typeof name === 'string')
+      .map(name => name.trim()).filter(name => name && Buffer.byteLength(name) <= 256 && !/[\x00-\x1f\x7f]/.test(name)))]
+      .map(id => ({ id, route_id: `trae/${id}`, provider: 'trae', kind: 'native_catalog' }));
+    if (!models.length) fail('model_discovery_parse_failed', 'TRAE model picker has no readable model labels.', { submission: 'not_sent' });
+    return { status: 'ok', models, discovery: 'native_gateway_picker' };
   }
 
   async probe(request, context = {}) {
@@ -100,6 +109,7 @@ export class TraeAdapter {
         newConversation: true,
         autoContinue: false,
         autoApproveDialog: false,
+        ...(prepared.request.model_resolved ? { model: prepared.request.model_resolved } : {}),
         ...(prepared.request.workspace ? { workspace: prepared.request.workspace } : {}),
       }, prepared.request.request_id);
     } catch (error) {

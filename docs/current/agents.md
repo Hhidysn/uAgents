@@ -29,8 +29,7 @@ uagents capabilities <target>
 - 当前没有 continuation/fork mapping。
 - 模型必须显式选择；没有 default model。
 - `gemini-3.8-flash-medium` 是已真实验证的 configured route。
-- `uagents models agy` 通过 native `agy models` 自动发现本机 catalog；其它 `gemini-*`
-  可按现有 pattern admission 使用，但发现到的 Claude/GPT 等模型不会自动放行。
+- `uagents models agy` 通过 native `agy models` 发现本机 catalog；发现到的其它模型可直接用原生 ID 提交。
 
 ## Codex CLI (`codex`)
 
@@ -43,17 +42,18 @@ uagents capabilities <target>
 
 ## Claude Code CLI (`claudeCode`)
 
-- 当前批准 `claudeCode/deepseek-v4-pro[1m]`、`claudeCode/deepseek-v4-pro`、`claudeCode/deepseek-v4-flash` 和 `claude-sonnet-4-6`。没有 `default` 或 `sonnet` alias 路线。解析后的具体模型 ID 经 `--model` 传入，并以原生 `init.model` 核对。模型不一致会使 Task 失败。
-- 本机 Claude Code 用户设置将请求指向 DeepSeek 网关并配置这些 DeepSeek 模型；`claude plugin list` 未显示独立的 DeepSeek 插件。`models claudeCode` 只展示 uAgents 已批准的路由，不枚举网关完整模型目录。
+- 内置路线包括 `claudeCode/deepseek-v4-pro[1m]`、`claudeCode/deepseek-v4-pro`、`claudeCode/deepseek-v4-flash` 和 `claude-sonnet-4-6`。没有内置 `default` 或 `sonnet` alias。其它显式模型 ID 也可交给 Claude Code `--model`，并以原生 `init.model` 核对。模型不一致会使 Task 失败。
+- 本机 Claude Code 用户设置将请求指向 DeepSeek 网关并配置这些 DeepSeek 模型；`claude plugin list` 未显示独立的 DeepSeek 插件。`models claudeCode` 只展示已配置路线，不枚举网关完整模型目录。
 - `--print --output-format stream-json --verbose` 运行一轮；Prompt 走 stdin，`workspace` 固定为进程 cwd。原生 `result` 提供最终文本、usage 和 session ID；uAgents 将其记录到 Task 的状态与结果中。
 - analysis / implementation 都沿用 Claude Code 原生权限配置。uAgents 不传入 `--permission-mode`、`--allowedTools` 或跳过权限的参数；analysis 不保证底层只读。原生权限拒绝会记录为需要用户处理，不由 uAgents 代答。
 - 当前不开放 native file/image attachment、跨 Task continuation/fork。`uagents resume <task-id>` 仅按通用 Task 生命周期规则恢复或观察同一个 Attempt，不发送 follow-up Prompt。取消、超时及流证据不足时沿用不确定状态规则，不自动重发。
-- `probe` 只检查本机 CLI 版本；`models claudeCode` 只展示已批准的 configured route，不声称有 native catalog 或 Provider 可用性。真实调用见 [验证记录](../verification/2026-09-25-claude-code-cli.md)。
+- `probe` 只检查本机 CLI 版本；`models claudeCode` 只展示 configured route，不声称有 native catalog 或 Provider 可用性。真实调用见 [验证记录](../verification/2026-09-25-claude-code-cli.md)。
 
 ## WorkBuddy
 
 - `model=default` 保留 backend-auto 文本路线。
 - 显式 `model=deepseek-v4.1-flash` 是批准的 concrete route，并通过真实图片 E2E。
+- `models workbuddy` 解析本机 CLI 帮助中的其它 supported labels；这些名称可直接作为文本 Task 模型传入，原生 CLI 判定是否接受。
 - generic file attachment 当前关闭。
 - 图片只允许在批准的 `deepseek-v4.1-flash` route 上使用；default/auto 不开放图片。
 - 支持 `continue_from_task_id` 和 `fork_from_task_id`。
@@ -72,7 +72,7 @@ uagents capabilities <target>
 - 支持 text、file、image。
 - file/image 复用 native `--file` mapping。
 - 支持 continuation 和 fork。
-- 当前只允许静态批准的 provider/model route；本机发现到其它模型不会自动放行。
+- `models opencode` 发现到的其它 provider/model route 可直接提交；没有在当前发现范围内的原生 ID 也可显式交给 OpenCode 判定。
 - Windows 路线支持 durable native process observation 和 verified execution timeout。
 
 ## 豆包工作
@@ -85,6 +85,8 @@ uagents capabilities <target>
 
 - 支持 analysis / implementation text task。
 - 使用受管桌面实例与 gateway。
+- 网关 `/api/models` 读取当前模型选择器；显式 Task 模型会随 `/api/tasks/submit` 传入，由网关在任务发送前切换。默认路线仍沿用界面当前模型。
+- 网关结果尚未提供可核对的逐 Task 模型自报，因此 `model_verified=false`；模型切换或额度失败按原生任务结果记录。
 - 当前没有 native file/image attachment 或 continuation/fork mapping。
 
 ## 权限边界

@@ -27,7 +27,7 @@ const target = positional('target', 'target_id', true);
 export const CLI_COMMANDS = Object.freeze({
   targets: command('targets', 'targets [--config <file>]', 'List enabled target IDs.', [], [configFile], 'local_only'),
   capabilities: command('capabilities', 'capabilities <target> [--config <file>]', 'Read the static capability descriptor for one target.', [target], [configFile], 'local_only'),
-  models: command('models', 'models <target> [--refresh]', 'Merge approved model routes with cached local no-prompt native model discovery.', [target], [
+  models: command('models', 'models <target> [--refresh]', 'List configured routes and available native no-prompt model evidence.', [target], [
     option('--refresh', 'boolean', 'Bypass the uAgents model discovery cache and refresh the native catalog.'),
     configFile,
   ], 'native_no_prompt'),

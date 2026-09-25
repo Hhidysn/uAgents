@@ -102,8 +102,10 @@ function userRoute(selector, value, targets) {
     fail('invalid_target', `Cannot add a model route for target ${target}.`);
   }
   for (const [label, item] of Object.entries({ selector, model, provider, route_id: routeId })) {
+    const displayName = target === 'trae' && (label === 'model' || label === 'route_id');
     if (typeof item !== 'string' || !item || Buffer.byteLength(item) > 256 ||
-        item.startsWith('-') || /\s|[\x00-\x1f\x7f]/.test(item)) {
+        item.startsWith('-') || (displayName ? item !== item.trim() : /\s/.test(item)) ||
+        /[\x00-\x1f\x7f]/.test(item)) {
       fail('invalid_model', `routes.${selector}.${label} must be a nonempty model identifier.`);
     }
   }

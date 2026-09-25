@@ -50,7 +50,7 @@ test('agy native discovery uses its own 30-second catalog budget without sending
   assert.deepEqual(catalog.models.map(model => model.id), ['gemini-3.8-flash-medium']);
 });
 
-test('agy discovery reuses pattern admission without auto-approving non-gemini models', async () => {
+test('agy discovery exposes every native model as selectable', async () => {
   const rows = await discoverModelsForTarget('agy', {
     registry: createRegistry(),
     adapterFactory: () => ({ discoverModels: async () => ({
@@ -69,9 +69,10 @@ test('agy discovery reuses pattern admission without auto-approving non-gemini m
   assert.equal(pattern.configured, false);
   assert.equal(pattern.admission_allowed, true);
   assert.equal(pattern.usable, true);
-  const denied = rows.find(row => row.model === 'claude-sonnet-4-6');
-  assert.equal(denied.admission_allowed, false);
-  assert.equal(denied.usable, false);
+  const selected = rows.find(row => row.model === 'claude-sonnet-4-6');
+  assert.equal(selected.selector, 'claude-sonnet-4-6');
+  assert.equal(selected.admission_allowed, true);
+  assert.equal(selected.usable, true);
 });
 
 test('WorkBuddy help parser extracts the native supported model list', () => {
@@ -96,7 +97,8 @@ test('WorkBuddy discovery marks the verified concrete route configured and usabl
   assert.equal(exact.usable, true);
   const discoveredOnly = rows.find(row => row.model === 'glm-5.3-flash');
   assert.equal(discoveredOnly.configured, false);
-  assert.equal(discoveredOnly.admission_allowed, false);
+  assert.equal(discoveredOnly.selector, 'glm-5.3-flash');
+  assert.equal(discoveredOnly.admission_allowed, true);
 });
 
 test('model listing identifies the configured default and selectable route', async () => {
@@ -126,7 +128,7 @@ test('OpenCode model parser keeps only the requested provider catalog', () => {
   ]);
 });
 
-test('dynamic discovery enriches configured routes and exposes discovered-only models without approving them', async () => {
+test('dynamic discovery enriches configured routes and permits native-only models', async () => {
   const rows = await discoverModelsForTarget('opencode', {
     registry: createRegistry(),
     adapterFactory: () => ({ discoverModels: async () => ({
@@ -147,9 +149,10 @@ test('dynamic discovery enriches configured routes and exposes discovered-only m
   assert.equal(missing.usable, false);
   const discoveredOnly = rows.find(row => row.route_id === 'commandcode-goat/deepseek/deepseek-v4-pro');
   assert.equal(discoveredOnly.configured, false);
-  assert.equal(discoveredOnly.admission_allowed, false);
+  assert.equal(discoveredOnly.admission_allowed, true);
   assert.equal(discoveredOnly.discovered, true);
-  assert.equal(discoveredOnly.usable, false);
+  assert.equal(discoveredOnly.usable, true);
+  assert.equal(discoveredOnly.selector, 'commandcode-goat/deepseek/deepseek-v4-pro');
 });
 
 test('discovery failure preserves configured routes without claiming availability', async () => {
@@ -175,6 +178,56 @@ test('configured-only backend targets do not duplicate their default route', asy
   assert.equal(rows[0].discovered, null);
   assert.equal(rows[0].usable, null);
   assert.equal(rows[0].discovery.source, 'configured');
+});
+
+test('TRAE picker discovery exposes selectable names and leaves backend default unverified', async () => {
+  const rows = await discoverModelsForTarget('trae', {
+    registry: createRegistry(),
+    adapterFactory: () => ({ discoverModels: async () => ({
+      status: 'ok', discovery: 'native_gateway_picker',
+      models: [{ id: 'DeepSeek V4 Pro', route_id: 'trae/DeepSeek V4 Pro', provider: 'trae' }],
+    }) }),
+  });
+  assert.equal(rows[0].selector, 'trae-default');
+  assert.equal(rows[0].discovered, null);
+  assert.equal(rows[0].usable, null);
+  assert.equal(rows[1].selector, 'DeepSeek V4 Pro');
+  assert.equal(rows[1].admission_allowed, true);
+  assert.equal(rows[1].usable, true);
+  assert.equal(rows[1].discovery.method, 'native_gateway_picker');
+});
+
+test('TRAE discovery uses and releases the verified managed gateway context', async () => {
+  const lease = { id: 'fixture-lease' };
+  let seenManaged = null;
+  let released = null;
+  const rows = await discoverModelsForTarget('trae', {
+    registry: createRegistry(),
+    acquireManagedContext: async () => ({ managed: { instance_nonce: 'verified' }, lease }),
+    releaseManagedContext: value => { released = value; },
+    adapterFactory: () => ({ discoverModels: async ({ managed }) => {
+      seenManaged = managed;
+      return { status: 'ok', discovery: 'native_gateway_picker', models: [] };
+    } }),
+  });
+  assert.equal(seenManaged.instance_nonce, 'verified');
+  assert.equal(released, lease);
+  assert.equal(rows[0].discovery.status, 'ok');
+});
+
+test('TRAE discovery never falls back to an unmanaged gateway after managed identity fails', async () => {
+  let called = false;
+  let released = false;
+  const rows = await discoverModelsForTarget('trae', {
+    registry: createRegistry(),
+    acquireManagedContext: async () => ({ managed: null, lease: { id: 'fixture' } }),
+    releaseManagedContext: () => { released = true; },
+    adapterFactory: () => ({ discoverModels: async () => { called = true; return { status: 'ok', models: [] }; } }),
+  });
+  assert.equal(called, false);
+  assert.equal(released, true);
+  assert.equal(rows[0].discovery.error_code, 'managed_instance_identity_mismatch');
+  assert.equal(rows[0].discovery.error_stage, 'managed_context');
 });
 
 test('model discovery cache uses TTL, explicit refresh and stale fallback', async () => {

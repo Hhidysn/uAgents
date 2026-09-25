@@ -42,7 +42,7 @@ export const BUILTIN_REGISTRY = Object.freeze({
       lifecycle: { managed: true, auto_launch: true, profile: 'isolated', ensure: true, resume: true, stop: true } }),
     trae: target(['analysis', 'implementation'], { text: true, files: false, images: false, workspace_readable: true }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
-    }, { transport: 'gateway', model_selection: 'default', cancel: 'unsupported', resume: false, fork: false,
+    }, { transport: 'gateway', model_selection: 'mixed', cancel: 'unsupported', resume: false, fork: false,
       lifecycle: { managed: true, auto_launch: true, profile: 'isolated', ensure: true, resume: true, stop: true } }),
   }),
   models: Object.freeze({

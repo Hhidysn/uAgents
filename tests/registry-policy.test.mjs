@@ -132,6 +132,37 @@ test('WorkBuddy explicit deepseek route resolves concretely', () => {
   assert.equal(outcome.request.model_resolution.kind, 'exact');
 });
 
+test('native model selectors bypass static routes while disabled models stay disabled', () => {
+  for (const [target, selector, resolved, routeId] of [
+    ['agy', 'claude-sonnet-4-6', 'claude-sonnet-4-6', 'agy/claude-sonnet-4-6'],
+    ['workbuddy', 'glm-5.3-flash', 'glm-5.3-flash', 'workbuddy/glm-5.3-flash'],
+    ['opencode', 'commandcode-goat/deepseek/deepseek-v4-pro', 'deepseek-v4-pro', 'commandcode-goat/deepseek/deepseek-v4-pro'],
+    ['claudeCode', 'claude-opus-4-1', 'claude-opus-4-1', 'claudeCode/claude-opus-4-1'],
+    ['trae', 'DeepSeek V4 Pro', 'DeepSeek V4 Pro', 'trae/DeepSeek V4 Pro'],
+  ]) {
+    const selected = evaluateRequest(request({ target, model: selector })).request;
+    assert.equal(selected.model_resolved, resolved);
+    assert.equal(selected.route_id, routeId);
+    assert.equal(selected.model_resolution.kind, 'native_selected');
+  }
+  const restricted = createRegistry({ models: { 'deepseek-v4.1-flash': { enabled: false } } });
+  assert.throws(() => evaluateRequest(request({ target: 'workbuddy', model: 'workbuddy/deepseek-v4.1-flash' }),
+    { registry: restricted }), { code: 'model_unavailable' });
+  assert.throws(() => evaluateRequest(request({ target: 'opencode', model: '--model' })), { code: 'model_unavailable' });
+  assert.throws(() => evaluateRequest(request({ target: 'doubao', model: 'DeepSeek V4 Pro' })), { code: 'model_unavailable' });
+});
+
+test('TRAE display-name route can be configured as a default', () => {
+  const registry = createRegistry({
+    routes: { 'trae/selected': { target: 'trae', model: 'DeepSeek V4 Pro', provider: 'trae', route_id: 'trae/DeepSeek V4 Pro' } },
+    defaults: { trae: 'trae/selected' },
+  });
+  const selected = evaluateRequest(request({ target: 'trae', model: 'default' }), { registry }).request;
+  assert.equal(selected.model_resolved, 'DeepSeek V4 Pro');
+  assert.equal(selected.route_id, 'trae/DeepSeek V4 Pro');
+  assert.equal(selected.model_resolution.kind, 'alias');
+});
+
 test('DeepSeek Harness route is explicit and keeps attachments closed in v1', () => {
   const workspace = process.cwd();
   const outcome = evaluateRequest(request({
@@ -141,9 +172,11 @@ test('DeepSeek Harness route is explicit and keeps attachments closed in v1', ()
   assert.equal(outcome.request.model_resolved, 'deepseek-flash');
   assert.equal(outcome.request.provider, 'deepseek-official');
   assert.equal(outcome.request.route_id, 'deepseek-official/deepseek-flash');
-  assert.throws(() => evaluateRequest(request({
+  const nativeSelected = evaluateRequest(request({
     target: 'dsh', model: 'deepseek-official/deepseek-v4.1-flash', workspace,
-  })), error => error.code === 'model_unavailable' && error.submission === 'not_sent');
+  })).request;
+  assert.equal(nativeSelected.model_resolved, 'deepseek-v4.1-flash');
+  assert.equal(nativeSelected.model_resolution.kind, 'native_selected');
   assert.throws(() => evaluateRequest(request({
     target: 'dsh', model: 'deepseek-official/deepseek-flash', workspace,
     inputs: [{ type: 'file', path: 'requirements.md' }],
@@ -169,7 +202,8 @@ test('Codex Luna is an explicit concrete route, not a new default', () => {
   assert.throws(() => evaluateRequest(request({ target: 'codex', model: 'gpt-5.6-luna',
     workspace: process.cwd(), session: { continue_from_task_id: randomUUID() } })),
   { code: 'unsupported_capability' });
-  assert.throws(() => evaluateRequest(request({ target: 'codex', model: 'gpt-5.6-luna-unknown' })), { code: 'model_unavailable' });
+  assert.equal(evaluateRequest(request({ target: 'codex', model: 'gpt-5.6-luna-unknown' })).request.model_resolved,
+    'gpt-5.6-luna-unknown');
 });
 
 test('Codex app-server opt-in only admits Astra on Windows and enables native sessions', () => {
@@ -194,7 +228,8 @@ test('Codex app-server opt-in only admits Astra on Windows and enables native se
 });
 
 test('policy fails closed before worker launch', () => {
-  assert.throws(() => evaluateRequest(request({ model: 'opencode-go/deepseek-v4-flash' })), error => error.code === 'model_unavailable' && error.submission === 'not_sent');
+  assert.equal(evaluateRequest(request({ model: 'opencode-go/deepseek-v4-flash' })).request.route_id,
+    'opencode-go/deepseek-v4-flash');
   assert.throws(() => evaluateRequest(request({ policy: { fallback: 'paid', max_cost_usd: null } })), { code: 'unsupported_capability' });
   assert.throws(() => evaluateRequest(request({ policy: { fallback: 'none', max_cost_usd: 1 } })), { code: 'unsupported_capability' });
   for (const permission of ['native', 'advisory-read-only', 'enforced-read-only', 'workspace-write', 'full-access']) {

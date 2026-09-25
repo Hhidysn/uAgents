@@ -1,6 +1,6 @@
 # TRAE CN desktop Agent
 
-Use `target=trae`, `model=default`, and either `analysis` or `implementation`. The route uses the uAgents-managed loopback TRAE gateway and the logged-in TRAE CN Solo surface; it does not substitute `traecli`, TRAE Work, or another billing source.
+Use `target=trae` with `model=default` or a model name returned by `models trae`, and either `analysis` or `implementation`. The route uses the uAgents-managed loopback TRAE gateway and the logged-in TRAE CN Solo surface; it does not substitute `traecli`, TRAE Work, or another billing source. `models trae` reads the gateway's `/api/models` picker endpoint without sending a prompt. A concrete Task model is passed to `/api/tasks/submit`; the gateway switches it before sending the Task.
 
 uAgents starts the bundled gateway (with a per-launch capability token kept in a user-protected file, never in the database or logs) and a dedicated isolated-profile TRAE CN instance on strict CDP ports, or reuses the running managed pair. A fresh managed profile surfaces the setup screen: the task parks in `waiting_user` with `interaction.phase=preflight_login` and `submission=not_sent`; after the user logs in once, the same UUID `submit` or `resume <task-id>` continues the original attempt. If only the gateway died, the next `ensure`/`submit` repairs it without restarting the desktop instance. The adapter verifies the workbench identity before the send checkpoint. It always requests a new Solo conversation with `autoContinue=false` and `autoApproveDialog=false`, then persists the native task ID.
 

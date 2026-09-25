@@ -63,8 +63,9 @@ test('Claude Code route is explicit and native continuation/fork and attachments
     assert.equal(selected.route_id, route);
     assert.equal(selected.provider, 'deepseek');
   }
+  assert.equal(evaluateRequest(request({ model: 'sonnet' })).request.model_resolved, 'sonnet');
   for (const patch of [
-    { model: 'default' }, { model: 'sonnet' },
+    { model: 'default' },
     { inputs: [{ type: 'file', path: 'a.txt' }] },
     { session: { continue_from_task_id: randomUUID() } },
     { session: { fork_from_task_id: randomUUID() } },

@@ -1,6 +1,6 @@
 # OpenCode execution
 
-Use `target=opencode` and one explicitly approved route returned by `uagents_list_models` with `admission_allowed=true`. Model listing also shows locally discovered but unapproved OpenCode catalog routes; `configured=false` entries are evidence only and must not be submitted. Both `analysis` and `implementation` are supported, and declared workspace-relative file or image inputs are passed to OpenCode as native repeated `--file` arguments after snapshot verification. The built-in routes are:
+Use `target=opencode` and an explicit `provider/model` ID. Native-discovered `configured=false` entries from `uagents_list_models` can be selected for text + workspace Tasks; their file/image mapping is not yet verified. Both `analysis` and `implementation` are supported, and declared workspace-relative file or image inputs on verified routes are passed to OpenCode as native repeated `--file` arguments after snapshot verification. The built-in routes are:
 
 - `commandcode-goat/deepseek/deepseek-v4-flash`
 - `commandcode-goat/z-ai/glm-5.3-flash`

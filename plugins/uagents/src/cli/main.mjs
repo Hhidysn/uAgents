@@ -33,6 +33,8 @@ export async function execute(argv, options = {}) {
         refresh: values.refresh === true,
         cacheStore: supervisor?.hostStore ?? null,
         resolveInstallation: supervisor?.resolveInstallation ?? null,
+        acquireManagedContext: supervisor?.ensure ?? null,
+        releaseManagedContext: supervisor?.releaseInstanceLease ?? null,
       }));
     } finally {
       if (ownsSupervisor) supervisor?.hostStore?.close?.();

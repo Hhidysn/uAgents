@@ -59,6 +59,7 @@ export class TraeGatewayClient {
     }
     return value;
   }
+  models() { return this.request('GET', '/api/models', { timeoutMs: 20_000 }); }
   submit(body, requestId) { return this.request('POST', '/api/tasks/submit', { body, idempotencyKey: requestId, timeoutMs: 20000 }); }
   task(taskId) { return this.request('GET', `/api/task/${encodeURIComponent(taskId)}`); }
 }
