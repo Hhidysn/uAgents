@@ -13,15 +13,16 @@
 //     must jointly match; listener PID is spot-checked when a port is known.
 //   - Ports held by unknown processes surface `port_identity_mismatch`; the
 //     supervisor never connects to or terminates such processes.
-//   - Stale instances are marked and replaced by a new generation, never killed
-//     implicitly by `ensure`.
+//   - Stale desktops are never killed by `ensure`. A companion TRAE gateway is
+//     reclaimed only after its own identity and idle state are proven.
 //   - Host instance leases reuse the HostStore epoch/fencing primitives; a
 //     failed `ensure` never leaves a lease behind.
 
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import { HostStoreError, resolveHostRoot } from "./host-store.mjs";
 import { CACHE_ID_PREFIX, createDefaultRunner } from "./agent-locator.mjs";
 import { fail } from "../protocol/errors.mjs";
@@ -119,6 +120,7 @@ export function createTargetSupervisor({
   now = () => Date.now(),
   launchers = null,
   spawnImpl = spawn,
+  hasUnsettledTask = null,
   leaseTtlMs = 30_000,
   ownerNonce = randomUUID(),
 } = {}) {
@@ -311,8 +313,61 @@ export function createTargetSupervisor({
       }
       if (latest) {
         // Evidence mismatch: mark stale and replace with a new generation.
-        // Never kill the previous process from here.
+        // Never kill the previous desktop process from here.
         hostStore.markManagedInstanceStale(latest.instance_id, { now: now() });
+        const inspectOrphan = launcherTable[target]?.inspectOrphanGateway;
+        if (typeof inspectOrphan === "function") {
+          let cleanup = { status: "skipped", reason: "task_state_unavailable" };
+          try {
+            if (typeof hasUnsettledTask === "function" && !hasUnsettledTask(latest)) {
+              const evidence = await inspectOrphan({ instance: latest, env, runPowerShell: runner });
+              if (!evidence?.safe) {
+                cleanup = { status: "skipped", reason: evidence?.reason ?? "gateway_identity_unconfirmed" };
+              } else {
+                await killProcessTree(evidence.pid);
+                const [proc, listener] = await Promise.all([
+                  runner("inspect-process", { pid: evidence.pid }),
+                  runner("inspect-listener", { port: latest.gateway_port }),
+                ]);
+                cleanup = proc?.exists === false && listener?.listening === false
+                  ? { status: "cleaned" }
+                  : { status: "failed", reason: "gateway_exit_unconfirmed" };
+              }
+            } else if (typeof hasUnsettledTask === "function") {
+              cleanup = { status: "skipped", reason: "task_unsettled" };
+            }
+          } catch {
+            cleanup = { status: "skipped", reason: "gateway_cleanup_inspection_failed" };
+          }
+          hostStore.upsertManagedInstance(latest.instance_id, {
+            ...hostStore.getManagedInstance(latest.instance_id),
+            gateway_cleanup: { ...cleanup, observed_at_ms: now() },
+          });
+          if (cleanup.status !== "cleaned" && Number.isInteger(latest.gateway_port)) {
+            // The TRAE launcher rotates a shared capability file and uses a
+            // shared gateway queue directory. Starting another generation
+            // while the old gateway may still run would strand its identity.
+            let oldGatewayMayRun = true;
+            try {
+              const [listener, proc] = await Promise.all([
+                runner("inspect-listener", { port: latest.gateway_port }),
+                runner("inspect-process", { pid: latest.gateway_pid }),
+              ]);
+              oldGatewayMayRun = listener?.listening !== false ||
+                (proc?.exists === true && (
+                  !Number.isFinite(latest.gateway_started_at_ms) ||
+                  !Number.isFinite(proc.started_at_ms) ||
+                  Math.abs(proc.started_at_ms - latest.gateway_started_at_ms) <= STARTED_AT_TOLERANCE_MS
+                ));
+            } catch {}
+            if (oldGatewayMayRun) {
+              fail("gateway_cleanup_deferred", "the previous TRAE gateway may still be active", {
+                category: "target", retryable: true, submission: "not_sent",
+                details: { cause_code: cleanup.reason ?? cleanup.status },
+              });
+            }
+          }
+        }
       }
 
       if (Number.isInteger(safe.preferredPort)) {
@@ -699,14 +754,30 @@ export function createTargetSupervisor({
         // Evidence mismatch: refuse and never kill.
         throw notOwned("ownership_verification_failed");
       }
+      // A companion PID is not ownership evidence. Resolve its independent
+      // identity before stopping the desktop, while both processes are still
+      // inspectable. If it changed hands, leave it alone.
+      let gatewayOwned = false;
+      if (Number.isInteger(latest.gateway_pid) &&
+          typeof launcherTable[target]?.verifyGatewayOwnership === "function") {
+        try {
+          gatewayOwned = (await launcherTable[target].verifyGatewayOwnership({
+            instance: latest, env, runPowerShell: runner,
+          })).owned === true;
+        } catch {}
+      }
       await killProcessTree(latest.process_id);
-      // Managed desktop instances may carry a companion gateway process
-      // (TRAE). It is equally ours (started_by_uagents with a recorded pid),
-      // so stopping the instance stops both.
-      if (Number.isInteger(latest.gateway_pid)) {
+      if (gatewayOwned) {
         await killProcessTree(latest.gateway_pid);
       }
-      const stopped = { ...latest, state: "stopped", stopped_at_ms: now() };
+      const stopped = {
+        ...latest, state: "stopped", stopped_at_ms: now(),
+        ...(Number.isInteger(latest.gateway_pid) ? {
+          gateway_cleanup: gatewayOwned
+            ? { status: "requested", observed_at_ms: now() }
+            : { status: "skipped", reason: "gateway_identity_unconfirmed", observed_at_ms: now() },
+        } : {}),
+      };
       hostStore.upsertManagedInstance(latest.instance_id, stopped);
       releaseOnce();
       return { mode: "stopped", instance_id: latest.instance_id };
@@ -735,18 +806,53 @@ export function createTargetSupervisor({
 
 // Shared host control-plane factory for every entrypoint (CLI, unified MCP,
 // worker subprocess). One construction path, one Host DB per Windows user.
-export async function createHostSupervisor() {
+export async function createHostSupervisor({ stateRoot = null, env = process.env } = {}) {
   const [{ HostStore }, { createAgentLocator }, { createDoubaoLauncher }, { createTraeLauncher }] = await Promise.all([
     import("./host-store.mjs"),
     import("./agent-locator.mjs"),
     import("./doubao-launcher.mjs"),
     import("./trae-launcher.mjs"),
   ]);
-  const hostStore = new HostStore();
+  const hostStore = new HostStore({ env });
   const locator = createAgentLocator({ hostStore });
+  const taskRoot = stateRoot ?? env.UAGENTS_STATE_DIR ?? path.join(env.LOCALAPPDATA, "uAgents", "v1");
   return createTargetSupervisor({
     hostStore,
     locator,
+    env,
+    hasUnsettledTask: instance => hasUnsettledTraeTask(taskRoot, instance),
     launchers: { doubao: createDoubaoLauncher(), trae: createTraeLauncher() },
   });
+}
+
+// Read-only check against this runtime's Task store. Failed inspection blocks
+// cleanup; an uncertain Task must not be hidden by an apparently safe kill.
+export function hasUnsettledTraeTask(root, instance) {
+  const file = path.join(root, "control.db");
+  try {
+    if (!statSync(file, { throwIfNoEntry: false })) return false;
+  } catch {
+    return true;
+  }
+  let database;
+  try {
+    database = new DatabaseSync(file, { readOnly: true });
+    const row = database.prepare(`
+      SELECT 1 FROM tasks AS t
+      WHERE t.target = 'trae' AND t.status NOT IN ('succeeded', 'failed', 'cancelled')
+        AND (EXISTS (
+          SELECT 1 FROM events AS e WHERE e.task_id = t.task_id
+            AND json_extract(e.payload_json, '$.lifecycle.instance_id') = ?
+        ) OR (t.created_at_ms >= ? AND NOT EXISTS (
+          SELECT 1 FROM events AS e WHERE e.task_id = t.task_id
+            AND json_extract(e.payload_json, '$.lifecycle.instance_id') IS NOT NULL
+        )))
+      LIMIT 1
+    `).get(instance.instance_id, instance.created_at_ms);
+    return Boolean(row);
+  } catch {
+    return true;
+  } finally {
+    try { database?.close(); } catch {}
+  }
 }

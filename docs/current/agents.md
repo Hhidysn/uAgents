@@ -87,6 +87,7 @@ uagents capabilities <target>
 - 使用受管桌面实例与 gateway。
 - 网关 `/api/models` 读取当前模型选择器；显式 Task 模型会随 `/api/tasks/submit` 传入，由网关在任务发送前切换。默认路线仍沿用界面当前模型。
 - `models trae` 不启动新桌面实例；无可用受管窗口时仅列出个人配置缓存中的候选模型，执行可用性未确认。默认 Task 使用独立受管配置。关闭原有 TRAE 窗口后，`ensure trae --profile personal` 可用原个人配置和 CDP 参数启动受管窗口；已验证登录状态、实时模型列表、`GLM-5.3` 界面切换、analysis 与 implementation 的真实 Task、必需文件捕获、同 ID 幂等，以及 backend default 的准确回复。当前网关对这版 TRAE 仍自报 `compatibility=degraded`，其它模型和原生取消尚未逐项验证。
+- 如果受管桌面退出，下一次 `ensure` 会检查旧网关进程、监听端口、启动时间、能力 token、实例 nonce、原生队列和当前 Task 存储的未决状态。仅全部通过时回收旧网关；否则保留并在旧实例记录 `gateway_cleanup` 原因。旧网关可能仍运行时新实例启动会延后。`stop trae` 也只会终止身份已验证的伴随网关。
 - 网关结果尚未提供可核对的逐 Task 模型自报，因此 `model_verified=false`；模型切换或额度失败按原生任务结果记录。
 - 当前没有 native file/image attachment 或 continuation/fork mapping。
 

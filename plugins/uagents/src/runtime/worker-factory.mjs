@@ -8,9 +8,9 @@ import { runTask } from './worker.mjs';
 
 // Worker-side host control plane. Uses the shared factory so CLI, MCP and
 // worker subprocesses construct one identical supervisor.
-async function createSupervisor() {
+async function createSupervisor(stateRoot) {
   const { createHostSupervisor } = await import('../host/target-supervisor.mjs');
-  return createHostSupervisor();
+  return createHostSupervisor({ stateRoot });
 }
 
 export async function runRegisteredTask(root, taskId,
@@ -34,7 +34,7 @@ export async function runRegisteredTask(root, taskId,
       });
     }
     const adapter = adapterFactory(status.target, transport ? { transport } : undefined);
-    const supervisor = await supervisorFactory();
+    const supervisor = await supervisorFactory(root);
     return await runTask({ service, taskId, adapter, supervisor });
   } finally { control.close(); }
 }

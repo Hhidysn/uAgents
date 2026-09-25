@@ -63,7 +63,7 @@ export async function execute(argv, options = {}) {
   // hosts can pin the lifecycle behavior.
   const supervisor = 'supervisor' in options
     ? options.supervisor
-    : ['ensure', 'stop', 'reconcile', 'resume'].includes(command) ? await createSupervisor() : null;
+    : ['ensure', 'stop', 'reconcile', 'resume'].includes(command) ? await createSupervisor(stateRoot) : null;
   const runtime = new UnifiedRuntime({ stateRoot, registry, spawnWorker: options.spawnWorker, supervisor });
   try {
     if (command === 'probe') return ok(await runtime.probe(required(subject, 'target'), { model: values.model ?? 'default' }));
@@ -130,9 +130,9 @@ export async function execute(argv, options = {}) {
 }
 
 // The managed lifecycle supervisor is constructed only for commands that need it.
-async function createSupervisor() {
+async function createSupervisor(stateRoot = null) {
   const { createHostSupervisor } = await import('../host/target-supervisor.mjs');
-  return createHostSupervisor();
+  return createHostSupervisor({ stateRoot });
 }
 
 export async function main(argv = process.argv.slice(2), io = console) {

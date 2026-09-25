@@ -423,11 +423,73 @@ export function createTraeLauncher({
     return readCapabilityToken(env ?? process.env);
   }
 
+  // This is deliberately stricter than the reuse classifier. A stale desktop
+  // record is not authority to terminate a PID: prove the gateway process,
+  // listener, capability and launch nonce before offering it for cleanup.
+  async function verifyGatewayOwnership({ instance, env, runPowerShell }) {
+    if (instance?.started_by_uagents !== true ||
+        !Number.isInteger(instance.gateway_pid) ||
+        !Number.isFinite(instance.gateway_started_at_ms) ||
+        !Number.isInteger(instance.gateway_port) ||
+        instance.capability_file !== secretsFile(env) ||
+        typeof instance.instance_nonce !== "string" || instance.instance_nonce.length === 0) {
+      return { owned: false, reason: "gateway_identity_incomplete" };
+    }
+    const listener = await runPowerShell("inspect-listener", { port: instance.gateway_port });
+    const gateway = await runPowerShell("inspect-process", {
+      pid: instance.gateway_pid, include_command_line: true,
+    });
+    if (listener?.listening !== true || listener.listener_pid !== instance.gateway_pid ||
+        gateway?.exists !== true ||
+        !Number.isFinite(gateway.started_at_ms) ||
+        Math.abs(gateway.started_at_ms - instance.gateway_started_at_ms) > 1000 ||
+        String(gateway.executable_path ?? "").toLowerCase() !== nodePath.toLowerCase() ||
+        !String(gateway.command_line ?? "").toLowerCase().includes(gatewayEntry.toLowerCase())) {
+      return { owned: false, reason: "gateway_process_identity_mismatch" };
+    }
+    const token = readCapabilityToken(env);
+    if (!token) return { owned: false, reason: "gateway_capability_missing" };
+    const status = await fetchGatewayStatus(fetchImpl, instance.gateway_port, token);
+    if (!status.reachable || status.body?.instance_nonce !== instance.instance_nonce) {
+      return { owned: false, reason: "gateway_nonce_mismatch" };
+    }
+    return { owned: true, status: status.body, token };
+  }
+
+  async function inspectOrphanGateway({ instance, env, runPowerShell }) {
+    if (!Number.isInteger(instance?.process_id) || !Number.isInteger(instance?.port)) {
+      return { safe: false, reason: "desktop_identity_incomplete" };
+    }
+    const desktop = await runPowerShell("inspect-process", { pid: instance.process_id });
+    const cdp = await runPowerShell("inspect-listener", { port: instance.port });
+    if (desktop?.exists !== false || cdp?.listening !== false) {
+      return { safe: false, reason: "desktop_absence_unconfirmed" };
+    }
+    const gateway = await verifyGatewayOwnership({ instance, env, runPowerShell });
+    if (!gateway.owned) return { safe: false, reason: gateway.reason };
+    if (gateway.status?.cdpReachable !== false || gateway.status?.durability?.durabilityDegraded !== false) {
+      return { safe: false, reason: "gateway_state_unconfirmed" };
+    }
+    let queue;
+    try {
+      const response = await fetchImpl(`http://127.0.0.1:${instance.gateway_port}/api/queue/status`, {
+        headers: { Authorization: `Bearer ${gateway.token}` },
+        signal: AbortSignal.timeout(2000),
+      });
+      if (response.ok) queue = await response.json();
+    } catch {}
+    if (!Array.isArray(queue?.tasks)) return { safe: false, reason: "gateway_queue_unconfirmed" };
+    if (queue.tasks.length > 0) return { safe: false, reason: "gateway_tasks_active" };
+    return { safe: true, pid: instance.gateway_pid };
+  }
+
   async function launcher(args) {
     return launch(args);
   }
   launcher.classify = classify;
   launcher.repair = repair;
   launcher.readCapability = readCapability;
+  launcher.verifyGatewayOwnership = verifyGatewayOwnership;
+  launcher.inspectOrphanGateway = inspectOrphanGateway;
   return launcher;
 }

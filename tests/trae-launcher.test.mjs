@@ -6,7 +6,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join, resolve } from 'node:path';
 
 import { HostStore, resolveHostRoot } from '../plugins/uagents/src/host/host-store.mjs';
-import { createTargetSupervisor } from '../plugins/uagents/src/host/target-supervisor.mjs';
+import { createTargetSupervisor, hasUnsettledTraeTask } from '../plugins/uagents/src/host/target-supervisor.mjs';
+import { ControlDatabase } from '../plugins/uagents/src/store/database.mjs';
 import {
   createTraeLauncher,
   minimalTraeEnvironment,
@@ -47,7 +48,7 @@ const SETUP_SURFACE = { kind: 'setup', url: 'vscode-file://vscode-app/setup/setu
 // sets it from TRAECN_GATEWAY_INSTANCE_NONCE). downCallsRemaining makes the
 // endpoint unreachable for exactly N calls, then recover.
 function fakeGatewayFetch({ nonce = 'nonce-1', surface = WORKBENCH_SURFACE, cdpReachable = true } = {}) {
-  const state = { nonce, adoptedNonce: null, surface, cdpReachable, down: false, downCallsRemaining: 0, calls: [], authHeaders: [] };
+  const state = { nonce, adoptedNonce: null, surface, cdpReachable, queueTasks: [], down: false, downCallsRemaining: 0, calls: [], authHeaders: [] };
   const fetchImpl = async (url, options = {}) => {
     state.calls.push(url);
     state.authHeaders.push(options.headers?.Authorization ?? null);
@@ -56,10 +57,11 @@ function fakeGatewayFetch({ nonce = 'nonce-1', surface = WORKBENCH_SURFACE, cdpR
       throw Object.assign(new Error('refused'), { cause: { code: 'ECONNREFUSED' } });
     }
     if (state.down) throw Object.assign(new Error('refused'), { cause: { code: 'ECONNREFUSED' } });
-    const body = {
+    const body = url.endsWith('/api/queue/status') ? { tasks: state.queueTasks } : {
       status: 'disconnected', service: 'traecn-cdp-http-bridge', version: '0.6.0',
       cdpReachable: state.cdpReachable, traeRunning: state.cdpReachable,
       surface: state.surface, instance_nonce: state.adoptedNonce ?? state.nonce,
+      durability: { durabilityDegraded: false },
     };
     return {
       ok: true, status: 200,
@@ -95,6 +97,17 @@ function fakeHost({ listenerExe = TRAE_EXE, killTracked = false, onGatewayEnv = 
   };
   const spawnImpl = (command, args, options) => {
     spawned.push({ command, args, options });
+    if (command === 'taskkill') {
+      const victim = Number(args[1]);
+      killed.push(victim);
+      delete processByPid[victim];
+      for (const [port, listener] of Object.entries(listenerByPort)) {
+        if (listener.listener_pid === victim) delete listenerByPort[port];
+      }
+      const child = new EventEmitter();
+      setImmediate(() => child.emit('exit', 0));
+      return child;
+    }
     if (onGatewayEnv && options?.env?.TRAECN_GATEWAY_INSTANCE_NONCE) {
       onGatewayEnv(options.env);
     }
@@ -110,6 +123,15 @@ function fakeHost({ listenerExe = TRAE_EXE, killTracked = false, onGatewayEnv = 
       return true;
     };
     const portArg = (args ?? []).find((arg) => String(arg).startsWith('--remote-debugging-port='));
+    if (options?.env?.TRAECN_GATEWAY_PORT) {
+      const port = Number(options.env.TRAECN_GATEWAY_PORT);
+      listenerByPort[port] = { listening: true, listener_pid: pid };
+      processByPid[pid] = {
+        started_at_ms: 1700000000000 + pid,
+        executable_path: command,
+        command_line: `${command} ${args.join(' ')}`,
+      };
+    }
     if (portArg) {
       const port = Number(portArg.split('=')[1]);
       listenerByPort[port] = { listening: true, listener_pid: pid, executable_path: listenerExe, started_at_ms: 1700000000000 + pid };
@@ -347,7 +369,7 @@ describe('trae launcher', () => {
 });
 
 describe('supervisor with the trae launcher', () => {
-  function setup({ personal = false } = {}) {
+  function setup({ personal = false, hasUnsettledTask = () => false } = {}) {
     const { root, env } = makeEnv();
     if (personal) {
       env.APPDATA = join(root, 'roaming');
@@ -365,6 +387,8 @@ describe('supervisor with the trae launcher', () => {
       runPowerShell: host.runPowerShell,
       env,
       launchers: { trae: createTraeLauncher({ fetchImpl: gateway.fetchImpl, spawnImpl: host.spawnImpl, pollMs: 10 }) },
+      spawnImpl: host.spawnImpl,
+      hasUnsettledTask,
     });
     const cleanup = () => cleanupEnv(root, hostStore);
     return { supervisor, hostStore, gateway, host, env, cleanup };
@@ -437,6 +461,8 @@ describe('supervisor with the trae launcher', () => {
       ctx.hostStore.releaseLease(first.lease);
       // gateway dies: exactly one failed status call (the reuse classify),
       // then the repaired gateway comes back with the same nonce.
+      delete ctx.host.processByPid[first.instance.gateway_pid];
+      delete ctx.host.listenerByPort[first.instance.gateway_port];
       ctx.gateway.state.downCallsRemaining = 1;
       const second = await ctx.supervisor.ensure('trae');
       assert.equal(second.mode, 'reuse', 'desktop is alive; only the gateway needed repair');
@@ -450,4 +476,93 @@ describe('supervisor with the trae launcher', () => {
       ctx.cleanup();
     }
   });
+
+  test('dead desktop reclaims an owned idle gateway before the next generation', async () => {
+    const ctx = setup();
+    try {
+      const first = await ctx.supervisor.ensure('trae');
+      ctx.supervisor.releaseInstanceLease(first.lease);
+      delete ctx.host.processByPid[first.instance.process_id];
+      delete ctx.host.listenerByPort[first.instance.port];
+      ctx.gateway.state.cdpReachable = false;
+      const second = await ctx.supervisor.ensure('trae');
+      assert.equal(second.mode, 'launched');
+      assert.equal(second.instance.gateway_port, first.instance.gateway_port);
+      assert.ok(ctx.host.killed.includes(first.instance.gateway_pid));
+      assert.equal(ctx.hostStore.getManagedInstance(first.instance.instance_id).gateway_cleanup.status, 'cleaned');
+      ctx.supervisor.releaseInstanceLease(second.lease);
+    } finally { ctx.cleanup(); }
+  });
+
+  test('orphan gateway remains when its queue is active or its identity differs', async () => {
+    for (const obstacle of ['active_queue', 'pid_reused', 'unsettled_task']) {
+      const ctx = setup({ hasUnsettledTask: () => obstacle === 'unsettled_task' });
+      try {
+        const first = await ctx.supervisor.ensure('trae');
+        ctx.supervisor.releaseInstanceLease(first.lease);
+        delete ctx.host.processByPid[first.instance.process_id];
+        delete ctx.host.listenerByPort[first.instance.port];
+        ctx.gateway.state.cdpReachable = false;
+        if (obstacle === 'active_queue') ctx.gateway.state.queueTasks = [{ taskId: 'native-1', status: 'executing' }];
+        if (obstacle === 'pid_reused') ctx.host.processByPid[first.instance.gateway_pid].started_at_ms += 5000;
+        await assert.rejects(
+          () => ctx.supervisor.ensure('trae'),
+          (error) => error.code === 'gateway_cleanup_deferred'
+        );
+        assert.equal(ctx.host.spawned.filter(call => call.command === TRAE_EXE).length, 1);
+        assert.equal(ctx.host.killed.includes(first.instance.gateway_pid), false);
+        const cleanup = ctx.hostStore.getManagedInstance(first.instance.instance_id).gateway_cleanup;
+        assert.equal(cleanup.status, 'skipped');
+        assert.equal(cleanup.reason, {
+          active_queue: 'gateway_tasks_active',
+          pid_reused: 'gateway_process_identity_mismatch',
+          unsettled_task: 'task_unsettled',
+        }[obstacle]);
+      } finally { ctx.cleanup(); }
+    }
+  });
+
+  test('stop never terminates a companion gateway whose PID identity changed', async () => {
+    const ctx = setup();
+    try {
+      const first = await ctx.supervisor.ensure('trae');
+      ctx.supervisor.releaseInstanceLease(first.lease);
+      ctx.host.processByPid[first.instance.gateway_pid].started_at_ms += 5000;
+      const stopped = await ctx.supervisor.stop('trae');
+      assert.equal(stopped.mode, 'stopped');
+      assert.ok(ctx.host.killed.includes(first.instance.process_id));
+      assert.equal(ctx.host.killed.includes(first.instance.gateway_pid), false);
+      assert.equal(ctx.hostStore.getManagedInstance(first.instance.instance_id).gateway_cleanup.reason, 'gateway_identity_unconfirmed');
+    } finally { ctx.cleanup(); }
+  });
+});
+
+test('orphan cleanup Task guard scopes uncertainty to the recorded instance', () => {
+  const { root } = makeEnv();
+  const stateRoot = join(root, 'state');
+  const control = new ControlDatabase(stateRoot);
+  try {
+    control.raw.prepare(`INSERT INTO tasks
+      (task_id, request_id, raw_hash, effective_hash, target, status,
+       decision_json, store_schema_version, core_version, created_at_ms, updated_at_ms)
+      VALUES (?, ?, 'r', 'e', 'trae', 'indeterminate', '{}', 3, 'test', 100, 100)`)
+      .run('task-1', 'request-1');
+    control.raw.prepare(`INSERT INTO events
+      (task_id, sequence, type, payload_json, created_at_ms)
+      VALUES ('task-1', 1, 'dispatch.possibly_sent', ?, 100)`)
+      .run(JSON.stringify({ lifecycle: { instance_id: 'old-instance' } }));
+    assert.equal(hasUnsettledTraeTask(stateRoot, { instance_id: 'old-instance', created_at_ms: 50 }), true);
+    assert.equal(hasUnsettledTraeTask(stateRoot, { instance_id: 'new-instance', created_at_ms: 200 }), false);
+    control.raw.prepare(`INSERT INTO tasks
+      (task_id, request_id, raw_hash, effective_hash, target, status,
+       decision_json, store_schema_version, core_version, created_at_ms, updated_at_ms)
+      VALUES (?, ?, 'r', 'e', 'trae', 'starting', '{}', 3, 'test', 250, 250)`)
+      .run('task-2', 'request-2');
+    assert.equal(hasUnsettledTraeTask(stateRoot, { instance_id: 'new-instance', created_at_ms: 200 }), true);
+    control.raw.prepare("UPDATE tasks SET status = 'failed' WHERE task_id = 'task-2'").run();
+    assert.equal(hasUnsettledTraeTask(stateRoot, { instance_id: 'new-instance', created_at_ms: 200 }), false);
+  } finally {
+    control.close();
+    cleanupEnv(root);
+  }
 });

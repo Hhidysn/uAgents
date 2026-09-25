@@ -66,10 +66,26 @@ The previously managed desktop had exited before this follow-up, while its recor
 | Default-model analysis Task `61f05863-41df-437e-9b2b-00f773c93d8a` | Request omitted `model`; uAgents recorded `model_requested=default`, `model_resolved=null`, and `route_id=trae-default`. Native status reached `done`, and response was exactly `UAGENTS_TRAE_DEFAULT_OK`. The picker reported current `GLM-5.3` after completion, but this is not a per-Task model self-report. |
 | Cancel after the completed implementation Task | Returned `cancel_accepted=false`, kept `status=succeeded` and `cancel_requested=false`. This verifies the local terminal-state guard; it does not prove native cancellation of a running TRAE Task. |
 
+## Managed gateway cleanup follow-up
+
+The remaining lifecycle defect was that an externally closed managed desktop left its gateway listening. The supervisor now reclaims that companion only after checking the desktop has exited, the CDP port is free, gateway PID/start time/executable/command line and listener match the recorded launch, authenticated `/api/status` reports the same nonce and disconnected CDP, `/api/queue/status` has no active tasks, and the current uAgents Task store has no unresolved Task for that instance. It records `gateway_cleanup` on the stale instance. Missing or conflicting evidence skips cleanup; if the previous gateway may still run, `ensure` returns `gateway_cleanup_deferred` rather than rotating its shared token. `stop trae` also checks companion gateway ownership before termination.
+
+| Check | Result |
+| --- | --- |
+| `node --test tests/trae-launcher.test.mjs tests/target-supervisor.test.mjs tests/managed-reconcile.test.mjs tests/model-discovery.test.mjs tests/unified-cli.test.mjs tests/plugin-package.test.mjs` | 75 passed on the cleanup source revision. Tests cover owned idle cleanup, active native queue, reused PID, unresolved Task, deferred new launch, and `stop` with gateway identity mismatch. |
+| `npm --prefix plugins/uagents/mcp/unified test` | Rebuilt the unified MCP bundle; 14 tests passed. |
+| Real managed desktop exit | User had saved work and authorized closing the managed window. `CloseMainWindow()` returned true; generation 7 desktop PID 44900 exited. |
+| `ensure trae --profile personal` after exit | Exited 0 with `mode=launched`, generation 8 `state=ready`, desktop PID 14944 and gateway PID 41800. The original personal profile path remained `C:\Users\24590\AppData\Roaming\Trae CN`. |
+| Old gateway identity and port | Generation 7 stored `gateway_cleanup.status=cleaned`; old gateway PID 27784 was absent. Generation 8 gateway PID 41800 listened on the original port 19422, and desktop PID 14944 listened on CDP port 19322. |
+| `models trae --refresh` | Returned 23 rows: configured default plus 22 live native picker options; `discovery.status=ok`. |
+| New analysis Task `0687907e-2482-4f1a-9e93-1e73a09727d7` | `status=succeeded`, `submission=sent`, native `done`; response text exactly `UAGENTS_TRAE_ORPHAN_RECOVERY_OK`. Lifecycle identified generation 8. The Task used backend default and still had `model_verified=false`, because no per-Task native model report exists. |
+
+The real run verifies successful cleanup of one idle, owned gateway. The protective refusal cases were covered by deterministic tests, not induced on the user's live TRAE session. Cleanup checks the Task state root used by this call; another independent `--state-dir` is outside that local database check.
+
 ## Not verified on this machine
 
 - Quota behavior and actual Provider/model used for generation. Live picker labels, UI switching to `GLM-5.3`, and successful analysis and implementation Tasks are verified, but the gateway provides no trustworthy per-Task model self-report.
 - Reuse of an already-running personal TRAE window without restarting it. The original process had no CDP listener. Explicit managed restart with the same personal configuration completed analysis and implementation Tasks.
-- Native cancellation of a running TRAE Task, quota failure, other model selectors, and automatic removal of a leftover gateway after the desktop exits externally. TRAE currently declares native cancel unsupported; the local completed-Task cancel guard was verified.
+- Native cancellation of a running TRAE Task, quota failure, and other model selectors. TRAE currently declares native cancel unsupported; the local completed-Task cancel guard was verified.
 - Real execution of newly passed through IDs on Codex, Claude Code, agy, DSH, OpenCode, or WorkBuddy. The WorkBuddy no-prompt help listing confirms labels, not a model response.
 - Availability of a full model catalog for Codex, Claude Code, or DSH. `models` on these targets remains configured-only.

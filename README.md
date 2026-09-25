@@ -100,7 +100,7 @@ Council 可以把同一任务 fan-out 给多个 Agent。分析任务可共享 wo
 ### 模型发现
 
 `models <target>` 会展示配置路线和可获得的原生模型发现证据。agy、WorkBuddy、OpenCode 的 native catalog
-使用 10 分钟本机缓存，可用 `models <target> --refresh` 显式刷新。`models trae` 只复用已存在且身份可验证的受管窗口读取实时选择器，不会为了列模型启动第二个 TRAE 窗口；否则只读列出个人 TRAE CN 配置缓存中的 SOLO 模型候选，并标记 `discovery.status=partial`、`usable=null`。TRAE 默认使用隔离配置；明确执行 `ensure trae --profile personal` 可在关闭原有 TRAE 窗口后用现有个人配置启动受管窗口。真实 CLI 已验证实时列举、界面模型切换、analysis/implementation text + workspace Task、必需文件捕获和默认模型路线；网关尚无逐 Task 模型自报，`model_verified=false`。
+使用 10 分钟本机缓存，可用 `models <target> --refresh` 显式刷新。`models trae` 只复用已存在且身份可验证的受管窗口读取实时选择器，不会为了列模型启动第二个 TRAE 窗口；否则只读列出个人 TRAE CN 配置缓存中的 SOLO 模型候选，并标记 `discovery.status=partial`、`usable=null`。TRAE 默认使用隔离配置；明确执行 `ensure trae --profile personal` 可在关闭原有 TRAE 窗口后用现有个人配置启动受管窗口。受管桌面退出后，下次 `ensure` 仅在旧网关身份、空任务队列及当前 Task 存储中的无未决任务均得到确认时回收旧网关，并记录清理状态；旧网关可能仍运行时会延后新实例启动，避免覆盖其 token。真实 CLI 已验证实时列举、界面模型切换、analysis/implementation text + workspace Task、必需文件捕获、默认模型路线和这一路径的网关回收；网关尚无逐 Task 模型自报，`model_verified=false`。
 原生目录中的模型可直接作为单次 Task 的 `model`；不要求另行登记静态路线。发现到模型不代表 Provider 登录、额度或在线状态已经确认。
 
 每个 target 可以在用户配置中设置 `defaults`；请求省略 `model` 或写 `"model":"default"` 时使用该默认路线，
