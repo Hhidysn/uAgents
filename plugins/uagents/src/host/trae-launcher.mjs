@@ -319,6 +319,11 @@ export function createTraeLauncher({
         await sleep(pollMs);
       }
 
+      // The managed processes outlive this CLI request. Their identities are
+      // recorded by the supervisor; keeping their handles referenced here
+      // would prevent a one-shot `models` command from exiting.
+      desktopChild.unref?.();
+      gatewayChild.unref?.();
       return {
         process: { pid: listener.listener_pid, started_at_ms: listenerProcess.started_at_ms },
         port: cdpPort,
@@ -396,6 +401,7 @@ export function createTraeLauncher({
       const proc = await runPowerShell("inspect-process", { pid: child.pid });
       startedAtMs = typeof proc?.started_at_ms === "number" ? proc.started_at_ms : null;
     } catch {}
+    child.unref?.();
     return { gateway_pid: child.pid, gateway_started_at_ms: startedAtMs };
   }
 

@@ -79,6 +79,7 @@ function fakeHost({ listenerExe = TRAE_EXE, killTracked = false, onGatewayEnv = 
   let nextPid = 5000;
   const spawned = [];
   const killed = [];
+  const unrefed = [];
   const runPowerShell = async (action, payload) => {
     if (action === 'inspect-listener') {
       const entry = listenerByPort[payload.port];
@@ -102,6 +103,7 @@ function fakeHost({ listenerExe = TRAE_EXE, killTracked = false, onGatewayEnv = 
     const child = new EventEmitter();
     child.pid = pid;
     child.spawnargs = args;
+    child.unref = () => { unrefed.push(pid); };
     child.kill = () => {
       killed.push(pid);
       if (killTracked) setImmediate(() => child.emit('exit', 0));
@@ -115,7 +117,7 @@ function fakeHost({ listenerExe = TRAE_EXE, killTracked = false, onGatewayEnv = 
     }
     return child;
   };
-  return { runPowerShell, spawnImpl, listenerByPort, processByPid, spawned, killed };
+  return { runPowerShell, spawnImpl, listenerByPort, processByPid, spawned, killed, unrefed };
 }
 
 function exitingSpawnImpl() {
@@ -170,6 +172,7 @@ describe('trae launcher', () => {
       assert.ok(gateway.state.calls.every((url) => !url.includes(encodeURIComponent(launched.capability_token))), 'token never appears in URLs');
       const desktopSpawn = host.spawned.find((call) => call.command === TRAE_EXE);
       assert.ok(desktopSpawn, 'desktop spawned');
+      assert.equal(host.unrefed.length, 2, 'managed processes release CLI handles after launch');
       assert.equal(desktopSpawn.options.env.OPENAI_API_KEY, undefined, 'desktop env must be minimal');
       assert.equal(desktopSpawn.options.env.SystemRoot, 'C:\\Windows');
       assert.equal(desktopSpawn.options.cwd, 'C:\\fake\\Programs\\Trae CN');
@@ -320,6 +323,7 @@ describe('trae launcher', () => {
       const repaired = await launcher.repair({ instance, env, runPowerShell: host.runPowerShell });
       assert.equal(typeof repaired.gateway_pid, 'number');
       assert.equal(gateway.state.adoptedNonce, 'nonce-keep', 'repair must reuse the recorded instance nonce');
+      assert.equal(host.unrefed.length, 1, 'repaired gateway releases its CLI handle');
       assert.ok(gateway.state.authHeaders.some((header) => header === 'Bearer tok-keep'));
 
       host.listenerByPort[GATEWAY_PORT] = { listening: true, listener_pid: 31337, executable_path: 'C:\\other\\x.exe' };

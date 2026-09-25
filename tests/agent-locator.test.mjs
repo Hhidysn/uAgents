@@ -452,7 +452,10 @@ test("9) default runner surfaces timeout, bad JSON and non-zero exit as HostStor
   // valid document
   {
     const stub = stubSpawn({ stdout: '{"ok":true,"value":1}' });
-    const runner = createDefaultRunner({ spawnImpl: stub.spawnImpl });
+    const runner = createDefaultRunner({
+      spawnImpl: stub.spawnImpl,
+      env: { PSModulePath: 'PowerShell7Modules', pSmOdUlEpAtH: 'other', UAGENTS_TEST_MARKER: 'preserved' },
+    });
     const result = await runner("verify-installation", { path: "x" });
     assert.deepEqual(result, { ok: true, value: 1 });
     assert.equal(stub.calls.length, 1);
@@ -463,6 +466,8 @@ test("9) default runner surfaces timeout, bad JSON and non-zero exit as HostStor
     assert.match(joined, /-ExecutionPolicy Bypass/);
     assert.match(joined, /windows-host\.ps1/);
     assert.match(joined, /-Action verify-installation/);
+    assert.equal(stub.calls[0].options.env.UAGENTS_TEST_MARKER, 'preserved');
+    assert.equal(Object.keys(stub.calls[0].options.env).some(key => key.toLowerCase() === 'psmodulepath'), false);
   }
 
   // timeout -> host_script_timeout

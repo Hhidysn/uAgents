@@ -466,8 +466,16 @@ export function createDefaultRunner({
   spawnImpl = spawn,
   timeoutMs = DEFAULT_RUNNER_TIMEOUT_MS,
   scriptUrl = DEFAULT_SCRIPT_URL,
+  env = process.env,
 } = {}) {
   const scriptPath = fileURLToPath(scriptUrl);
+  const childEnv = { ...env };
+  // A PowerShell 7 host can export PSModulePath entries that make Windows
+  // PowerShell 5.1 load incompatible built-in modules. Let powershell.exe
+  // construct its own module search path for this fixed host script.
+  for (const key of Object.keys(childEnv)) {
+    if (key.toLowerCase() === "psmodulepath") delete childEnv[key];
+  }
   return function runPowerShell(action, payload) {
     return new Promise((resolvePromise, rejectPromise) => {
       let child;
@@ -484,6 +492,7 @@ export function createDefaultRunner({
         ], {
           windowsHide: true,
           stdio: ["pipe", "pipe", "pipe"],
+          env: childEnv,
         });
       } catch (error) {
         rejectPromise(new HostStoreError("host_script_failed", "failed to start the windows host script"));
