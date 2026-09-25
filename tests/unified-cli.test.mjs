@@ -39,6 +39,28 @@ test('discovery commands expose configured routes plus local native model eviden
   assert.deepEqual(describedModels.data.options.map(option => option.name), ['--refresh', '--config']);
 });
 
+test('TRAE model listing reads local cache without launching another desktop instance', async () => {
+  let launched = false;
+  let gatewayCalled = false;
+  const supervisor = {
+    inspect: () => ({ instances: [] }),
+    ensure: async () => { launched = true; throw new Error('unexpected desktop launch'); },
+  };
+  const result = await execute(['models', 'trae', '--refresh'], {
+    supervisor,
+    adapterFactory: () => ({
+      discoverModels: async () => { gatewayCalled = true; throw new Error('unmanaged gateway'); },
+      discoverLocalModels: () => ({ status: 'cache_only', discovery: 'native_profile_cache',
+        models: [{ id: 'glm-5.3', selector: 'GLM-5.3', route_id: 'trae/GLM-5.3', provider: 'trae' }] }),
+    }),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(launched, false);
+  assert.equal(gatewayCalled, false);
+  assert.equal(result.data[1].selector, 'GLM-5.3');
+  assert.equal(result.data[1].usable, null);
+});
+
 test('CLI discovery exposes commands and submit arguments without opening runtime state', async () => {
   const described = await execute(['describe'], { env: {} });
   assert.equal(described.ok, true);
@@ -331,6 +353,20 @@ test('ensure and stop delegate to the host supervisor without a state-dir depend
   assert.equal(stoppedResult.ok, true);
   assert.equal(stoppedResult.data.mode, 'stopped');
   assert.deepEqual(stopped, ['doubao']);
+});
+
+test('ensure TRAE forwards an explicit personal profile choice', async () => {
+  let seen;
+  const supervisor = {
+    ensure: async (target, context) => {
+      seen = { target, context };
+      return { mode: 'reuse', installation: { installation_id: 'trae-test' } };
+    },
+  };
+  const result = await execute(['ensure', 'trae', '--profile', 'personal'], { supervisor });
+  assert.equal(result.ok, true);
+  assert.equal(seen.target, 'trae');
+  assert.equal(seen.context.profileMode, 'personal');
 });
 
 test('ensure does not report success when the one-shot host lease cannot be released', async () => {

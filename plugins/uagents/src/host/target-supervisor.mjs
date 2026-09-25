@@ -57,6 +57,9 @@ function safeContext(context) {
   if (context.refresh === true) {
     out.refresh = true;
   }
+  if (context.profileMode === "personal" || context.profileMode === "isolated") {
+    out.profileMode = context.profileMode;
+  }
   return out;
 }
 
@@ -222,7 +225,13 @@ export function createTargetSupervisor({
       const instances = listInstances(target);
       const latest = instances.length > 0 ? instances[instances.length - 1] : null;
 
-      if (latest && (await verifyOwnership(latest, installation))) {
+      const requestedProfileMatches = !safe.profileMode || target !== "trae" || (
+        safe.profileMode === "personal"
+          ? typeof env?.APPDATA === "string" && pathEquals(latest?.profile_path, path.join(env.APPDATA, "Trae CN"))
+          : typeof latest?.profile_path === "string" && latest.profile_path.toLowerCase().startsWith(
+              path.join(resolveHostRoot(env), "profiles", target).toLowerCase() + path.sep)
+      );
+      if (latest && requestedProfileMatches && (await verifyOwnership(latest, installation))) {
         // Surface classification is target knowledge: delegated to the
         // launcher's optional classify hook (doubao/trae launchers provide it;
         // plain launch functions and Gate 3.1 fakes keep ready semantics).
@@ -373,7 +382,7 @@ export function createTargetSupervisor({
       // running on; the record must describe reality, not the computed path.
       let instanceGeneration = generation;
       let instanceProfilePath = profilePath;
-      if (launched.adopted === true && typeof launched.profile_path === "string" && launched.profile_path.length > 0) {
+      if (typeof launched.profile_path === "string" && launched.profile_path.length > 0) {
         instanceProfilePath = launched.profile_path;
         const leaf = launched.profile_path.match(/(?:^|[\\/])(\d+)(?:[\\/]?)$/);
         if (leaf) instanceGeneration = Number(leaf[1]);

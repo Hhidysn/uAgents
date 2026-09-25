@@ -160,6 +160,7 @@ export function createTraeLauncher({
       cwd: path.dirname(gatewayEntry),
       windowsHide: true,
       stdio: "ignore",
+      detached: process.platform === "win32",
       env: {
         ...minimalTraeEnvironment(env),
         TRAECN_GATEWAY_HOST: "127.0.0.1",
@@ -213,8 +214,19 @@ export function createTraeLauncher({
     }
   }
 
-  async function launch({ installation, profilePath, env, runPowerShell }) {
+  async function launch({ installation, profilePath, env, runPowerShell, context = {} }) {
     const exe = installation.canonical_path;
+    const personalProfilePath = typeof env?.APPDATA === "string" && path.isAbsolute(env.APPDATA)
+      ? path.join(env.APPDATA, "Trae CN") : null;
+    if (context.profileMode === "personal" && (
+      path.basename(exe).toLowerCase() !== "trae cn.exe" ||
+      !personalProfilePath || !fs.statSync(personalProfilePath, { throwIfNoEntry: false })?.isDirectory()
+    )) {
+      fail("invalid_request", "the existing personal TRAE CN profile is unavailable for this installation", {
+        category: "target", submission: "not_sent",
+      });
+    }
+    const actualProfilePath = context.profileMode === "personal" ? personalProfilePath : profilePath;
     const gatewayPort = await pickPort(runPowerShell, TRAE_GATEWAY_PORT_CANDIDATES, "gateway_launch_failed");
     const cdpPort = await pickPort(runPowerShell, TRAE_CDP_PORT_CANDIDATES, "port_unavailable");
     const token = generateCapabilityToken(env);
@@ -245,10 +257,11 @@ export function createTraeLauncher({
       await waitForGateway({ gatewayChild, gatewayPort, token, nonce, timeoutMs: gatewayReadyTimeoutMs });
 
       // 3. Desktop instance with the dedicated profile and strict CDP port.
-      desktopChild = spawnImpl(exe, [`--user-data-dir=${profilePath}`, `--remote-debugging-port=${cdpPort}`], {
+      desktopChild = spawnImpl(exe, [`--user-data-dir=${actualProfilePath}`, `--remote-debugging-port=${cdpPort}`], {
         cwd: path.dirname(exe),
         env: minimalTraeEnvironment(env),
         stdio: "ignore",
+        detached: process.platform === "win32",
         windowsHide: false,
       });
       if (typeof desktopChild?.pid !== "number") {
@@ -334,6 +347,7 @@ export function createTraeLauncher({
         capability_file: secretsFile(env),
         instance_nonce: nonce,
         gateway_state_dir: gatewayStateDirPath,
+        profile_path: actualProfilePath,
         capability_token: token, // in-memory only; never persisted
         state: classification.state,
         ...(classification.interaction_phase ? { interaction_phase: classification.interaction_phase } : {}),

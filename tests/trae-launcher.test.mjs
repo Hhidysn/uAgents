@@ -172,6 +172,9 @@ describe('trae launcher', () => {
       assert.ok(gateway.state.calls.every((url) => !url.includes(encodeURIComponent(launched.capability_token))), 'token never appears in URLs');
       const desktopSpawn = host.spawned.find((call) => call.command === TRAE_EXE);
       assert.ok(desktopSpawn, 'desktop spawned');
+      assert.equal(desktopSpawn.options.detached, process.platform === 'win32');
+      const gatewaySpawn = host.spawned.find(call => call.options.env?.TRAECN_GATEWAY_INSTANCE_NONCE);
+      assert.equal(gatewaySpawn.options.detached, process.platform === 'win32');
       assert.equal(host.unrefed.length, 2, 'managed processes release CLI handles after launch');
       assert.equal(desktopSpawn.options.env.OPENAI_API_KEY, undefined, 'desktop env must be minimal');
       assert.equal(desktopSpawn.options.env.SystemRoot, 'C:\\Windows');
@@ -344,8 +347,12 @@ describe('trae launcher', () => {
 });
 
 describe('supervisor with the trae launcher', () => {
-  function setup() {
+  function setup({ personal = false } = {}) {
     const { root, env } = makeEnv();
+    if (personal) {
+      env.APPDATA = join(root, 'roaming');
+      mkdirSync(join(env.APPDATA, 'Trae CN'), { recursive: true });
+    }
     const hostStore = new HostStore({ env });
     const gateway = fakeGatewayFetch();
     const host = fakeHost({
@@ -360,8 +367,41 @@ describe('supervisor with the trae launcher', () => {
       launchers: { trae: createTraeLauncher({ fetchImpl: gateway.fetchImpl, spawnImpl: host.spawnImpl, pollMs: 10 }) },
     });
     const cleanup = () => cleanupEnv(root, hostStore);
-    return { supervisor, hostStore, gateway, env, cleanup };
+    return { supervisor, hostStore, gateway, host, env, cleanup };
   }
+
+  test('explicit personal profile launches under the existing TRAE user data and is reused', async () => {
+    const ctx = setup({ personal: true });
+    try {
+      const first = await ctx.supervisor.ensure('trae', { profileMode: 'personal' });
+      const expected = join(ctx.env.APPDATA, 'Trae CN');
+      assert.equal(first.instance.profile_path, expected);
+      const desktopSpawn = ctx.host.spawned.find(call => call.command === TRAE_EXE);
+      assert.ok(desktopSpawn.args.includes(`--user-data-dir=${expected}`));
+      ctx.supervisor.releaseInstanceLease(first.lease);
+      const second = await ctx.supervisor.ensure('trae');
+      assert.equal(second.mode, 'reuse');
+      assert.equal(second.instance.instance_id, first.instance.instance_id);
+      assert.equal(ctx.host.spawned.filter(call => call.command === TRAE_EXE).length, 1);
+      ctx.supervisor.releaseInstanceLease(second.lease);
+    } finally {
+      ctx.cleanup();
+    }
+  });
+
+  test('personal profile mode does not create a fresh login profile', async () => {
+    const ctx = setup();
+    try {
+      ctx.env.APPDATA = join(ctx.env.LOCALAPPDATA, 'missing-roaming');
+      await assert.rejects(
+        () => ctx.supervisor.ensure('trae', { profileMode: 'personal' }),
+        (error) => error.code === 'invalid_request'
+      );
+      assert.equal(ctx.host.spawned.length, 0);
+    } finally {
+      ctx.cleanup();
+    }
+  });
 
   test('ensure persists gateway references but never the capability token', async () => {
     const ctx = setup();

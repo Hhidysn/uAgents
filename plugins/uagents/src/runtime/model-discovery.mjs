@@ -8,6 +8,21 @@ export const MODEL_DISCOVERY_TTL_MS = 10 * 60 * 1000;
 
 const NATIVE_DISCOVERY_TARGETS = new Set(['agy', 'workbuddy', 'opencode']);
 
+export function managedContextForModelListing(target, supervisor) {
+  if (!supervisor) return null;
+  if (target !== 'trae') return supervisor.ensure ?? null;
+  return async () => {
+    const instance = supervisor.inspect?.('trae')?.instances?.at(-1);
+    if (!instance || typeof supervisor.reconcile !== 'function') return { managed: null };
+    return supervisor.reconcile('trae', {
+      instance_id: instance.instance_id,
+      profile_generation: instance.generation,
+      installation_id: instance.installation_id,
+      started_by_uagents: true,
+    });
+  };
+}
+
 export async function discoverModelsForTarget(target, {
   registry,
   adapterFactory = adapterFor,
@@ -37,14 +52,20 @@ export async function discoverModelsForTarget(target, {
         managedLease = acquired?.lease ?? null;
         if (!managed) {
           const error = new Error('Managed TRAE gateway identity is unavailable.');
-          error.code = 'managed_instance_identity_mismatch';
+          error.code = 'trae_identity_unconfirmed';
           throw error;
         }
       }
       errorStage = 'native_discovery';
       native = normalizeDiscovery(await adapter.discoverModels({ registry, managed }));
     } catch (error) {
-      native = { ...failedDiscovery(error), discovery: target === 'trae' ? 'native_gateway_picker' : 'native_cli' };
+      let local = null;
+      if (target === 'trae' && typeof adapter.discoverLocalModels === 'function') {
+        try { local = adapter.discoverLocalModels({ errorCode: errorCode(error, 'trae_identity_unconfirmed') }); }
+        catch {}
+      }
+      native = local ? normalizeDiscovery(local)
+        : { ...failedDiscovery(error), discovery: target === 'trae' ? 'native_gateway_picker' : 'native_cli' };
     } finally {
       if (managedLease) releaseManagedContext?.(managedLease);
     }

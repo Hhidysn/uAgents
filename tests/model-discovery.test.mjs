@@ -245,8 +245,25 @@ test('TRAE discovery never falls back to an unmanaged gateway after managed iden
   });
   assert.equal(called, false);
   assert.equal(released, true);
-  assert.equal(rows[0].discovery.error_code, 'managed_instance_identity_mismatch');
+  assert.equal(rows[0].discovery.error_code, 'trae_identity_unconfirmed');
   assert.equal(rows[0].discovery.error_stage, 'managed_context');
+});
+
+test('TRAE discovery uses personal cache when no existing managed context is available', async () => {
+  let gatewayCalled = false;
+  const rows = await discoverModelsForTarget('trae', {
+    registry: createRegistry(),
+    acquireManagedContext: async () => ({ managed: null }),
+    adapterFactory: () => ({
+      discoverModels: async () => { gatewayCalled = true; throw new Error('unmanaged gateway'); },
+      discoverLocalModels: () => ({ status: 'cache_only', discovery: 'native_profile_cache',
+        models: [{ id: 'glm-5.3', selector: 'GLM-5.3', route_id: 'trae/GLM-5.3', provider: 'trae' }] }),
+    }),
+  });
+  assert.equal(gatewayCalled, false);
+  assert.equal(rows[1].selector, 'GLM-5.3');
+  assert.equal(rows[1].usable, null);
+  assert.equal(rows[1].discovery.source, 'local_profile_cache');
 });
 
 test('model discovery cache uses TTL, explicit refresh and stale fallback', async () => {

@@ -95,7 +95,7 @@ export const CLI_COMMANDS = Object.freeze({
     stateDir,
   ], 'local_only'),
   reconcile: command('reconcile', 'reconcile <task-id> [--state-dir <dir>]', 'Observe the stored native identity without resubmitting the original prompt.', [taskId], [stateDir], 'native_no_new_prompt'),
-  ensure: command('ensure', 'ensure <target> [--refresh] [--state-dir <dir>]', 'Discover/verify a target and prepare its managed lifecycle when applicable.', [target], [option('--refresh', 'boolean', 'Force installation rediscovery.'), stateDir], 'native_no_prompt'),
+  ensure: command('ensure', 'ensure <target> [--refresh] [--profile personal|isolated] [--state-dir <dir>]', 'Discover/verify a target and prepare its managed lifecycle when applicable.', [target], [option('--refresh', 'boolean', 'Force installation rediscovery.'), option('--profile', 'string', 'TRAE only: launch with the existing personal profile or an isolated profile.'), stateDir], 'native_no_prompt'),
   resume: command('resume', 'resume <task-id> [--state-dir <dir>]', 'Recover or observe the same existing Task/Attempt; never creates a new prompt turn.', [taskId], [stateDir], 'native_no_new_prompt'),
   stop: command('stop', 'stop <target> [--state-dir <dir>]', 'Stop only an ownership-proven managed target instance.', [target], [stateDir], 'native_lifecycle_change'),
 });

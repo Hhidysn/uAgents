@@ -12,7 +12,7 @@ import { reconcileTask } from './reconcile.mjs';
 import { TaskService } from './task-service.mjs';
 import { childEnvironment } from './child-environment.mjs';
 import { CouncilService } from './council-service.mjs';
-import { discoverModelsForTarget } from './model-discovery.mjs';
+import { discoverModelsForTarget, managedContextForModelListing } from './model-discovery.mjs';
 
 const sourceWorkerFile = fileURLToPath(new URL('./worker-factory.mjs', import.meta.url));
 
@@ -51,7 +51,7 @@ export class UnifiedRuntime {
       refresh,
       cacheStore: this.supervisor?.hostStore ?? null,
       resolveInstallation: this.supervisor?.resolveInstallation ?? null,
-      acquireManagedContext: this.supervisor?.ensure ?? null,
+      acquireManagedContext: managedContextForModelListing(target, this.supervisor),
       releaseManagedContext: this.supervisor?.releaseInstanceLease ?? null,
     });
   }
@@ -78,9 +78,9 @@ export class UnifiedRuntime {
   // callers (CLI/MCP tools) hold no lease after returning: no live worker
   // exists to release it, and a residual lease would block stop/resume for
   // one TTL window. The task path keeps the lease until the worker finishes.
-  async ensure(target, { refresh = false } = {}) {
+  async ensure(target, { refresh = false, profileMode = null } = {}) {
     if (!this.supervisor) fail('unsupported_capability', 'Managed lifecycle is unavailable in this process.', { submission: 'not_sent' });
-    const ensured = await this.supervisor.ensure(target, { refresh });
+    const ensured = await this.supervisor.ensure(target, { refresh, profileMode });
     if (ensured.lease) this.supervisor.releaseInstanceLease(ensured.lease);
     return {
       target,

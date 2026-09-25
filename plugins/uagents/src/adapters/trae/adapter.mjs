@@ -74,16 +74,21 @@ export class TraeAdapter {
     };
   }
 
+  discoverLocalModels({ errorCode = 'trae_identity_unconfirmed' } = {}) {
+    const cached = this.readLocalModels();
+    if (!cached?.models?.length) return null;
+    return {
+      status: 'cache_only', models: cached.models, discovery: 'native_profile_cache',
+      error_code: errorCode, snapshot_file_mtime_ms: cached.snapshot_file_mtime_ms,
+    };
+  }
+
   async discoverModels({ managed = null } = {}) {
     const client = this.#clientFor({ managed });
     const probe = publicProbe(await client.status());
     if (!probe.identity_confirmed) {
-      const cached = this.readLocalModels();
-      if (cached?.models?.length) return {
-        status: 'cache_only', models: cached.models, discovery: 'native_profile_cache',
-        error_code: 'trae_identity_unconfirmed',
-        snapshot_file_mtime_ms: cached.snapshot_file_mtime_ms,
-      };
+      const cached = this.discoverLocalModels();
+      if (cached) return cached;
       fail('trae_identity_unconfirmed', probe.next_action, { submission: 'not_sent' });
     }
     const catalog = await client.models();

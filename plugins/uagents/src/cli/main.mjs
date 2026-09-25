@@ -10,7 +10,7 @@ import { councilJsonSchema } from '../protocol/council-schema.mjs';
 import { councilValidationJsonSchema } from '../protocol/council-validation-schema.mjs';
 import { councilValidationProfilesJsonSchema } from '../protocol/council-validation-profiles.mjs';
 import { adapterFor } from '../adapters/index.mjs';
-import { discoverModelsForTarget } from '../runtime/model-discovery.mjs';
+import { discoverModelsForTarget, managedContextForModelListing } from '../runtime/model-discovery.mjs';
 
 export async function execute(argv, options = {}) {
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, strict: true, options: CLI_PARSE_OPTIONS });
@@ -33,7 +33,7 @@ export async function execute(argv, options = {}) {
         refresh: values.refresh === true,
         cacheStore: supervisor?.hostStore ?? null,
         resolveInstallation: supervisor?.resolveInstallation ?? null,
-        acquireManagedContext: supervisor?.ensure ?? null,
+        acquireManagedContext: managedContextForModelListing(target, supervisor),
         releaseManagedContext: supervisor?.releaseInstanceLease ?? null,
       }));
     } finally {
@@ -69,7 +69,10 @@ export async function execute(argv, options = {}) {
     if (command === 'probe') return ok(await runtime.probe(required(subject, 'target'), { model: values.model ?? 'default' }));
     if (command === 'ensure') {
       const target = required(subject, 'target'); targetDescriptor(registry, target);
-      return ok(await runtime.ensure(target, { refresh: values.refresh === true }));
+      if (values.profile && (target !== 'trae' || !['personal', 'isolated'].includes(values.profile))) {
+        fail('invalid_request', '--profile accepts personal or isolated for TRAE only.');
+      }
+      return ok(await runtime.ensure(target, { refresh: values.refresh === true, profileMode: values.profile ?? null }));
     }
     if (command === 'submit') {
       if (subject || Boolean(values.request) === Boolean(values['request-stdin'])) fail('usage', 'submit requires exactly one of --request FILE or --request-stdin.');
