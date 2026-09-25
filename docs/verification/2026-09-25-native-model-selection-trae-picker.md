@@ -55,9 +55,21 @@ The user confirmed that the original TRAE window was saved and authorized closin
 | Gateway-only repair metadata | After a gateway restart, `ensure trae --profile personal` reused the same desktop; its persisted `gateway_pid` and the live port 19422 listener both equaled 20824. The desktop stayed running throughout. |
 | `node --test tests/target-supervisor.test.mjs tests/trae-launcher.test.mjs tests/model-discovery.test.mjs tests/unified-cli.test.mjs` and `node --test tests/plugin-package.test.mjs` | 64 targeted host/CLI tests and 1 package check passed after the gateway PID repair change. `git diff --check` passed. |
 
+## Functional follow-up on revision `4f4b97e`
+
+The previously managed desktop had exited before this follow-up, while its recorded gateway process still held port 19422. `models trae --refresh` correctly returned only partial personal-profile cache rows with `managed_instance_identity_mismatch`. After verifying the old gateway PID and command line, the orphan gateway was stopped; `ensure trae --profile personal` launched the installed TRAE binary with the same personal configuration as managed generation 7. Live model listing again returned 22 picker options plus the configured default row. This orphan-gateway cleanup was manual; automatic cleanup after an externally closed desktop was not established.
+
+| Check | Result |
+| --- | --- |
+| Implementation Task `19647d7c-4271-4fb4-ad2c-5a7144d9f916`, explicit `GLM-5.3` | Submitted against a fresh empty `.local/trae-implementation-e2e` workspace with a required `verification.txt` output. It reached native `done` and uAgents `succeeded`; response was exactly `DONE`. The only workspace file was `verification.txt`, 23 bytes, with exact UTF-8 content `TRAE_IMPLEMENTATION_OK\n` and SHA-256 `0a404975ca49131900dec0a6bed58c2add3d99e88c733597e9a9b8cf7bebbdcc`. The result captured the required file as `verified=true`. |
+| Exact duplicate submit of the same implementation request | Returned `duplicate=true`, the same uAgents Task and Attempt IDs, and the same native task ID `task_1_mugkrnkn_306jg4zq9w`. Gateway history contained exactly one matching native task. |
+| Default-model analysis Task `61f05863-41df-437e-9b2b-00f773c93d8a` | Request omitted `model`; uAgents recorded `model_requested=default`, `model_resolved=null`, and `route_id=trae-default`. Native status reached `done`, and response was exactly `UAGENTS_TRAE_DEFAULT_OK`. The picker reported current `GLM-5.3` after completion, but this is not a per-Task model self-report. |
+| Cancel after the completed implementation Task | Returned `cancel_accepted=false`, kept `status=succeeded` and `cancel_requested=false`. This verifies the local terminal-state guard; it does not prove native cancellation of a running TRAE Task. |
+
 ## Not verified on this machine
 
-- Quota behavior and actual Provider/model used for generation. Live picker labels, UI switching to `GLM-5.3`, and one successful text + workspace Task with an exact reply are verified, but the gateway provides no trustworthy per-Task model self-report.
-- Reuse of an already-running personal TRAE window without restarting it. The original process had no CDP listener. Explicit managed restart with the same personal configuration worked for discovery and model switching; it did not complete a Task.
+- Quota behavior and actual Provider/model used for generation. Live picker labels, UI switching to `GLM-5.3`, and successful analysis and implementation Tasks are verified, but the gateway provides no trustworthy per-Task model self-report.
+- Reuse of an already-running personal TRAE window without restarting it. The original process had no CDP listener. Explicit managed restart with the same personal configuration completed analysis and implementation Tasks.
+- Native cancellation of a running TRAE Task, quota failure, other model selectors, and automatic removal of a leftover gateway after the desktop exits externally. TRAE currently declares native cancel unsupported; the local completed-Task cancel guard was verified.
 - Real execution of newly passed through IDs on Codex, Claude Code, agy, DSH, OpenCode, or WorkBuddy. The WorkBuddy no-prompt help listing confirms labels, not a model response.
 - Availability of a full model catalog for Codex, Claude Code, or DSH. `models` on these targets remains configured-only.
