@@ -86,7 +86,7 @@ uagents capabilities <target>
 - 支持 analysis / implementation text task。
 - 使用受管桌面实例与 gateway。
 - 网关 `/api/models` 读取当前模型选择器；显式 Task 模型会随 `/api/tasks/submit` 传入，由网关在任务发送前切换。默认路线仍沿用界面当前模型。
-- `models trae` 不启动新桌面实例；无可用受管窗口时仅列出个人配置缓存中的候选模型，执行可用性未确认。默认 Task 使用独立受管配置。关闭原有 TRAE 窗口后，`ensure trae --profile personal` 可用原个人配置和 CDP 参数启动受管窗口；已验证登录状态、实时模型列表和 `GLM-5.3` 界面切换。当前网关对这版 TRAE 自报 `compatibility=degraded`；真实 Task 在发送前失败，尚无成功回复证据。
+- `models trae` 不启动新桌面实例；无可用受管窗口时仅列出个人配置缓存中的候选模型，执行可用性未确认。默认 Task 使用独立受管配置。关闭原有 TRAE 窗口后，`ensure trae --profile personal` 可用原个人配置和 CDP 参数启动受管窗口；已验证登录状态、实时模型列表、`GLM-5.3` 界面切换和一条 text + workspace Task 的准确回复。当前网关对这版 TRAE 仍自报 `compatibility=degraded`，其它界面动作和模型尚未逐项验证。
 - 网关结果尚未提供可核对的逐 Task 模型自报，因此 `model_verified=false`；模型切换或额度失败按原生任务结果记录。
 - 当前没有 native file/image attachment 或 continuation/fork mapping。
 

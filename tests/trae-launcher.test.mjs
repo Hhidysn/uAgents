@@ -441,6 +441,8 @@ describe('supervisor with the trae launcher', () => {
       const second = await ctx.supervisor.ensure('trae');
       assert.equal(second.mode, 'reuse', 'desktop is alive; only the gateway needed repair');
       assert.equal(second.lifecycle.state, 'ready');
+      assert.notEqual(second.instance.gateway_pid, first.instance.gateway_pid);
+      assert.equal(ctx.hostStore.getManagedInstance(first.instance.instance_id).gateway_pid, second.instance.gateway_pid);
       const third = await ctx.supervisor.ensure('trae');
       assert.equal(third.mode, 'reuse');
       assert.equal(third.managed.instance_nonce, first.managed.instance_nonce);

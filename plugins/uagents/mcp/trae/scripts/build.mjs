@@ -82,6 +82,65 @@ replaceOnce('src/cdp/dom-handlers/messaging.js', `  await driver.client.send('In
   await driver.client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', modifiers: 4 });
 `, '');
 
+// The current TRAE CN Agent panel removes the Explorer DOM, so infer the
+// active single-folder workspace from TRAE's own workbench state. Keep the
+// Explorer path as the fallback; do not infer a native path for multi-root.
+replaceOnce('src/cdp/dom-handlers/panel-capture.js', `      return {
+        title: title,
+        folderName: explorer && title ? title : null,
+        rootPath: rootPath,
+        hasExplorer: !!explorer
+      };`, `      var folders = window.icubeWorkspace && window.icubeWorkspace.folders;
+      if (Array.isArray(folders) && folders.length === 1) {
+        var uri = folders[0] && folders[0].uri;
+        var nativePath = uri && uri.scheme === 'file' ? uri.fsPath : null;
+        if (typeof nativePath === 'string' && nativePath.length > 3 &&
+            nativePath.charAt(1) === ':' &&
+            (nativePath.charAt(2) === String.fromCharCode(92) || nativePath.charAt(2) === '/')) {
+          rootPath = nativePath;
+        }
+      }
+      return {
+        title: title,
+        folderName: explorer && title ? title : null,
+        rootPath: rootPath,
+        hasExplorer: !!explorer
+      };`);
+
+replaceOnce('src/http/gateway.js', `    if ((currentPath && currentPath !== normalizedRequestedPath) ||
+        (!currentPath && currentFolder !== requestedFolder)) {`, `    const samePath = currentPath && (process.platform === 'win32'
+      ? currentPath.toLowerCase() === normalizedRequestedPath.toLowerCase()
+      : currentPath === normalizedRequestedPath);
+    if ((currentPath && !samePath) ||
+        (!currentPath && currentFolder !== requestedFolder)) {`);
+
+// This TRAE build renders Solo turns under .turn and the final answer in a
+// finish card. Bind extraction to the exact pending user message so a stale
+// prior answer or broad page text cannot be reported as the new Task result.
+replaceOnce('src/cdp/dom-handlers/panel-capture.js', `async function _queryTaskSource(driver, skipText, options = {}) {
+  const modeInfo = await driver.detectMode();`, `async function _queryTaskSource(driver, skipText, options = {}) {
+  const pendingTask = String(driver._pendingUserTask || '').trim();
+  if (pendingTask) {
+    const currentTurn = await driver.client.send('Runtime.evaluate', {
+      expression: \`(() => {
+        const turns = Array.from(document.querySelectorAll('.turn')).filter(el => el.offsetParent !== null);
+        const last = turns[turns.length - 1];
+        const userText = last && last.querySelector('.turn__user-message .user-message-query-text');
+        const normalize = value => String(value || '').replace(/\\\\s+/g, ' ').trim();
+        if (!userText || normalize(userText.textContent) !== normalize(\${safeJsValue(pendingTask)})) return null;
+        const summary = last.querySelector('.turn__agent-message .core-finish-card__summary .markdown-renderer');
+        return { matching: true, finalText: summary ? String(summary.innerText || summary.textContent || '').trim() : '' };
+      })()\`,
+      returnByValue: true
+    });
+    const current = currentTurn.result?.value;
+    if (current?.matching === true) {
+      if (current.finalText) return { text: current.finalText, inProgress: false, isComplete: true, hasResponse: true };
+      return { text: '', awaitingAssistant: true, latestUserText: pendingTask };
+    }
+  }
+  const modeInfo = await driver.detectMode();`);
+
 for (const relative of ['src/http/task-store.js', 'src/shared/task-event-store.js', 'src/shared/task-history.js']) {
   replaceOnce(relative, `    fs.copyFileSync(sourcePath, destinationPath);
     const fd = fs.openSync(destinationPath, 'r');`, `    fs.copyFileSync(sourcePath, destinationPath);

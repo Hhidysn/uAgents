@@ -237,6 +237,7 @@ export function createTargetSupervisor({
         // plain launch functions and Gate 3.1 fakes keep ready semantics).
         const launcherEntry = launcherTable[target];
         let classification = null;
+        let repairedGateway = null;
         if (Number.isInteger(latest.port) && typeof launcherEntry?.classify === "function") {
           try {
             classification = await launcherEntry.classify({ port: latest.port, instance: latest, env, runPowerShell: runner });
@@ -250,7 +251,7 @@ export function createTargetSupervisor({
           // persistence directory and nonce. If repair fails, converge by
           // marking the record stale and launching a fresh generation.
           try {
-            await launcherEntry.repair({ instance: latest, env, runPowerShell: runner });
+            repairedGateway = await launcherEntry.repair({ instance: latest, env, runPowerShell: runner });
             classification = await launcherEntry.classify({ port: latest.port, instance: latest, env, runPowerShell: runner });
           } catch {
             classification = { state: "stale" };
@@ -265,6 +266,11 @@ export function createTargetSupervisor({
             : classification?.state === "ready" ? "ready"
               : (latest.state ?? "ready");
           const refreshed = { ...latest, state, last_seen_at_ms: now() };
+          if (classification?.state === "ready" && Number.isInteger(repairedGateway?.gateway_pid)) {
+            refreshed.gateway_pid = repairedGateway.gateway_pid;
+            refreshed.gateway_started_at_ms = Number.isFinite(repairedGateway.gateway_started_at_ms)
+              ? repairedGateway.gateway_started_at_ms : null;
+          }
           hostStore.upsertManagedInstance(latest.instance_id, refreshed);
           // In-memory capability token for gateway-authenticated adapters:
           // read from the host secrets file, never re-persisted anywhere.
