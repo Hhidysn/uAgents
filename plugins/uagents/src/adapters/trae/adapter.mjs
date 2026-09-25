@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { TraeGatewayClient } from '../../../mcp/trae/src/client.mjs';
 import { fail, normalizeError, UAgentsError } from '../../protocol/errors.mjs';
 import { BUILTIN_REGISTRY } from '../../registry/builtins.mjs';
+import { readTraeLocalModelCache } from './local-model-cache.mjs';
 
 // Known gateway client codes must surface as their own UAgentsError code
 // (design §16): normalizeError alone would degrade them to internal_error.
@@ -24,10 +25,12 @@ function normalizeGatewayClientError(error) {
 }
 
 export class TraeAdapter {
-  constructor({ client = new TraeGatewayClient(), pollIntervalMs = 1_000, now = Date.now } = {}) {
+  constructor({ client = new TraeGatewayClient(), pollIntervalMs = 1_000, now = Date.now,
+    readLocalModels = readTraeLocalModelCache } = {}) {
     this.client = client;
     this.pollIntervalMs = pollIntervalMs;
     this.now = now;
+    this.readLocalModels = readLocalModels;
   }
 
   // Managed instances run on supervisor-assigned ports with a capability
@@ -74,7 +77,15 @@ export class TraeAdapter {
   async discoverModels({ managed = null } = {}) {
     const client = this.#clientFor({ managed });
     const probe = publicProbe(await client.status());
-    if (!probe.identity_confirmed) fail('trae_identity_unconfirmed', probe.next_action, { submission: 'not_sent' });
+    if (!probe.identity_confirmed) {
+      const cached = this.readLocalModels();
+      if (cached?.models?.length) return {
+        status: 'cache_only', models: cached.models, discovery: 'native_profile_cache',
+        error_code: 'trae_identity_unconfirmed',
+        snapshot_file_mtime_ms: cached.snapshot_file_mtime_ms,
+      };
+      fail('trae_identity_unconfirmed', probe.next_action, { submission: 'not_sent' });
+    }
     const catalog = await client.models();
     if (!Array.isArray(catalog?.models)) fail('model_discovery_parse_failed', 'TRAE gateway returned no model list.', { submission: 'not_sent' });
     const models = [...new Set(catalog.models.filter(name => typeof name === 'string')

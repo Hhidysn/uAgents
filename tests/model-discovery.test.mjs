@@ -215,6 +215,25 @@ test('TRAE discovery uses and releases the verified managed gateway context', as
   assert.equal(rows[0].discovery.status, 'ok');
 });
 
+test('TRAE personal-profile cache lists candidates without claiming managed execution availability', async () => {
+  const rows = await discoverModelsForTarget('trae', {
+    registry: createRegistry(),
+    adapterFactory: () => ({ discoverModels: async () => ({
+      status: 'cache_only', discovery: 'native_profile_cache',
+      error_code: 'trae_identity_unconfirmed', snapshot_file_mtime_ms: 1234,
+      models: [{ id: 'glm-5.3', selector: 'GLM-5.3', route_id: 'trae/GLM-5.3', provider: 'trae' }],
+    }) }),
+  });
+  assert.equal(rows[1].model, 'glm-5.3');
+  assert.equal(rows[1].selector, 'GLM-5.3');
+  assert.equal(rows[1].discovered, true);
+  assert.equal(rows[1].usable, null);
+  assert.equal(rows[1].discovery.status, 'partial');
+  assert.equal(rows[1].discovery.source, 'local_profile_cache');
+  assert.equal(rows[1].discovery.error_code, 'trae_identity_unconfirmed');
+  assert.equal(rows[1].discovery.snapshot_file_mtime_ms, 1234);
+});
+
 test('TRAE discovery never falls back to an unmanaged gateway after managed identity fails', async () => {
   let called = false;
   let released = false;

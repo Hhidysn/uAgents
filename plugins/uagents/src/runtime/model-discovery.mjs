@@ -50,10 +50,14 @@ export async function discoverModelsForTarget(target, {
     }
     const evidence = native.status === 'configured_only'
       ? { status: 'configured_only', method: native.discovery, source: 'configured', stale: false }
+      : native.status === 'cache_only'
+        ? { status: 'partial', method: native.discovery, source: 'local_profile_cache', stale: true,
+            snapshot_file_mtime_ms: native.snapshot_file_mtime_ms ?? null,
+            error_code: native.error_code ?? 'trae_identity_unconfirmed' }
       : native.status === 'ok'
         ? { status: 'ok', method: native.discovery, source: 'native', observed_at_ms: nowMs, stale: false }
         : failureEvidence(native, nowMs, { stage: errorStage });
-    return mergeRows({ target, registry, configured, native, evidence, stale: false });
+    return mergeRows({ target, registry, configured, native, evidence, stale: native.status === 'cache_only' });
   }
 
   const scope = modelDiscoveryScope(target, registry);
@@ -169,7 +173,7 @@ export async function discoverModelsForTarget(target, {
 
 function mergeRows({ target, registry, configured, native, evidence, stale }) {
   const matched = new Set();
-  const hasSnapshot = native.status === 'ok';
+  const hasSnapshot = native.status === 'ok' || native.status === 'cache_only';
   const rows = configured.map(([selector, model]) => {
     const matchIndex = hasSnapshot ? findNativeModel(native.models, model) : -1;
     if (matchIndex >= 0) matched.add(matchIndex);
@@ -197,7 +201,7 @@ function mergeRows({ target, registry, configured, native, evidence, stale }) {
       target,
       model: model.id ?? null,
       route_id: selection?.route_id ?? model.route_id ?? null,
-      selector: target === 'opencode' ? model.route_id : model.id,
+      selector: target === 'opencode' ? model.route_id : model.selector ?? model.id,
       default: false,
       provider: model.provider ?? target,
       kind: 'native_discovered',
@@ -223,6 +227,7 @@ function normalizeDiscovery(value) {
     status,
     discovery: value.discovery ?? 'unknown',
     ...(value.error_code ? { error_code: value.error_code } : {}),
+    ...(value.snapshot_file_mtime_ms ? { snapshot_file_mtime_ms: value.snapshot_file_mtime_ms } : {}),
     models: Array.isArray(value.models) ? value.models : [],
   };
 }
@@ -254,7 +259,7 @@ function findNativeModel(models, configured) {
 }
 
 function nativeSelection(registry, target, model) {
-  const selector = target === 'opencode' ? model.route_id : model.id;
+  const selector = target === 'opencode' ? model.route_id : model.selector ?? model.id;
   if (typeof selector !== 'string' || !selector) return null;
   try {
     return resolveModel(registry, target, selector);

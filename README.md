@@ -100,7 +100,7 @@ Council 可以把同一任务 fan-out 给多个 Agent。分析任务可共享 wo
 ### 模型发现
 
 `models <target>` 会展示配置路线和可获得的原生模型发现证据。agy、WorkBuddy、OpenCode 的 native catalog
-使用 10 分钟本机缓存，可用 `models <target> --refresh` 显式刷新。TRAE 通过受管网关读取专用受管窗口的模型选择器；首次使用须在该窗口完成原生设置/登录，已打开的个人窗口不会被复用。
+使用 10 分钟本机缓存，可用 `models <target> --refresh` 显式刷新。TRAE 优先通过受管网关读取专用窗口的模型选择器；该窗口尚在原生设置页时，可只读列出个人 TRAE CN 配置缓存中的 SOLO 模型候选，并标记 `discovery.status=partial`、`usable=null`。Task 仍须受管窗口完成设置/登录后才能执行。
 原生目录中的模型可直接作为单次 Task 的 `model`；不要求另行登记静态路线。发现到模型不代表 Provider 登录、额度或在线状态已经确认。
 
 每个 target 可以在用户配置中设置 `defaults`；请求省略 `model` 或写 `"model":"default"` 时使用该默认路线，

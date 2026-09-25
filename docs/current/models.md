@@ -164,4 +164,4 @@ commandcode-goat/z-ai/glm-5.3-flash
 
 Codex、Claude Code 和 DSH 当前只展示 configured route；没有原生目录，不推断其完整模型列表。Doubao 继续使用 backend/default contract。
 TRAE 网关提供 `GET /api/models`：列出当前界面模型选择器中的名称；Task 可显式传入该名称，网关会在发送任务前切换模型。
-TRAE 的 backend default 仍沿用当前界面模型，不从列表猜一个默认值。模型列表需要专用受管实例已完成原生设置/登录并显示工作台；已打开的个人窗口不会被复用。当前没有逐 Task 可核对的模型自报。
+TRAE 的 backend default 仍沿用当前界面模型，不从列表猜一个默认值。专用受管实例进入工作台后，`models trae` 从网关读取当前模型选择器。若受管实例仍在原生设置页，uAgents 会只读读取个人 TRAE CN 配置数据库中的 `solo_agent` 缓存，仅返回 `status=true` 且 `selectable=true` 的模型 ID 和显示名；`selector` 使用显示名。此时 `discovery.status=partial`、`source=local_profile_cache`、`usable=null`，不能证明这些模型在受管实例中已经可执行。缓存含有其它敏感配置，uAgents 不返回或保存这些字段；账户缓存不唯一时不使用。Task 仍受专用窗口的身份检查约束。当前没有逐 Task 可核对的模型自报。
