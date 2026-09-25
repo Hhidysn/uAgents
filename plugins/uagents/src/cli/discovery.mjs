@@ -20,33 +20,37 @@ export const CLI_PARSE_OPTIONS = Object.freeze({
 });
 
 const stateDir = option('--state-dir', 'absolute_path', 'Use one explicit task-state directory for this command.');
+const configFile = option('--config', 'absolute_path', 'Load registry routes and target defaults from this JSON file; overrides UAGENTS_CONFIG.');
 const taskId = positional('task_id', 'uuid', true);
 const target = positional('target', 'target_id', true);
 
 export const CLI_COMMANDS = Object.freeze({
-  targets: command('targets', 'targets', 'List enabled target IDs.', [], [], 'local_only'),
-  capabilities: command('capabilities', 'capabilities <target>', 'Read the static capability descriptor for one target.', [target], [], 'local_only'),
+  targets: command('targets', 'targets [--config <file>]', 'List enabled target IDs.', [], [configFile], 'local_only'),
+  capabilities: command('capabilities', 'capabilities <target> [--config <file>]', 'Read the static capability descriptor for one target.', [target], [configFile], 'local_only'),
   models: command('models', 'models <target> [--refresh]', 'Merge approved model routes with cached local no-prompt native model discovery.', [target], [
     option('--refresh', 'boolean', 'Bypass the uAgents model discovery cache and refresh the native catalog.'),
+    configFile,
   ], 'native_no_prompt'),
-  probe: command('probe', 'probe <target> [--model <model>]', 'Run the target-specific non-prompt probe.', [target], [option('--model', 'string', 'Model selector for the probe.')], 'native_no_prompt'),
+  probe: command('probe', 'probe <target> [--model <model>] [--config <file>]', 'Run the target-specific non-prompt probe.', [target], [option('--model', 'string', 'Model selector for the probe.'), configFile], 'native_no_prompt'),
   describe: command('describe', 'describe [command]', 'Return the machine-readable CLI contract.', [positional('command', 'command_name', false)], [], 'local_only'),
   schema: command('schema', 'schema <request|council|council-validation|council-validation-profiles>', 'Return a machine-readable protocol JSON Schema.', [positional('subject', 'enum', true, ['request', 'council', 'council-validation', 'council-validation-profiles'])], [], 'local_only'),
-  config: command('config', 'config validate [--config <file>]', 'Validate user registry tightening configuration.', [positional('action', 'enum', true, ['validate'])], [option('--config', 'file', 'JSON configuration file.')], 'local_only'),
+  config: command('config', 'config validate [--config <file>]', 'Validate user model routes, defaults, and capability restrictions.', [positional('action', 'enum', true, ['validate'])], [configFile], 'local_only'),
   submit: {
-    ...command('submit', 'submit (--request <file> | --request-stdin) [--state-dir <dir>]', 'Register one idempotent task; a detached worker may send the prompt after registration.', [], [
+    ...command('submit', 'submit (--request <file> | --request-stdin) [--config <file>] [--state-dir <dir>]', 'Register one idempotent task; a detached worker may send the prompt after registration.', [], [
       option('--request', 'file', 'Read the unified request JSON from a file.', { exclusive_group: 'request_source' }),
       option('--request-stdin', 'boolean', 'Read the unified request JSON from stdin.', { exclusive_group: 'request_source' }),
       stateDir,
+      configFile,
     ], 'may_send_prompt'),
     constraints: [{ type: 'exactly_one', options: ['--request', '--request-stdin'] }],
     request_schema: { command: 'schema request', id: `uagents://schema/request/${SCHEMA_VERSION}` },
   },
   'council-submit': {
-    ...command('council-submit', 'council-submit (--request <file> | --request-stdin) [--state-dir <dir>]', 'Register a fan-out Council; implementation members can use isolated Git worktrees.', [], [
+    ...command('council-submit', 'council-submit (--request <file> | --request-stdin) [--config <file>] [--state-dir <dir>]', 'Register a fan-out Council; implementation members can use isolated Git worktrees.', [], [
       option('--request', 'file', 'Read the council request JSON from a file.', { exclusive_group: 'request_source' }),
       option('--request-stdin', 'boolean', 'Read the council request JSON from stdin.', { exclusive_group: 'request_source' }),
       stateDir,
+      configFile,
     ], 'may_send_prompt'),
     constraints: [{ type: 'exactly_one', options: ['--request', '--request-stdin'] }],
     request_schema: { command: 'schema council', id: `uagents://schema/council/${SCHEMA_VERSION}` },

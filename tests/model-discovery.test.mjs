@@ -99,6 +99,25 @@ test('WorkBuddy discovery marks the verified concrete route configured and usabl
   assert.equal(discoveredOnly.admission_allowed, false);
 });
 
+test('model listing identifies the configured default and selectable route', async () => {
+  const selector = 'workbuddy/glm-5.3-flash';
+  const registry = createRegistry({ routes: {
+    [selector]: { target: 'workbuddy', model: 'glm-5.3-flash', provider: 'workbuddy', route_id: selector },
+  }, defaults: { workbuddy: selector } });
+  const rows = await discoverModelsForTarget('workbuddy', {
+    registry,
+    adapterFactory: () => ({ discoverModels: async () => ({ status: 'ok', discovery: 'native_cli_help', models: [
+      { id: 'auto', route_id: null, provider: 'workbuddy' },
+      { id: 'glm-5.3-flash', route_id: null, provider: 'workbuddy' },
+    ] }) }),
+  });
+  const selected = rows.find(row => row.selector === selector);
+  assert.equal(selected.default, true);
+  assert.equal(selected.discovered, true);
+  assert.equal(selected.admission_allowed, true);
+  assert.equal(rows.find(row => row.selector === 'workbuddy-default').default, false);
+});
+
 test('OpenCode model parser keeps only the requested provider catalog', () => {
   const models = parseOpenCodeModelList('commandcode-goat/deepseek/deepseek-v4-flash\nother/model\ncommandcode-goat/z-ai/glm-5.3-flash\n', 'commandcode-goat');
   assert.deepEqual(models.map(model => model.route_id), [

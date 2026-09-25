@@ -38,6 +38,8 @@ Codex continuation 用持久化的 Thread/Turn ID 续接，并在发送前核对
 
 Codex 的沙箱和审批策略由本机 Codex 原生配置控制，uAgents 不提供审批代理。app-server 若发出需要交互答复的原生审批请求，uAgents 不作决定，也不发送同意或拒绝；该已发送 Task 保持 `indeterminate`，错误码为 `native_approval_required`。检查 Codex 原生权限配置与工作区后，可另行决定如何处理；对原 Task 使用 `resume` 只做恢复观察，不重发 Prompt。
 
+Claude Code CLI 原生提供 `--resume <session-id>` 与 `--fork-session`，但当前 uAgents `claudeCode` target 不开放跨 Task continuation/fork。现有接入尚未验证来源 Task、工作区、安装身份与原生会话边界的组合约束。原生 session ID 仅作为当前 Task 的执行证据记录。
+
 ## 与 `uagents resume` 的区别
 
 `uagents resume <task-id>` 恢复的是同一个 uAgents Task / Attempt，主要用于继续本地调度或观察已有 native execution，不表示发送新的 follow-up prompt。

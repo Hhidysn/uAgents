@@ -22,6 +22,9 @@ uagents schema request
 }
 ```
 
+`model` 可省略；Core 将它按 `"default"` 解析到该 target 当前配置的路线。请求中的具体模型 `selector`
+只覆盖本次 Task。若 target 没有默认路线，省略模型会在发送前返回 `model_unavailable`。
+
 ## Model identity
 
 任务状态会区分：

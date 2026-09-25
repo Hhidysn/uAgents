@@ -135,7 +135,7 @@ export function councilJsonSchema() {
       members: {
         type: 'array', minItems: 2, maxItems: COUNCIL_LIMITS.members,
         items: {
-          type: 'object', additionalProperties: false, required: ['member_id', 'target', 'model'],
+          type: 'object', additionalProperties: false, required: ['member_id', 'target'],
           properties: {
             member_id: { type: 'string', minLength: 1, 'x-uagents-max-bytes': COUNCIL_LIMITS.member_id_bytes },
             target: task.properties.target,

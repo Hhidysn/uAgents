@@ -37,6 +37,7 @@ uagents_council_cleanup
 ```
 
 `refresh=true` 与 CLI `models <target> --refresh` 语义相同：仅刷新本机 native model catalog cache，不创建 Provider task。
+MCP Server 在启动时从绝对路径环境变量 `UAGENTS_CONFIG` 载入用户路线与默认值；Task 的 `model` 可省略以使用 target 默认值。
 
 ## Host attachments
 

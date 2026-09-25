@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import { parseArgs } from 'node:util';
 import { notOk, ok } from '../protocol/envelope.mjs';
 import { fail } from '../protocol/errors.mjs';
-import { createRegistry, targetDescriptor } from '../registry/registry.mjs';
+import { targetDescriptor } from '../registry/registry.mjs';
+import { loadRegistry } from '../registry/config-file.mjs';
 import { CLI_PARSE_OPTIONS, describeCli, isKnownCliCommand } from './discovery.mjs';
 import { requestJsonSchema } from '../protocol/request-json-schema.mjs';
 import { councilJsonSchema } from '../protocol/council-schema.mjs';
@@ -12,8 +13,8 @@ import { adapterFor } from '../adapters/index.mjs';
 import { discoverModelsForTarget } from '../runtime/model-discovery.mjs';
 
 export async function execute(argv, options = {}) {
-  const registry = options.registry ?? createRegistry();
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, strict: true, options: CLI_PARSE_OPTIONS });
+  const registry = options.registry ?? loadRegistry({ configPath: values.config, env: options.env ?? process.env });
   if (values.format && !['json', 'table'].includes(values.format)) fail('invalid_request', 'format must be json or table.');
   const [command, subject, ...extra] = positionals;
   if (!command || extra.length) fail('usage', 'Invalid uagents command arguments.');
@@ -50,8 +51,7 @@ export async function execute(argv, options = {}) {
     fail('usage', 'schema requires subject request, council, council-validation, or council-validation-profiles.');
   }
   if (command === 'config' && subject === 'validate') {
-    const config = values.config ? JSON.parse(fs.readFileSync(values.config, 'utf8')) : {};
-    return ok({ valid: true, registry_version: createRegistry(config).version });
+    return ok({ valid: true, registry_version: registry.version });
   }
 
   const { resolveStateRoot, UnifiedRuntime } = await import('../runtime/api.mjs');

@@ -8,6 +8,7 @@ import { notOk, ok } from '../../../src/protocol/envelope.mjs';
 import { resolveStateRoot, UnifiedRuntime } from '../../../src/runtime/api.mjs';
 import { runRegisteredTask } from '../../../src/runtime/worker-factory.mjs';
 import { childEnvironment } from '../../../src/runtime/child-environment.mjs';
+import { loadRegistry } from '../../../src/registry/config-file.mjs';
 import { normalizeHostAttachmentRequest } from '../../../src/host/attachment-inputs.mjs';
 
 const taskIdSchema = z.object({ task_id: z.uuid() }).strict();
@@ -74,7 +75,7 @@ export const requestSchema = z.object({
   schema_version: z.literal('1.0'),
   request_id: z.uuid(),
   target: z.string().min(1).max(64),
-  model: z.string().min(1).max(256),
+  model: z.string().min(1).max(256).optional(),
   mode: z.enum(['analysis', 'implementation']),
   prompt: z.string().min(1).max(65_536),
   workspace: z.string().optional(),
@@ -119,7 +120,7 @@ export const councilRequestSchema = z.object({
   members: z.array(z.object({
     member_id: z.string().min(1).max(64),
     target: z.string().min(1).max(64),
-    model: z.string().min(1).max(256),
+    model: z.string().min(1).max(256).optional(),
     instruction: z.string().min(1).max(65_536).optional(),
     session: z.object({
       continue_from_task_id: z.uuid().optional(),
@@ -197,6 +198,7 @@ function createRuntime() {
   const bundledEntry = fileURLToPath(import.meta.url);
   return new UnifiedRuntime({
     stateRoot,
+    registry: loadRegistry(),
     spawnWorker: (root, taskId) => {
       const child = spawn(process.execPath, [bundledEntry, '--worker', root, taskId], {
         detached: true, windowsHide: true, env: childEnvironment(), stdio: 'ignore',

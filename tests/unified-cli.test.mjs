@@ -19,7 +19,7 @@ const request = patch => ({
 test('discovery commands expose configured routes plus local native model evidence', async () => {
   const targets = await execute(['targets']);
   assert.equal(targets.ok, true);
-  assert.deepEqual(targets.data, ['agy', 'codex', 'workbuddy', 'dsh', 'opencode', 'doubao', 'trae']);
+  assert.deepEqual(targets.data, ['agy', 'codex', 'claudeCode', 'workbuddy', 'dsh', 'opencode', 'doubao', 'trae']);
   const capabilities = await execute(['capabilities', 'opencode']);
   assert.deepEqual(capabilities.data.modes, ['analysis', 'implementation']);
   assert.equal('available' in capabilities.data, false);
@@ -36,7 +36,7 @@ test('discovery commands expose configured routes plus local native model eviden
   assert.equal(models.data.find(model => model.route_id === 'commandcode-goat/deepseek/deepseek-v4-flash').usable, true);
   assert.equal(models.data.find(model => model.route_id === 'commandcode-goat/deepseek/deepseek-v4-pro').configured, false);
   const describedModels = await execute(['describe', 'models'], { env: {} });
-  assert.deepEqual(describedModels.data.options.map(option => option.name), ['--refresh']);
+  assert.deepEqual(describedModels.data.options.map(option => option.name), ['--refresh', '--config']);
 });
 
 test('CLI discovery exposes commands and submit arguments without opening runtime state', async () => {
@@ -88,7 +88,8 @@ test('request schema discovery mirrors the Core request contract', async () => {
   const schema = discovered.data;
   assert.equal(schema.$id, 'uagents://schema/request/1.0');
   assert.equal(schema.additionalProperties, false);
-  assert.deepEqual(schema.required, ['schema_version', 'request_id', 'target', 'model', 'mode', 'prompt']);
+  assert.deepEqual(schema.required, ['schema_version', 'request_id', 'target', 'mode', 'prompt']);
+  assert.equal(schema.properties.model.default, 'default');
   assert.deepEqual(schema.properties.mode.enum, ['analysis', 'implementation']);
   assert.deepEqual(schema.properties.execution.properties.effort.enum, ['low', 'medium', 'high', 'max']);
   assert.deepEqual(schema.properties.inputs.items.properties.type.enum, ['file', 'image']);
@@ -249,6 +250,42 @@ test('configuration validation cannot enable unsupported capabilities', async ()
   fs.writeFileSync(configFile, JSON.stringify({ targets: { opencode: { permissions: { workspace_write: true } } } }));
   const validated = await execute(['config', 'validate', '--config', configFile]);
   assert.equal(validated.data.valid, true);
+});
+
+test('CLI loads target model defaults from config and explicit Task model overrides', async () => {
+  const selector = 'workbuddy/glm-5.3-flash';
+  const configFile = path.join(root, 'model-routes.json');
+  fs.writeFileSync(configFile, JSON.stringify({
+    routes: { [selector]: { target: 'workbuddy', model: 'glm-5.3-flash', provider: 'workbuddy', route_id: selector } },
+    defaults: { workbuddy: selector },
+  }));
+  const validated = await execute(['config', 'validate', '--config', configFile]);
+  assert.equal(validated.data.valid, true);
+  const models = await execute(['models', 'workbuddy', '--config', configFile], { supervisor: null,
+    adapterFactory: () => ({ discoverModels: async () => ({ status: 'ok', discovery: 'native_cli_help', models: [
+      { id: 'auto', provider: 'workbuddy' }, { id: 'glm-5.3-flash', provider: 'workbuddy' },
+    ] }) }),
+  });
+  assert.equal(models.data.find(row => row.selector === selector).default, true);
+  const input = request({ target: 'workbuddy', model: undefined });
+  const launch = [];
+  const args = ['submit', '--request-stdin', '--state-dir', root, '--config', configFile];
+  const submitted = await execute(args, { stdin: Readable.from([JSON.stringify(input)]),
+    spawnWorker: (...values) => launch.push(values) });
+  assert.equal(submitted.data.model_requested, 'default');
+  assert.equal(submitted.data.model_resolved, 'glm-5.3-flash');
+  assert.equal(submitted.data.route_id, selector);
+  const duplicate = await execute(args, { stdin: Readable.from([JSON.stringify({ ...input, model: 'default' })]),
+    spawnWorker: (...values) => launch.push(values) });
+  assert.equal(duplicate.data.duplicate, true);
+  assert.equal(launch.length, 1);
+  const explicit = await execute(['submit', '--request-stdin', '--state-dir', root], {
+    env: { UAGENTS_CONFIG: configFile },
+    stdin: Readable.from([JSON.stringify(request({ target: 'workbuddy', model: 'deepseek-v4.1-flash' }))]),
+    spawnWorker: () => {},
+  });
+  assert.equal(explicit.data.model_resolved, 'deepseek-v4.1-flash');
+  assert.equal(explicit.data.model_requested, 'deepseek-v4.1-flash');
 });
 
 test('capabilities declare the managed lifecycle per target kind', async () => {

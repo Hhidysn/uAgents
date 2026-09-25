@@ -53,7 +53,8 @@ export function parseRequest(input) {
   if (value.schema_version !== SCHEMA_VERSION) fail('unsupported_schema_version', `schema_version must be ${SCHEMA_VERSION}.`);
   if (!uuidPattern.test(value.request_id ?? '')) fail('invalid_request_id', 'request_id must be a canonical UUID.');
   requiredString(value.target, 'target', REQUEST_LIMITS.target_bytes);
-  requiredString(value.model, 'model', REQUEST_LIMITS.model_bytes);
+  const model = value.model === undefined ? 'default' : value.model;
+  requiredString(model, 'model', REQUEST_LIMITS.model_bytes);
   if (!MODES.has(value.mode)) fail('invalid_request', 'mode must be analysis or implementation.');
   requiredString(value.prompt, 'prompt', REQUEST_LIMITS.prompt_bytes);
 
@@ -76,7 +77,7 @@ export function parseRequest(input) {
     schema_version: SCHEMA_VERSION,
     request_id: value.request_id.toLowerCase(),
     target: value.target,
-    model: value.model,
+    model,
     mode: value.mode,
     prompt: value.prompt,
     workspace,

@@ -8,20 +8,32 @@ export function createRegistry(userConfig = {}) {
   const models = structuredClone(BUILTIN_REGISTRY.models);
   const defaults = { ...BUILTIN_REGISTRY.defaults };
 
-  for (const [id, restriction] of Object.entries(config.targets ?? {})) {
+  for (const [id, restriction] of sectionEntries(config, 'targets')) {
     const current = targets[id];
-    if (!current) fail('invalid_target', `Cannot configure unknown target: ${id}`);
+    if (!Object.hasOwn(targets, id)) fail('invalid_target', `Cannot configure unknown target: ${id}`);
     applyRestrictions(current, restriction, `targets.${id}`);
   }
-  for (const [route, restriction] of Object.entries(config.models ?? {})) {
+  for (const [selector, route] of sectionEntries(config, 'routes')) {
+    if (Object.hasOwn(models, selector)) fail('invalid_model', `Model route already exists: ${selector}`);
+    models[selector] = userRoute(selector, route, targets);
+  }
+  for (const [route, restriction] of sectionEntries(config, 'models')) {
     const current = models[route];
-    if (!current) fail('invalid_model', `Cannot configure unknown model route: ${route}`);
+    if (!Object.hasOwn(models, route)) fail('invalid_model', `Cannot configure unknown model route: ${route}`);
+    if (!restriction || Array.isArray(restriction) || typeof restriction !== 'object' ||
+        Object.keys(restriction).some(key => key !== 'enabled')) {
+      fail('invalid_request', `models.${route} may only contain enabled.`);
+    }
     if (restriction.enabled === false) current.enabled = false;
     else if (restriction.enabled !== undefined && restriction.enabled !== true) fail('invalid_request', `models.${route}.enabled must be boolean.`);
   }
-  for (const [id, route] of Object.entries(config.defaults ?? {})) {
-    if (!targets[id] || !models[route] || models[route].target !== id) fail('invalid_model', `Invalid default route for target ${id}.`);
+  for (const [id, route] of sectionEntries(config, 'defaults')) {
+    if (!Object.hasOwn(targets, id) || !targets[id].enabled || !Object.hasOwn(models, route) ||
+        !models[route].enabled || models[route].target !== id) fail('invalid_model', `Invalid default route for target ${id}.`);
     defaults[id] = route;
+  }
+  for (const [id, route] of Object.entries(defaults)) {
+    if (!targets[id]?.enabled || !models[route]?.enabled) delete defaults[id];
   }
 
   const registry = { version: '', targets, models, defaults };
@@ -31,7 +43,7 @@ export function createRegistry(userConfig = {}) {
 
 export function targetDescriptor(registry, target) {
   const descriptor = registry.targets[target];
-  if (!descriptor || descriptor.enabled === false) fail('invalid_target', `Target is not enabled: ${target}`);
+  if (!Object.hasOwn(registry.targets, target) || descriptor.enabled === false) fail('invalid_target', `Target is not enabled: ${target}`);
   return descriptor;
 }
 
@@ -66,9 +78,43 @@ function intersection(builtin, requested, label) {
 
 function validateConfig(value) {
   if (!value || Array.isArray(value) || typeof value !== 'object') fail('invalid_request', 'Registry config must be an object.');
-  const allowed = new Set(['targets', 'models', 'defaults']);
+  const allowed = new Set(['targets', 'models', 'routes', 'defaults']);
   for (const key of Object.keys(value)) if (!allowed.has(key)) fail('unsupported_field', `Unsupported registry config field: ${key}`);
   return value;
+}
+
+function sectionEntries(config, name) {
+  const section = config[name];
+  if (section === undefined) return [];
+  if (!section || Array.isArray(section) || typeof section !== 'object') {
+    fail('invalid_request', `${name} must be an object.`);
+  }
+  return Object.entries(section);
+}
+
+function userRoute(selector, value, targets) {
+  if (!value || Array.isArray(value) || typeof value !== 'object') fail('invalid_request', `routes.${selector} must be an object.`);
+  const fields = new Set(['target', 'model', 'provider', 'route_id']);
+  if (Object.keys(value).some(key => !fields.has(key))) fail('unsupported_field', `Unsupported route field: ${selector}`);
+  const { target, model, provider, route_id: routeId } = value;
+  if (typeof target !== 'string' || !Object.hasOwn(targets, target) || !targets[target].enabled ||
+      !['explicit', 'mixed'].includes(targets[target].model_selection)) {
+    fail('invalid_target', `Cannot add a model route for target ${target}.`);
+  }
+  for (const [label, item] of Object.entries({ selector, model, provider, route_id: routeId })) {
+    if (typeof item !== 'string' || !item || Buffer.byteLength(item) > 256 ||
+        item.startsWith('-') || /\s|[\x00-\x1f\x7f]/.test(item)) {
+      fail('invalid_model', `routes.${selector}.${label} must be a nonempty model identifier.`);
+    }
+  }
+  if (!selector.startsWith(`${target}/`) || selector === `${target}/` || model === 'default') {
+    fail('invalid_model', `Route selector must be target-prefixed and concrete: ${selector}`);
+  }
+  if (target === 'opencode' && routeId !== `${provider}/${model}`) {
+    fail('invalid_model', `OpenCode route_id must match provider/model: ${selector}`);
+  }
+  return { target, model, provider, route_id: routeId, kind: 'exact', enabled: true, opt_in: false,
+    inputs: { files: false, images: false } };
 }
 
 function deepFreeze(value) {

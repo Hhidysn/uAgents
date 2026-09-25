@@ -26,7 +26,9 @@ Mode 不是执行沙箱，也不是硬权限边界。
 
 ## Model routing
 
-- `configured`：route 在静态 registry 中存在。
+- `configured`：route 在当前 registry 中存在，可能来自内置路线或用户配置。
+- `selector`：Task 请求中可使用的 `model` 值；未登记的发现行通常为 `null`。
+- `default`：该 route 是否为 target 当前 `model="default"` 的解析结果。
 - `admission_allowed`：当前 policy 可以提交该 route。
 - `discovered`：本机 Agent catalog/help 中发现了该模型证据。
 - `usable`：配置路线与本机 discovery evidence 可以匹配；不表示 Provider 登录、额度或在线状态已经确认。

@@ -663,6 +663,33 @@ test("9g) a Codex npm shim resolves to the package JS bin entry", async (t) => {
   assert.equal(store.getInstallation(CACHE_ID("codex")).canonical_path, entry);
 });
 
+test("9h) a Claude Code npm shim resolves to the package native executable", { skip: process.platform !== "win32" }, async (t) => {
+  const { store, apps } = makeTestEnv(t);
+  const npmRoot = path.join(apps, "claude npm");
+  const shim = path.join(npmRoot, "claude.cmd");
+  const packageRoot = path.join(npmRoot, "node_modules", "@anthropic-ai", "claude-code");
+  const packageJson = path.join(packageRoot, "package.json");
+  const entry = path.join(packageRoot, "bin", "claude.exe");
+  mkdirSync(path.dirname(entry), { recursive: true });
+  writeFileSync(shim, "@echo off", "utf8");
+  writeFileSync(packageJson, JSON.stringify({ name: "@anthropic-ai/claude-code", version: "2.1.251", bin: { claude: "bin/claude.exe" } }), "utf8");
+  writeFileSync(entry, "MZ fixture claude", "utf8");
+  const stats = statSync(entry);
+  const expectedHash = createHash("sha256").update(readFileSync(entry)).digest("hex");
+  const cliManifest = manifest({ target: "claudeCode", artifact_kind: "cli-entry",
+    accepted_product_names: ["Claude Code"], accepted_publishers: ["Anthropic PBC"],
+    accepted_executable_names: ["claude.exe"], path_commands: ["claude"] });
+  const fake = makeFakeRunner({ discover: discoverResponse([discoverCandidate(shim, "path")]),
+    verifyByPath: { [entry.toLowerCase()]: verifyResponse({ canonical_path: entry,
+      product_name: "Claude Code", publisher: "Anthropic PBC", size: stats.size,
+      mtime_ms: Math.round(stats.mtimeMs), sha256: null }) } });
+  const locator = createAgentLocator({ hostStore: store, runPowerShell: fake.runner, manifests: { claudeCode: cliManifest } });
+  const result = await locator.resolve("claudeCode");
+  assert.equal(result.installation.canonical_path, entry);
+  assert.equal(result.installation.sha256, expectedHash);
+  assert.equal(fake.calls.verify[0].path, entry);
+});
+
 test("9e) a cached OpenCode shim is not reused as the final installation entry", async (t) => {
   const { store, apps } = makeTestEnv(t);
   const npmRoot = path.join(apps, "cached npm");

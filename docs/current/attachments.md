@@ -42,6 +42,7 @@ Schema 1.0 的 `file` / `image` 输入支持三种 Core 入口：
 | --- | ---: | ---: | ---: |
 | agy | true | false | false |
 | Codex CLI | true | false | false |
+| Claude Code CLI | true | false | false |
 | WorkBuddy default | true | false | false |
 | WorkBuddy `deepseek-v4.1-flash` | true | false | true |
 | DSH | true | false | false |

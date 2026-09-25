@@ -25,6 +25,9 @@ test('request schema is strict and normalizes optional collections', () => {
   assert.deepEqual(parsed.expected_outputs, []);
   assert.deepEqual(parsed.execution.native_args, []);
   assert.equal(parsed.execution.execution_timeout_ms, null);
+  const { model: omitted, ...withoutModel } = request();
+  assert.equal(parseRequest(withoutModel).model, 'default');
+  assert.throws(() => parseRequest(request({ model: null })), { code: 'invalid_request' });
   assert.throws(() => parseRequest(request({ surprise: true })), { code: 'unsupported_field' });
   assert.throws(() => parseRequest(request({ schema_version: '2.0' })), { code: 'unsupported_schema_version' });
   assert.throws(() => parseRequest(request({ prompt: '   ' })), { code: 'invalid_request' });

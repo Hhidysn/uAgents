@@ -51,6 +51,8 @@ export class CliAdapter {
       ...descriptor,
       model_identity: this.target === 'agy'
         ? { reported: true, verification: 'runtime_self_report' }
+        : this.target === 'claudeCode'
+          ? { reported: true, verification: 'runtime_self_report' }
         : this.target === 'workbuddy'
           ? { reported: true, verification: 'unverified_backend_default' }
           : { reported: false, verification: 'unsupported' },
@@ -58,6 +60,7 @@ export class CliAdapter {
   }
 
   async discoverModels({ registry = BUILTIN_REGISTRY, verifiedEntry = null } = {}) {
+    if (this.target === 'claudeCode') return { models: [], discovery: 'configured', status: 'configured_only' };
     if (this.target === 'agy' || this.target === 'workbuddy' || this.target === 'opencode') {
       return discoverCliModelCatalog(this.target, {
         entryOverride: typeof verifiedEntry === 'string' && verifiedEntry ? verifiedEntry : await this.#verifiedEntry(),
@@ -268,7 +271,8 @@ export class CliAdapter {
     return {
       request_id: request.request_id,
       target: this.target,
-      model: this.target === 'opencode' ? request.route_id : this.target === 'workbuddy' ? 'workbuddy-default' : request.model_resolved,
+      model: this.target === 'opencode' ? request.route_id : this.target === 'workbuddy' ? request.model_resolved ?? 'workbuddy-default' : request.model_resolved,
+      model_resolved: request.model_resolved,
       mode: request.mode,
       permission_policy: request.execution.permission,
       inputs: (request.inputs ?? []).map(input => ({ type: input.type, path: input.path, media_type: input.media_type ?? null })),
@@ -330,7 +334,7 @@ function outcomeEvent(target, request, outcome, modelReported) {
         : outcome.status === 'failed' || outcome.status === 'blocked' ? 'failed' : 'indeterminate';
   const requested = request.model_resolved;
   const reported = modelReported;
-  const verified = target === 'agy' && typeof reported === 'string' && reported === requested;
+  const verified = (target === 'agy' || target === 'claudeCode') && typeof reported === 'string' && reported === requested;
   return {
     type,
     same_native_identity: true,

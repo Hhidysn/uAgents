@@ -18,7 +18,7 @@ export async function discoverModelsForTarget(target, {
   ttlMs = MODEL_DISCOVERY_TTL_MS,
 } = {}) {
   targetDescriptor(registry, target);
-  const configured = Object.values(registry.models).filter(model => model.target === target && model.enabled);
+  const configured = Object.entries(registry.models).filter(([, model]) => model.target === target && model.enabled);
   const adapter = adapterFactory(target);
   const nowMs = clock();
 
@@ -149,12 +149,14 @@ export async function discoverModelsForTarget(target, {
 function mergeRows({ target, registry, configured, native, evidence, stale }) {
   const matched = new Set();
   const hasSnapshot = native.status === 'ok';
-  const rows = configured.map(model => {
+  const rows = configured.map(([selector, model]) => {
     const matchIndex = hasSnapshot ? findNativeModel(native.models, model) : -1;
     if (matchIndex >= 0) matched.add(matchIndex);
     const discovered = hasSnapshot ? matchIndex >= 0 : null;
     return {
       ...model,
+      selector,
+      default: registry.defaults[target] === selector,
       configured: true,
       admission_allowed: true,
       discovered,
@@ -172,6 +174,8 @@ function mergeRows({ target, registry, configured, native, evidence, stale }) {
       target,
       model: model.id ?? null,
       route_id: model.route_id ?? null,
+      selector: null,
+      default: false,
       provider: model.provider ?? target,
       kind: 'native_discovered',
       enabled: false,

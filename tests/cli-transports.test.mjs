@@ -8,6 +8,8 @@ import { PassThrough } from 'node:stream';
 import { createParser, invokeCli, locateCli, nativeDriver } from '../plugins/uagents/src/transports/cli-process.mjs';
 import { buildOpenCodeArgs } from '../plugins/uagents/src/transports/opencode-driver.mjs';
 import { buildWorkBuddyArgs, buildWorkBuddyInput } from '../plugins/uagents/src/transports/workbuddy-driver.mjs';
+import { WorkBuddyAdapter } from '../plugins/uagents/src/adapters/workbuddy/adapter.mjs';
+import { evaluateRequest } from '../plugins/uagents/src/policy/evaluate.mjs';
 import { advisoryPrompt } from '../plugins/uagents/src/policy/advisory.mjs';
 import { childEnvironment } from '../plugins/uagents/src/runtime/child-environment.mjs';
 import { snapshotInputs } from '../plugins/uagents/src/artifacts/inputs.mjs';
@@ -95,6 +97,14 @@ test('WorkBuddy explicit model route is forwarded through native --model', () =>
   const modelIndex = args.indexOf('--model');
   assert.deepEqual(args.slice(modelIndex, modelIndex + 2), ['--model', 'deepseek-v4.1-flash']);
   assert.equal(buildWorkBuddyArgs(request('workbuddy')).includes('--model'), false);
+});
+
+test('WorkBuddy adapter carries the resolved Task model into the native driver', async () => {
+  const selected = evaluateRequest({ schema_version: '1.0', request_id: randomUUID(), target: 'workbuddy',
+    model: 'deepseek-v4.1-flash', mode: 'analysis', prompt: 'check', workspace: root }).request;
+  const prepared = await new WorkBuddyAdapter().prepare(selected, { verifiedEntry: process.execPath });
+  const modelIndex = prepared.driver.args.indexOf('--model');
+  assert.deepEqual(prepared.driver.args.slice(modelIndex, modelIndex + 2), ['--model', 'deepseek-v4.1-flash']);
 });
 
 test('WorkBuddy fork resumes the source session but requires a new native session identity', () => {

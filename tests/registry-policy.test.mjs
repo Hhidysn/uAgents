@@ -51,6 +51,52 @@ test('user registry configuration can only tighten built-in capability', () => {
   assert.equal(noAgyVerifiedRoute.models['gemini-3.8-flash-medium'].enabled, false);
 });
 
+test('explicit user route can be a target default and each Task can override it', () => {
+  const selector = 'workbuddy/glm-5.3-flash';
+  const registry = createRegistry({
+    routes: { [selector]: { target: 'workbuddy', model: 'glm-5.3-flash', provider: 'workbuddy', route_id: selector } },
+    defaults: { workbuddy: selector },
+  });
+  const { model: omitted, ...withoutModel } = request({ target: 'workbuddy' });
+  const selected = evaluateRequest(withoutModel, { registry }).request;
+  assert.equal(selected.model_requested, 'default');
+  assert.equal(selected.model_resolved, 'glm-5.3-flash');
+  assert.equal(selected.route_id, selector);
+  assert.equal(selected.model_resolution.kind, 'alias');
+  assert.equal(evaluateRequest(request({ target: 'workbuddy', model: 'deepseek-v4.1-flash' }), { registry }).request.model_resolved,
+    'deepseek-v4.1-flash');
+  assert.throws(() => evaluateRequest(request({ target: 'workbuddy', model: selector,
+    inputs: [{ type: 'image', path: 'screen.png' }], workspace: process.cwd() }), { registry }),
+  { code: 'unsupported_capability' });
+});
+
+test('user routes and defaults validate identity and cannot enable default-only targets', () => {
+  const route = { target: 'workbuddy', model: 'glm-5.3-flash', provider: 'workbuddy', route_id: 'workbuddy/glm-5.3-flash' };
+  assert.throws(() => createRegistry({ routes: { 'other/glm-5.3-flash': route } }), { code: 'invalid_model' });
+  assert.throws(() => createRegistry({ routes: { 'workbuddy/glm-5.3-flash': { ...route, opt_in: true } } }), { code: 'unsupported_field' });
+  assert.throws(() => createRegistry({ routes: { 'workbuddy/unsafe': { ...route, model: '--permission-mode' } } }), { code: 'invalid_model' });
+  assert.throws(() => createRegistry({ routes: { 'doubao/foo': { ...route, target: 'doubao' } } }), { code: 'invalid_target' });
+  assert.throws(() => createRegistry({ routes: null }), { code: 'invalid_request' });
+  assert.throws(() => createRegistry(JSON.parse('{"models":{"__proto__":{"enabled":false}}}')), { code: 'invalid_model' });
+  assert.throws(() => createRegistry({ defaults: { codex: 'workbuddy-default' } }), { code: 'invalid_model' });
+  assert.throws(() => createRegistry({ defaults: { workbuddy: 'workbuddy-default' },
+    models: { 'workbuddy-default': { enabled: false } } }), { code: 'invalid_model' });
+  assert.equal(createRegistry({ models: { 'workbuddy-default': { enabled: false } } }).defaults.workbuddy, undefined);
+});
+
+test('user OpenCode route keeps its native provider/model identity', () => {
+  const selector = 'opencode/commandcode-goat/deepseek/deepseek-v4-pro';
+  const registry = createRegistry({ routes: {
+    [selector]: { target: 'opencode', model: 'deepseek-v4-pro', provider: 'commandcode-goat/deepseek',
+      route_id: 'commandcode-goat/deepseek/deepseek-v4-pro' },
+  }, defaults: { opencode: selector } });
+  const selected = evaluateRequest(request({ model: 'default' }), { registry }).request;
+  assert.equal(selected.model_resolved, 'deepseek-v4-pro');
+  assert.equal(selected.route_id, 'commandcode-goat/deepseek/deepseek-v4-pro');
+  assert.throws(() => createRegistry({ routes: { [selector]: { target: 'opencode', model: 'deepseek-v4-pro',
+    provider: 'commandcode-goat/deepseek', route_id: 'wrong/model' } } }), { code: 'invalid_model' });
+});
+
 test('health cache expires to unknown rather than retaining availability', () => {
   let now = Date.parse('2026-09-04T00:00:00Z');
   const cache = new HealthCache({ clock: () => now });

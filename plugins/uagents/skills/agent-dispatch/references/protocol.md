@@ -17,6 +17,7 @@ node "<plugin-root>/bin/uagents.mjs" submit --request-stdin --state-dir "<absolu
 ```
 
 Exactly one of `--request FILE` and `--request-stdin` is required. Do not inline the JSON or prompt in a shell command. The stdin request is capped at 1 MiB and is still validated by Schema 1.0.
+The request's `model` may be omitted to use the target's configured default; a concrete selector chooses a model for this Task. Use `models <target>` to read `selector` and `default` before relying on a default. A target without one rejects omission before send. CLI `--config` or `UAGENTS_CONFIG` loads user routes/defaults; MCP uses `UAGENTS_CONFIG` at startup.
 
 ## Council
 
