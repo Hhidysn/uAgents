@@ -12,10 +12,10 @@ Run CLI commands as `node "<plugin-root>/bin/uagents.mjs" <command>`. JSON is th
 Before submitting a Task, use `schema request`; before a Council, use `schema council`. Read [references/protocol.md](references/protocol.md) for the Task protocol, [references/council.md](references/council.md) for Council lifecycle, and only the selected target references:
 
 - [agy / Gemini](references/agy.md): explicit Gemini model, text or file work.
-- [Codex CLI](references/codex.md): explicit `gpt-6-astra` and `gpt-5.6-luna` routes, text + workspace and default `exec --json` events; Windows/Astra has an explicit app-server preview for cross-Task continuation/fork.
-- [Claude Code CLI](references/claude-code.md): explicit Claude Code/DeepSeek gateway routes, text + workspace, native permissions, no cross-Task continuation/fork.
+- [Codex CLI](references/codex.md): explicit `gpt-6-astra` and `gpt-5.6-luna` routes, text + workspace and native image input; Windows/Astra has an explicit app-server preview for cross-Task continuation/fork.
+- [Claude Code CLI](references/claude-code.md): explicit Claude Code/DeepSeek gateway routes, native image/PDF/UTF-8 text inputs and native permissions, no cross-Task continuation/fork.
 - [WorkBuddy](references/workbuddy.md): backend-default text route plus an approved explicit `deepseek-v4.1-flash` route. Generic file input is rejected; image input is allowed only on the explicit DeepSeek route that passed real provider E2E.
-- [DeepSeek Harness](references/dsh.md): official SDK stdio JSON-RPC, explicit `deepseek-official/deepseek-flash`, one Task per SDK process, text + workspace in v1. Do not substitute the Web UI label `deepseek-v4.1-flash`; the SDK route uses the API model id `deepseek-flash`.
+- [DeepSeek Harness](references/dsh.md): official SDK stdio JSON-RPC, explicit `deepseek-official/deepseek-flash`, one Task per SDK process, text + workspace and protocol-mapped images; real image Task remains unconfirmed. Do not substitute the Web UI label `deepseek-v4.1-flash`; the SDK route uses the API model id `deepseek-flash`.
 - [OpenCode](references/opencode-council.md): explicit approved Command Code route for analysis or implementation, with declared file inputs/outputs.
 - [Doubao Work](references/doubao-work.md): backend-default desktop Agent over a prepared loopback CDP connection.
 - [TRAE CN](references/trae-cn.md): backend-default Solo Agent over the prepared local gateway.

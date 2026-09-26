@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { buildDshPrompt, invokeDshSdk } from '../plugins/uagents/src/transports/dsh-sdk-process.mjs';
+import { buildDshContentBlocks, buildDshPrompt, invokeDshSdk } from '../plugins/uagents/src/transports/dsh-sdk-process.mjs';
+import { snapshotInputs } from '../plugins/uagents/src/artifacts/inputs.mjs';
 import { DshAdapter } from '../plugins/uagents/src/adapters/dsh/adapter.mjs';
 import { validateAdapter } from '../plugins/uagents/src/adapters/contract.mjs';
 
@@ -81,7 +83,31 @@ test('DSH SDK adapter exposes the static contract', () => {
   const descriptor = validateAdapter(new DshAdapter());
   assert.equal(descriptor.target, 'dsh');
   assert.equal(descriptor.transport, 'sdk-jsonrpc-stdio');
-  assert.deepEqual(descriptor.inputs, { text: true, files: false, images: false, workspace_readable: true });
+  assert.deepEqual(descriptor.inputs, { text: true, files: false, images: true, workspace_readable: true });
+});
+
+test('DSH SDK maps verified images to its native inline image block', async () => {
+  const workspace = path.join(root, randomUUID());
+  fs.mkdirSync(workspace, { recursive: true });
+  try {
+    fs.writeFileSync(path.join(workspace, 'sample.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/2uoAAAAASUVORK5CYII=', 'base64'));
+    const inputs = [{ type: 'image', path: 'sample.png' }];
+    const current = request({ workspace, inputs });
+    const snapshots = snapshotInputs(workspace, inputs);
+    const blocks = buildDshContentBlocks(current, workspace, snapshots);
+    assert.deepEqual(blocks.map(block => block.type), ['text', 'image']);
+    assert.equal(blocks[1].mimeType, 'image/png');
+    const runtime = fakeRuntime();
+    const adapter = new DshAdapter({ testDriver: { spawn: runtime.spawn } });
+    const prepared = await adapter.prepare(current, { inputSnapshots: snapshots,
+      verifiedEntry: { canonical_path: path.join(root, 'bin.js') } });
+    const result = await adapter.dispatch(prepared, { checkpoint() {}, isCancelRequested: () => false });
+    assert.equal(result.handle.session_id, current.request_id);
+    assert.deepEqual(runtime.seen.find(frame => frame.method === 'session/prompt').params.contentBlocks, blocks);
+    assert.throws(() => buildDshContentBlocks(current, workspace, []), { code: 'input_changed', submission: 'not_sent' });
+    assert.throws(() => buildDshContentBlocks(request({ inputs: [{ type: 'file', path: 'sample.txt' }] }),
+      workspace, []), { code: 'unsupported_capability', submission: 'not_sent' });
+  } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
 });
 
 test('DSH adapter checkpoints possibly-sent before accepted and verifies reported model', async () => {

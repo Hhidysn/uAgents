@@ -116,7 +116,7 @@ function userRoute(selector, value, targets) {
     fail('invalid_model', `OpenCode route_id must match provider/model: ${selector}`);
   }
   return { target, model, provider, route_id: routeId, kind: 'exact', enabled: true, opt_in: false,
-    inputs: { files: false, images: false } };
+    ...(['codex', 'claudeCode', 'dsh', 'opencode'].includes(target) ? {} : { inputs: { files: false, images: false } }) };
 }
 
 function deepFreeze(value) {

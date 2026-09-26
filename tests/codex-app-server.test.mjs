@@ -55,6 +55,16 @@ test('Codex app-server fixture completes one turn with checkpoint before prompt 
   assert.match(turn.params.input[0].text, /fixture-success/);
 });
 
+test('Codex app-server sends localImage inputs in the native turn', async () => {
+  const workspace = directory();
+  const imagePath = path.join(workspace, 'sample.png');
+  fs.writeFileSync(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/2uoAAAAASUVORK5CYII=', 'base64'));
+  const result = await invokeCodexAppServerTurn({ entry, workspace,
+    request: request('fixture-success', workspace), imagePaths: [imagePath] });
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(calls(workspace).at(-1).params.input[1], { type: 'localImage', path: imagePath });
+});
+
 test('Codex app-server checkpoint failure prevents turn/start bytes', async () => {
   const workspace = directory();
   const result = await invokeCodexAppServerTurn({ entry, workspace, request: request('fixture-checkpoint', workspace),

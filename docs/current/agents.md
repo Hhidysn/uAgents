@@ -5,10 +5,10 @@ uAgents 当前提供 8 个 target。表格表示 uAgents 已经开放的能力�
 | Target | Modes | File input | Image input | Continue | Fork | Transport |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | `agy` | analysis / implementation | false | false | false | false | CLI |
-| `codex` | analysis / implementation | false | false | false | false | CLI JSONL；Windows/Astra 显式 app-server 预览支持 continue/fork |
-| `claudeCode` | analysis / implementation | false | false | false | false | Claude Code CLI stream JSON |
+| `codex` | analysis / implementation | false | true | false | false | CLI JSONL；Windows/Astra 显式 app-server 预览支持 continue/fork |
+| `claudeCode` | analysis / implementation | PDF / UTF-8 text | true | false | false | Claude Code CLI stream JSON |
 | `workbuddy` | analysis / implementation | false | model-specific | true | true | CLI |
-| `dsh` | analysis / implementation | false | false | false | false | SDK JSON-RPC stdio |
+| `dsh` | analysis / implementation | false | true（真实 Task 未确认） | false | false | SDK JSON-RPC stdio |
 | `opencode` | analysis / implementation | true | true | true | true | CLI |
 | `doubao` | analysis | false | false | false | false | managed desktop/CDP |
 | `trae` | analysis / implementation | false | false | false | false | managed desktop/gateway |
@@ -35,7 +35,7 @@ uagents capabilities <target>
 
 - 当前内置 route：`gpt-6-astra` 和 `gpt-5.6-luna`；没有内置 default，用户可配置 target 默认值。Luna 已通过本机原生调用和 uAgents 安装版真实任务验收，见 [验证记录](../verification/2026-09-20-codex-luna-installed-e2e.md)。
 - 使用本机 Codex npm 安装版 `exec --json`，任务正文走 stdin，返回 native thread ID、最终 assistant 文本和 usage。
-- text + workspace、analysis / implementation；原生 file/image input 暂不开放。Windows 上的 `gpt-6-astra` 可在每条 Task 显式设置 `execution.codex_transport="app-server"`，获得跨 Task continuation/fork；默认 exec 路线和 Luna 仍不开放。见 [会话规则](sessions.md)。
+- text + workspace、analysis / implementation；图片经 `--image` 原生传入，generic file input 暂不开放。Windows 上的 `gpt-6-astra` 可在每条 Task 显式设置 `execution.codex_transport="app-server"`，其图片使用 `localImage`，并获得跨 Task continuation/fork；默认 exec 路线和 Luna 仍不开放会话续接。见 [附件规则](attachments.md)和[会话规则](sessions.md)。
 - 不覆盖用户 Codex 原生权限设置，不添加默认沙箱或自动授权参数。
 - `probe` 只验证 CLI 版本；当前没有 Codex 模型自报证据，所以真实任务成功后 `model_reported=null`、`model_verified=false` 仍属预期，不等于任务失败或模型路线未经真实调用。
 - CLI 启动器的 `close` 不证明全部原生子进程或 Provider turn 已终止；取消、超时或传输异常后的不确定状态不可自动重发。
@@ -46,7 +46,7 @@ uagents capabilities <target>
 - 本机 Claude Code 用户设置将请求指向 DeepSeek 网关并配置这些 DeepSeek 模型；`claude plugin list` 未显示独立的 DeepSeek 插件。`models claudeCode` 只展示已配置路线，不枚举网关完整模型目录。
 - `--print --output-format stream-json --verbose` 运行一轮；Prompt 走 stdin，`workspace` 固定为进程 cwd。原生 `result` 提供最终文本、usage 和 session ID；uAgents 将其记录到 Task 的状态与结果中。
 - analysis / implementation 都沿用 Claude Code 原生权限配置。uAgents 不传入 `--permission-mode`、`--allowedTools` 或跳过权限的参数；analysis 不保证底层只读。原生权限拒绝会记录为需要用户处理，不由 uAgents 代答。
-- 当前不开放 native file/image attachment、跨 Task continuation/fork。`uagents resume <task-id>` 仅按通用 Task 生命周期规则恢复或观察同一个 Attempt，不发送 follow-up Prompt。取消、超时及流证据不足时沿用不确定状态规则，不自动重发。
+- native stream-json 接受图片、PDF 和 UTF-8 文本附件；不支持的二进制文件在发送前拒绝。原生权限仍由 Claude Code 处理。跨 Task continuation/fork 暂不开放。`uagents resume <task-id>` 仅按通用 Task 生命周期规则恢复或观察同一个 Attempt，不发送 follow-up Prompt。取消、超时及流证据不足时沿用不确定状态规则，不自动重发。
 - `probe` 只检查本机 CLI 版本；`models claudeCode` 只展示 configured route，不声称有 native catalog 或 Provider 可用性。真实调用见 [验证记录](../verification/2026-09-25-claude-code-cli.md)。
 
 ## WorkBuddy
@@ -63,7 +63,7 @@ uagents capabilities <target>
 - 使用官方 `dsh --profile sdk` JSON-RPC stdio 接入。
 - 当前批准 route：`deepseek-official/deepseek-flash`。
 - 支持 text + workspace、analysis、implementation。
-- 当前不开放 native file/image attachment。
+- SDK `session/prompt` 映射内联图片；真实 CLI Task 首次发送后原生进程退出，状态为 `indeterminate`，因此尚未确认端到端成功。普通文件所需的 DSH 持久化附件引用未接入。
 - 当前不开放 continuation/fork。
 - 一次 uAgents Task 使用一个独立 SDK process/root session。
 

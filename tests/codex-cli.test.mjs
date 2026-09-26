@@ -8,7 +8,8 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { CodexAdapter } from '../plugins/uagents/src/adapters/codex/adapter.mjs';
 import { validateAdapter } from '../plugins/uagents/src/adapters/contract.mjs';
-import { buildCodexPrompt, codexExecArgs, createCodexParser, invokeCodexExec, probeCodexVersion } from '../plugins/uagents/src/transports/codex-process.mjs';
+import { buildCodexPrompt, codexExecArgs, createCodexParser, invokeCodexExec, prepareCodexImages, probeCodexVersion } from '../plugins/uagents/src/transports/codex-process.mjs';
+import { snapshotInputs } from '../plugins/uagents/src/artifacts/inputs.mjs';
 
 const workspace = path.resolve('.local', 'test-runs', randomUUID(), 'codex-cli');
 const entry = path.join(workspace, 'codex.js');
@@ -70,9 +71,32 @@ test('Codex adapter exposes text/workspace and explicit route only', () => {
   const descriptor = validateAdapter(new CodexAdapter());
   assert.equal(descriptor.transport, 'cli-jsonl');
   assert.equal(descriptor.model_selection, 'explicit');
-  assert.deepEqual(descriptor.inputs, { text: true, files: false, images: false, workspace_readable: true });
+  assert.deepEqual(descriptor.inputs, { text: true, files: false, images: true, workspace_readable: true });
   assert.equal(descriptor.resume, false); // Native bridge is not published until real multi-turn E2E succeeds.
   assert.equal(descriptor.fork, false);
+});
+
+test('Codex maps only verified image inputs to native exec argv', async () => {
+  const caseWorkspace = path.join(workspace, randomUUID());
+  fs.mkdirSync(caseWorkspace, { recursive: true });
+  try {
+    fs.writeFileSync(path.join(caseWorkspace, 'sample.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/2uoAAAAASUVORK5CYII=', 'base64'));
+    const inputs = [{ type: 'image', path: 'sample.png' }];
+    const current = request({ workspace: caseWorkspace, inputs });
+    const snapshots = snapshotInputs(caseWorkspace, inputs);
+    const images = prepareCodexImages(current, caseWorkspace, snapshots);
+    assert.deepEqual(images, [path.join(caseWorkspace, 'sample.png')]);
+    const args = codexExecArgs(current, caseWorkspace, entry, null, images);
+    assert.deepEqual(args.slice(-3), ['--image', images[0], '-']);
+    const adapter = new CodexAdapter({ entryResolver: async () => ({ canonical_path: entry }) });
+    const prepared = await adapter.prepare(current, { inputSnapshots: snapshots });
+    assert.deepEqual(prepared.imagePaths, images);
+    assert.throws(() => prepareCodexImages(current, caseWorkspace, []), { code: 'input_changed', submission: 'not_sent' });
+    fs.writeFileSync(path.join(caseWorkspace, 'sample.png'), 'changed');
+    assert.throws(() => prepareCodexImages(current, caseWorkspace, snapshots), { code: 'invalid_input' });
+    assert.throws(() => prepareCodexImages(request({ inputs: [{ type: 'file', path: 'sample.txt' }] }),
+      caseWorkspace, []), { code: 'unsupported_capability', submission: 'not_sent' });
+  } finally { fs.rmSync(caseWorkspace, { recursive: true, force: true }); }
 });
 
 test('Codex exec carries Luna model selection only in dispatcher-owned argv', () => {

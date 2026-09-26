@@ -1,6 +1,6 @@
 import { BUILTIN_REGISTRY } from '../../registry/builtins.mjs';
 import { fail } from '../../protocol/errors.mjs';
-import { invokeDshSdk, locateDshEntry, probeDshVersion } from '../../transports/dsh-sdk-process.mjs';
+import { buildDshContentBlocks, invokeDshSdk, locateDshEntry, probeDshVersion } from '../../transports/dsh-sdk-process.mjs';
 
 export class DshAdapter {
   #entryResolver = null;
@@ -42,7 +42,9 @@ export class DshAdapter {
   }
 
   async prepare(request, context = {}) {
-    return { request, entry: await this.#entry(context), taskDirectory: context.taskDirectory ?? request.workspace };
+    return { request, entry: await this.#entry(context),
+      contentBlocks: buildDshContentBlocks(request, request.workspace, context.inputSnapshots ?? []),
+      taskDirectory: context.taskDirectory ?? request.workspace };
   }
 
   async dispatch(prepared, context) {
@@ -60,6 +62,7 @@ export class DshAdapter {
       entry: prepared.entry,
       request: prepared.request,
       workspace: prepared.request.workspace,
+      contentBlocks: prepared.contentBlocks,
       publish,
       signal: context.signal,
       isCancelRequested: context.isCancelRequested,

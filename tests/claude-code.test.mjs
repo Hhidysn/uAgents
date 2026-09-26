@@ -7,7 +7,8 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { ClaudeCodeAdapter } from '../plugins/uagents/src/adapters/claude-code/adapter.mjs';
 import { adapterFor } from '../plugins/uagents/src/adapters/index.mjs';
-import { createClaudeCodeDriver, createClaudeCodeParser } from '../plugins/uagents/src/transports/claude-code-driver.mjs';
+import { buildClaudeCodeInput, createClaudeCodeDriver, createClaudeCodeParser } from '../plugins/uagents/src/transports/claude-code-driver.mjs';
+import { snapshotInputs } from '../plugins/uagents/src/artifacts/inputs.mjs';
 import { invokeCli } from '../plugins/uagents/src/transports/cli-process.mjs';
 import { ControlDatabase } from '../plugins/uagents/src/store/database.mjs';
 import { TaskService } from '../plugins/uagents/src/runtime/task-service.mjs';
@@ -50,7 +51,7 @@ function fakeSpawn({ reportedModel = model, denied = false, hang = false } = {})
   } };
 }
 
-test('Claude Code route is explicit and native continuation/fork and attachments stay closed', () => {
+test('Claude Code route is explicit and native continuation/fork stay closed', () => {
   assert.ok(adapterFor('claudeCode') instanceof ClaudeCodeAdapter);
   const evaluated = evaluateRequest(request());
   assert.equal(evaluated.request.model_resolved, model);
@@ -66,7 +67,6 @@ test('Claude Code route is explicit and native continuation/fork and attachments
   assert.equal(evaluateRequest(request({ model: 'sonnet' })).request.model_resolved, 'sonnet');
   for (const patch of [
     { model: 'default' },
-    { inputs: [{ type: 'file', path: 'a.txt' }] },
     { session: { continue_from_task_id: randomUUID() } },
     { session: { fork_from_task_id: randomUUID() } },
   ]) assert.throws(() => evaluateRequest(request(patch)), { submission: 'not_sent' });
@@ -80,6 +80,39 @@ test('Claude Code driver passes raw prompt on stdin and leaves native permission
   assert.equal(driver.args.some(arg => arg.includes('permission') || arg.includes('allowedTools')), false);
   const gateway = createClaudeCodeDriver({ kind: 'run', model: 'deepseek-v4-pro[1m]', prompt: 'gateway' }, workspace, 'claude.exe');
   assert.deepEqual(gateway.args.slice(-2), ['--model', 'deepseek-v4-pro[1m]']);
+});
+
+test('Claude Code maps verified images, PDF and UTF-8 files to native stream-json blocks', () => {
+  fs.writeFileSync(path.join(workspace, 'sample.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/2uoAAAAASUVORK5CYII=', 'base64'));
+  fs.writeFileSync(path.join(workspace, 'sample.pdf'), '%PDF-1.4\nfixture');
+  fs.writeFileSync(path.join(workspace, 'sample.txt'), '中文 file fixture');
+  const inputs = [
+    { type: 'image', path: 'sample.png' }, { type: 'file', path: 'sample.pdf' },
+    { type: 'file', path: 'sample.txt' },
+  ];
+  const snapshots = snapshotInputs(workspace, inputs);
+  const native = { kind: 'run', model, prompt: 'Inspect attachments', inputs };
+  const driver = createClaudeCodeDriver(native, workspace, 'claude.exe', snapshots);
+  assert.deepEqual(driver.args.slice(-2), ['--input-format', 'stream-json']);
+  assert.equal(driver.args.some(arg => arg.includes('permission')), false);
+  const payload = JSON.parse(driver.stdinPayload);
+  assert.equal(payload.type, 'user');
+  assert.deepEqual(payload.message.content.map(block => block.type), ['text', 'image', 'document', 'document']);
+  assert.equal(payload.message.content[1].source.media_type, 'image/png');
+  assert.equal(payload.message.content[2].source.media_type, 'application/pdf');
+  assert.equal(payload.message.content[3].source.data, '中文 file fixture');
+  assert.equal(buildClaudeCodeInput(native, workspace, snapshots), driver.stdinPayload);
+  assert.throws(() => buildClaudeCodeInput(native, workspace, []), { code: 'input_changed', submission: 'not_sent' });
+  fs.writeFileSync(path.join(workspace, 'sample.txt'), 'changed');
+  assert.throws(() => buildClaudeCodeInput(native, workspace, snapshots), { code: 'input_changed', submission: 'not_sent' });
+});
+
+test('Claude Code rejects an unsupported binary file before native send', () => {
+  fs.writeFileSync(path.join(workspace, 'binary.bin'), Buffer.from([0, 0xff, 0x81]));
+  const inputs = [{ type: 'file', path: 'binary.bin' }];
+  assert.throws(() => createClaudeCodeDriver({ kind: 'run', model, prompt: 'binary', inputs },
+    workspace, 'claude.exe', snapshotInputs(workspace, inputs)),
+  { code: 'unsupported_capability', submission: 'not_sent' });
 });
 
 test('Claude Code parser checks session, workspace, model and native terminal evidence', () => {

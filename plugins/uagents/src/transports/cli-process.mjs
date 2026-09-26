@@ -57,7 +57,7 @@ export function nativeDriver(request, workspace, entryOverride = null, inputSnap
   const entry = locateCli(request.target, process.env, entryOverride);
   const advisoryReadOnly = isAdvisoryReadOnly(request);
   if (request.target === 'opencode') return createOpenCodeDriver(request, workspace, entry);
-  if (request.target === 'claudeCode') return createClaudeCodeDriver(request, workspace, entry);
+  if (request.target === 'claudeCode') return createClaudeCodeDriver(request, workspace, entry, inputSnapshots);
   return { command: process.execPath, args: [entry, ...buildWorkBuddyArgs(request)],
     ...(request.kind === 'probe' ? {} : { stdinPayload: buildWorkBuddyInput(request, workspace, inputSnapshots) }),
     env: childEnvironment(process.env, { CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS: '1' }),

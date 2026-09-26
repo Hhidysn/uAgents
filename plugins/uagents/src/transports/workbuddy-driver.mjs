@@ -1,6 +1,5 @@
 import path from 'node:path';
-import { readWorkspaceAttachment, snapshotMatches } from '../artifacts/attachments.mjs';
-import { fail } from '../protocol/errors.mjs';
+import { verifiedNativeInputs } from '../artifacts/attachments.mjs';
 
 export function buildWorkBuddyArgs(request) {
   if (request.kind === 'probe') return ['--version'];
@@ -20,20 +19,10 @@ export function buildWorkBuddyArgs(request) {
 
 export function buildWorkBuddyInput(request, workspace, snapshots = []) {
   const inputs = request.inputs ?? [];
-  if (inputs.length !== snapshots.length) {
-    fail('input_changed', 'WorkBuddy attachment mapping requires the complete registered input snapshot.', {
-      category: 'conflict', submission: 'not_sent',
-    });
-  }
+  const attachments = verifiedNativeInputs(workspace, inputs, snapshots);
   const content = [{ type: 'text', text: buildWorkBuddyPrompt(request, workspace) }];
   for (const [index, input] of inputs.entries()) {
-    const attachment = readWorkspaceAttachment(workspace, input);
-    const persisted = snapshots[index];
-    if (persisted && !snapshotMatches(attachment, persisted)) {
-      fail('input_changed', 'An input changed while preparing the native attachment.', {
-        category: 'conflict', submission: 'not_sent', details: { path: input.path },
-      });
-    }
+    const attachment = attachments[index];
     const data = attachment.bytes.toString('base64');
     if (input.type === 'image') {
       content.push({

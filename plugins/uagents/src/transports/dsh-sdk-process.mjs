@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { childEnvironment } from '../runtime/child-environment.mjs';
+import { verifiedNativeInputs } from '../artifacts/attachments.mjs';
 import { fail } from '../protocol/errors.mjs';
 
 const SERVER_NAME = 'deepseek-harness-sdk-runtime';
@@ -45,12 +46,14 @@ export async function invokeDshSdk({
   entry,
   request,
   workspace,
+  contentBlocks = null,
   publish = () => {},
   onAccepted = () => {},
   signal = null,
   isCancelRequested = null,
   spawnImpl = spawn,
 }) {
+  const promptBlocks = contentBlocks ?? buildDshContentBlocks(request, workspace);
   const child = spawnImpl(process.execPath, [entry, '--profile', 'sdk'], {
     cwd: workspace,
     windowsHide: true,
@@ -204,7 +207,7 @@ export async function invokeDshSdk({
     const promptAck = await Promise.race([
       requestRpc('session/prompt', {
         sessionId: request.request_id,
-        contentBlocks: [{ type: 'text', text: buildDshPrompt(request, workspace) }],
+        contentBlocks: promptBlocks,
       }).then(result => ({ kind: 'ack', result })),
       delay(request.execution.observation_timeout_ms).then(() => ({ kind: 'timeout' })),
       cancellation.promise.then(() => ({ kind: 'cancel' })),
@@ -263,6 +266,19 @@ export async function invokeDshSdk({
 
 export function buildDshPrompt(request, workspace) {
   return `uAgents task workspace: ${workspace}\nMode: ${request.mode}. Expected files: ${JSON.stringify(request.expected_outputs ?? [])}\nWork only on this task. Do not delegate or start background work. You are not alone; do not revert others' edits.\n\n${request.prompt}`;
+}
+
+export function buildDshContentBlocks(request, workspace, snapshots = []) {
+  const inputs = request.inputs ?? [];
+  if (inputs.some(input => input.type !== 'image')) {
+    fail('unsupported_capability', 'DSH SDK does not accept inline generic file inputs.', {
+      category: 'policy', submission: 'not_sent',
+    });
+  }
+  return [{ type: 'text', text: buildDshPrompt(request, workspace) },
+    ...verifiedNativeInputs(workspace, inputs, snapshots).map(input => ({
+      type: 'image', data: input.bytes.toString('base64'), mimeType: input.media_type,
+    }))];
 }
 
 const delay = (ms, unref = false) => new Promise(resolve => {

@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fail } from '../../protocol/errors.mjs';
 import { uuidPattern } from '../../protocol/schema.mjs';
-import { codexExecArgs, invokeCodexExec, locateCodexEntry, probeCodexVersion } from '../../transports/codex-process.mjs';
+import { codexExecArgs, invokeCodexExec, locateCodexEntry, prepareCodexImages, probeCodexVersion } from '../../transports/codex-process.mjs';
 import { invokeCodexAppServerTurn, readCodexAppServerTurn } from '../../transports/codex-app-server.mjs';
 import { refreshWorkspaceExecutionGuard } from '../../runtime/workspace-execution-guard.mjs';
 
@@ -61,6 +61,7 @@ export class CodexAdapter {
       });
     }
     const entry = await this.#entry(context);
+    const imagePaths = prepareCodexImages(request, request.workspace, context.inputSnapshots ?? []);
     let installationFingerprint = null;
     if (this.#transport === 'app-server') {
       if (session && (session.native_transport !== 'app-server' ||
@@ -95,9 +96,10 @@ export class CodexAdapter {
       if (session?.native_transport) fail('invalid_native_session', 'Codex exec cannot resume an unverified app-server thread.', {
         category: 'policy', submission: 'not_sent',
       });
-      codexExecArgs(request, request.workspace, entry, session); // Validate before native send.
+      codexExecArgs(request, request.workspace, entry, session, imagePaths); // Validate before native send.
     }
     return { request, entry, session, installationFingerprint,
+      imagePaths,
       taskDirectory: context.taskDirectory ?? request.workspace };
   }
 
@@ -108,6 +110,7 @@ export class CodexAdapter {
       entry: prepared.entry,
       request: prepared.request,
       workspace: prepared.request.workspace,
+      imagePaths: prepared.imagePaths,
       spawnImpl: this.testDriver?.spawn,
       signal: context.signal,
       isCancelRequested: context.isCancelRequested,

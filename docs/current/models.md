@@ -71,7 +71,7 @@ uAgents 的默认值是明确路线，和 Agent 自己设置中的“默认”�
 ```
 
 新路线的 `selector` 必须以 `<target>/` 开头，`provider` / `route_id` 要与该 target 的 native 模型身份对应；
-OpenCode 的 `route_id` 必须是 `provider/model`。新路线不会自动获得 file/image 附件能力。TRAE 路线也可以用作默认值，
+OpenCode 的 `route_id` 必须是 `provider/model`。Codex、Claude Code、DSH 和 OpenCode 的新路线沿用 target 已实现的原生附件映射；实际 Provider/model 是否接受由原生调用判定。WorkBuddy 的新路线不自动获得 file/image 附件能力。TRAE 路线也可以用作默认值，
 `model` 填网关模型选择器显示的原始名称。用户登记只表示定义默认/别名，不表示 Provider 已验证；真实调用失败时不自动切换模型。
 
 ## 缓存与刷新

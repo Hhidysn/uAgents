@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { verifiedNativeInputs } from '../artifacts/attachments.mjs';
 import { childEnvironment } from '../runtime/child-environment.mjs';
 import { fail } from '../protocol/errors.mjs';
 
@@ -6,19 +7,53 @@ const samePath = (left, right) => process.platform === 'win32'
   ? path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase()
   : path.resolve(left) === path.resolve(right);
 
-export function createClaudeCodeDriver(request, workspace, entry) {
+export function createClaudeCodeDriver(request, workspace, entry, snapshots = []) {
   if (request.kind === 'probe') return { command: entry, args: ['--version'], env: childEnvironment() };
   if (typeof request.model !== 'string' || !request.model.trim() || request.model === 'default') {
     fail('model_unavailable', 'Claude Code requires an approved concrete model ID.', { submission: 'not_sent' });
   }
+  const hasInputs = (request.inputs ?? []).length > 0;
   return {
     command: entry,
-    args: ['--print', '--output-format', 'stream-json', '--verbose', '--model', request.model],
+    args: ['--print', '--output-format', 'stream-json', '--verbose', '--model', request.model,
+      ...(hasInputs ? ['--input-format', 'stream-json'] : [])],
     env: childEnvironment(),
-    stdinPayload: request.prompt,
+    stdinPayload: hasInputs ? buildClaudeCodeInput(request, workspace, snapshots) : request.prompt,
     initialObservation: { native_edit_mode: 'inherited' },
     createParser: publish => createClaudeCodeParser(request, workspace, publish),
   };
+}
+
+export function buildClaudeCodeInput(request, workspace, snapshots = []) {
+  const inputs = request.inputs ?? [];
+  const attachments = verifiedNativeInputs(workspace, inputs, snapshots);
+  const content = [{ type: 'text', text: request.prompt }];
+  for (const [index, input] of inputs.entries()) {
+    const attachment = attachments[index];
+    if (input.type === 'image') {
+      content.push({ type: 'image', source: {
+        type: 'base64', media_type: attachment.media_type, data: attachment.bytes.toString('base64'),
+      } });
+    } else if (attachment.media_type === 'application/pdf') {
+      content.push({ type: 'document', source: {
+        type: 'base64', media_type: 'application/pdf', data: attachment.bytes.toString('base64'),
+      }, title: path.basename(input.path) });
+    } else {
+      let data;
+      try { data = new TextDecoder('utf-8', { fatal: true }).decode(attachment.bytes); }
+      catch { unsupportedFile(input.path); }
+      if (data.includes('\0')) unsupportedFile(input.path);
+      content.push({ type: 'document', source: { type: 'text', media_type: 'text/plain', data },
+        title: path.basename(input.path) });
+    }
+  }
+  return `${JSON.stringify({ type: 'user', message: { role: 'user', content } })}\n`;
+}
+
+function unsupportedFile(inputPath) {
+  fail('unsupported_capability', `Claude Code file input requires PDF or UTF-8 text: ${inputPath}`, {
+    category: 'policy', submission: 'not_sent',
+  });
 }
 
 export function createClaudeCodeParser(request, workspace, publish = () => {}) {

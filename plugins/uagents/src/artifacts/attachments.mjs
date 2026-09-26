@@ -24,6 +24,26 @@ export function readWorkspaceAttachment(workspace, input) {
   return readAttachmentFile(real, input.type, input.path, input.path);
 }
 
+// Recheck the registered bytes immediately before constructing native input.
+// Callers may use either the verified local path or the bytes, depending on
+// the target protocol. Neither is persisted in the Task request.
+export function verifiedNativeInputs(workspace, inputs = [], snapshots = []) {
+  if (inputs.length !== snapshots.length) {
+    fail('input_changed', 'Native attachment mapping requires the complete registered input snapshot.', {
+      category: 'conflict', submission: 'not_sent',
+    });
+  }
+  return inputs.map((input, index) => {
+    const attachment = readWorkspaceAttachment(workspace, input);
+    if (!snapshotMatches(attachment, snapshots[index])) {
+      fail('input_changed', 'An input changed while preparing the native attachment.', {
+        category: 'conflict', submission: 'not_sent', details: { path: input.path },
+      });
+    }
+    return attachment;
+  });
+}
+
 export function ingestAttachmentInputs(workspace, inputs) {
   if (!inputs.some(input => input.source !== undefined || input.blob !== undefined)) return inputs;
   canonicalWorkspace(workspace);

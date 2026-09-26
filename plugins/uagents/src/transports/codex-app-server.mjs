@@ -12,7 +12,7 @@ const MAX_HISTORY_PAGES = 64;
 
 // One native Turn per process. The public app-server route remains opt-in.
 export function invokeCodexAppServerTurn({ entry, request, workspace, beforeSend = () => {},
-  onAccepted = () => {}, session = null, spawnImpl = spawn, signal = null, isCancelRequested = null,
+  onAccepted = () => {}, session = null, imagePaths = [], spawnImpl = spawn, signal = null, isCancelRequested = null,
   closeGraceMs = CLOSE_GRACE_MS, processEvidence = null, appServerArgs = [] } = {}) {
   if (!Array.isArray(appServerArgs) || appServerArgs.some(arg => typeof arg !== 'string')) {
     return Promise.resolve({ status: 'failed', error: 'invalid_native_args', submission: 'not_sent' });
@@ -166,7 +166,8 @@ export function invokeCodexAppServerTurn({ entry, request, workspace, beforeSend
       turnSent = true; // The checkpoint precedes any possible turn/start bytes.
       send(turnRequestId, 'turn/start', { threadId, model: request.model_resolved,
         ...(request.request_id ? { clientUserMessageId: request.request_id } : {}),
-        input: [{ type: 'text', text: buildCodexPrompt(request, workspace) }] });
+        input: [{ type: 'text', text: buildCodexPrompt(request, workspace) },
+          ...imagePaths.map(imagePath => ({ type: 'localImage', path: imagePath }))] });
     };
     const event = frame => {
       const params = frame.params;

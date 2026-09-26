@@ -20,11 +20,12 @@ test('registry exposes static capability without dynamic availability', () => {
   assert.deepEqual(registry.targets.opencode.modes, ['analysis', 'implementation']);
   assert.deepEqual(registry.targets.opencode.inputs, { text: true, files: true, images: true, workspace_readable: true });
   assert.deepEqual(registry.targets.agy.inputs, { text: true, files: false, images: false, workspace_readable: true });
-  assert.deepEqual(registry.targets.codex.inputs, { text: true, files: false, images: false, workspace_readable: true });
+  assert.deepEqual(registry.targets.codex.inputs, { text: true, files: false, images: true, workspace_readable: true });
+  assert.deepEqual(registry.targets.claudeCode.inputs, { text: true, files: true, images: true, workspace_readable: true });
   assert.equal(registry.models['gpt-6-astra'].route_id, 'codex/gpt-6-astra');
   assert.equal(registry.models['gpt-5.6-luna'].route_id, 'codex/gpt-5.6-luna');
   assert.deepEqual(registry.targets.workbuddy.inputs, { text: true, files: false, images: true, workspace_readable: true });
-  assert.deepEqual(registry.targets.dsh.inputs, { text: true, files: false, images: false, workspace_readable: true });
+  assert.deepEqual(registry.targets.dsh.inputs, { text: true, files: false, images: true, workspace_readable: true });
   assert.equal(registry.targets.workbuddy.model_selection, 'mixed');
   assert.equal(registry.models['gemini-3.8-flash-medium'].route_id, 'agy/gemini-3.8-flash-medium');
   assert.equal(registry.models['workbuddy-default'].inputs.images, false);
@@ -68,6 +69,22 @@ test('explicit user route can be a target default and each Task can override it'
   assert.throws(() => evaluateRequest(request({ target: 'workbuddy', model: selector,
     inputs: [{ type: 'image', path: 'screen.png' }], workspace: process.cwd() }), { registry }),
   { code: 'unsupported_capability' });
+});
+
+test('configured native routes inherit target attachment transport without a model allowlist', () => {
+  const registry = createRegistry({ routes: {
+    'codex/future-image-model': { target: 'codex', model: 'future-image-model', provider: 'codex', route_id: 'codex/future-image-model' },
+    'claudeCode/future-image-model': { target: 'claudeCode', model: 'future-image-model', provider: 'claudeCode', route_id: 'claudeCode/future-image-model' },
+    'dsh/deepseek-official/future-image-model': { target: 'dsh', model: 'future-image-model', provider: 'deepseek-official', route_id: 'deepseek-official/future-image-model' },
+  } });
+  for (const [target, model] of [
+    ['codex', 'codex/future-image-model'],
+    ['claudeCode', 'claudeCode/future-image-model'],
+    ['dsh', 'dsh/deepseek-official/future-image-model'],
+  ]) {
+    assert.equal(evaluateRequest(request({ target, model, workspace: process.cwd(),
+      inputs: [{ type: 'image', path: 'sample.png' }] }), { registry }).allowed, true);
+  }
 });
 
 test('user routes and defaults validate identity and cannot enable default-only targets', () => {
@@ -163,7 +180,7 @@ test('TRAE display-name route can be configured as a default', () => {
   assert.equal(selected.model_resolution.kind, 'alias');
 });
 
-test('DeepSeek Harness route is explicit and keeps attachments closed in v1', () => {
+test('DeepSeek Harness route is explicit, accepts native images and rejects generic files', () => {
   const workspace = process.cwd();
   const outcome = evaluateRequest(request({
     target: 'dsh', model: 'deepseek-official/deepseek-flash', workspace,
@@ -181,10 +198,10 @@ test('DeepSeek Harness route is explicit and keeps attachments closed in v1', ()
     target: 'dsh', model: 'deepseek-official/deepseek-flash', workspace,
     inputs: [{ type: 'file', path: 'requirements.md' }],
   })), error => error.code === 'unsupported_capability' && error.submission === 'not_sent');
-  assert.throws(() => evaluateRequest(request({
+  assert.equal(evaluateRequest(request({
     target: 'dsh', model: 'deepseek-official/deepseek-flash', workspace,
     inputs: [{ type: 'image', path: 'screen.png' }],
-  })), error => error.code === 'unsupported_capability' && error.submission === 'not_sent');
+  })).allowed, true);
 });
 
 test('Codex Luna is an explicit concrete route, not a new default', () => {
@@ -247,6 +264,16 @@ test('policy fails closed before worker launch', () => {
 test('attachment capability distinguishes native mapping from workspace readability', () => {
   const workspace = process.cwd();
   assert.equal(evaluateRequest(request({ workspace, inputs: [{ type: 'image', path: 'image.png' }] })).allowed, true);
+  for (const model of ['gpt-6-astra', 'gpt-5.6-luna', 'future-codex-model']) {
+    assert.equal(evaluateRequest(request({ target: 'codex', model, workspace,
+      inputs: [{ type: 'image', path: 'image.png' }] })).allowed, true);
+  }
+  assert.equal(evaluateRequest(request({ target: 'claudeCode', model: 'claude-sonnet-4-6', workspace,
+    inputs: [{ type: 'file', path: 'document.pdf' }, { type: 'image', path: 'image.png' }] })).allowed, true);
+  assert.equal(evaluateRequest(request({ target: 'claudeCode', model: 'future-claude-model', workspace,
+    inputs: [{ type: 'image', path: 'image.png' }] })).allowed, true);
+  assert.equal(evaluateRequest(request({ target: 'dsh', model: 'deepseek-official/deepseek-flash', workspace,
+    inputs: [{ type: 'image', path: 'image.png' }] })).allowed, true);
   assert.throws(() => evaluateRequest(request({ target: 'workbuddy', model: 'default', workspace,
     inputs: [{ type: 'file', path: 'input.txt' }] })), error => (
     error.code === 'unsupported_capability' && /native file attachments/.test(error.message) && error.submission === 'not_sent'

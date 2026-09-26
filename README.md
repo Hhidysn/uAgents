@@ -64,7 +64,7 @@ node "<plugin-root>\bin\uagents.mjs" result <task-id>
 
 保存为 `request.json` 后使用上面的 `submit --request` 命令；通过 `status` / `result` 查询，不要为尚未确认结果的任务更换 UUID 重发。Codex 的 `probe` 只检查本机 CLI 版本，不是模型在线可用性测试。真实安装版 Luna 验收记录见 [Verification](docs/verification/2026-09-20-codex-luna-installed-e2e.md)。
 
-Claude Code CLI 使用 `target="claudeCode"` 和显式模型路线，例如本机 DeepSeek 网关的 `model="claudeCode/deepseek-v4-pro[1m]"`，并提供绝对路径 `workspace`。当前支持 text + workspace、analysis / implementation；权限完全沿用 Claude Code 原生设置，uAgents 不传入权限覆盖参数。`probe claudeCode --model claudeCode/deepseek-v4-pro[1m]` 仅检查 CLI 版本。当前不开放原生附件、跨 Task continuation/fork；`status` / `result` 可查询已提交 Task。详见 [Claude Code 当前能力](docs/current/agents.md#claude-code-cli-claudecode) 与 [验证记录](docs/verification/2026-09-25-claude-code-cli.md)。
+Claude Code CLI 使用 `target="claudeCode"` 和显式模型路线，例如本机 DeepSeek 网关的 `model="claudeCode/deepseek-v4-pro[1m]"`，并提供绝对路径 `workspace`。支持 text + workspace、analysis / implementation，以及原生 stream-json 图片、PDF 和 UTF-8 文本输入；用 `inputs` 的 `path`、`source` 或 `blob` 提交附件。Codex CLI 支持原生图片输入，DSH SDK 也提供内联图片协议；OpenCode 支持文件和图片，WorkBuddy 图片仍限已验证模型。权限完全沿用各 target 的原生设置。`probe` 仅检查 CLI 版本。Claude Code 暂不开放跨 Task continuation/fork；`status` / `result` 可查询已提交 Task。各路线及验证边界见 [当前附件能力](docs/current/attachments.md) 和 [验证记录](docs/verification/2026-09-26-native-attachment-input.md)。
 
 精确字段和命令参数以 CLI discovery 为准：
 
@@ -128,11 +128,11 @@ uAgents 可以发现并验证 Agent 安装；桌面目标使用受管实例。`s
 
 - uAgents 只负责调度与记录，不提供执行沙箱或审批代理。Codex/OpenCode 等目标的权限由各自的原生配置控制。Codex app-server 若要求交互审批，Task 保持不确定；uAgents 不会代答，也不会自动重发该 Prompt。
 - WorkBuddy generic file attachment 当前不可用；图片只对已验证的显式 `deepseek-v4.1-flash` 路线开放。
-- DSH v1 只开放 text + workspace，当前不开放 file/image attachment、continuation 或 fork。
-- Codex CLI 默认使用显式 `gpt-6-astra` 或 `gpt-5.6-luna` 的 exec 路线，支持 text + workspace；native file/image 暂未开放。跨 Task continuation/fork 仅对 Windows/Astra 显式 app-server 预览路线开放。
+- DSH SDK 已映射内联图片但真实 Task 尚未确认成功；generic file、continuation 和 fork 暂不开放。
+- Codex CLI 默认使用显式 `gpt-6-astra` 或 `gpt-5.6-luna` 的 exec 路线，支持 text + workspace 和原生图片；generic file 暂未开放。跨 Task continuation/fork 仅对 Windows/Astra 显式 app-server 预览路线开放。
 - Claude Code CLI 内置 DeepSeek 路线 `claudeCode/deepseek-v4-pro[1m]`、`claudeCode/deepseek-v4-pro`、`claudeCode/deepseek-v4-flash`，以及已验证的 `claude-sonnet-4-6` 模型 ID；其它显式 ID 也交由原生 CLI 判定。原生 `init.model` 与请求解析的 ID 不一致时 Task 失败。取消或超时后的远端状态不能仅凭 CLI 关闭确认，Task 保持不确定且不会自动重发。
 - Council 不自动选择 winner、自动 synthesis、自动 merge 或后台 cleanup。
-- 显式模型选择交给原生 CLI/网关判断。没有原生目录的 target 可以直接传模型 ID，但 `models` 只显示配置路线；新模型的 file/image 能力默认关闭。TRAE 当前没有可核对的逐 Task 原生模型自报。
+- 显式模型选择交给原生 CLI/网关判断。没有原生目录的 target 可以直接传模型 ID，但 `models` 只显示配置路线；Codex、Claude Code、DSH 和 OpenCode 的新模型沿用其 target 原生附件映射，实际 Provider 接受度由原生结果决定；WorkBuddy 的新模型附件能力仍默认关闭。TRAE 当前没有可核对的逐 Task 原生模型自报。
 
 ## 文档
 

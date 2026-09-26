@@ -14,20 +14,21 @@ export const BUILTIN_REGISTRY = Object.freeze({
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
     }, { transport: 'cli', model_selection: 'explicit', cancel: 'local-request', resume: false, fork: false,
       lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),
-    codex: target(['analysis', 'implementation'], { text: true, files: false, images: false, workspace_readable: true }, { text: true, files: true, images: false }, {
+    codex: target(['analysis', 'implementation'], { text: true, files: false, images: true, workspace_readable: true }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
     }, { transport: 'cli-jsonl', model_selection: 'explicit', cancel: 'local-request', resume: false, fork: false,
       opt_in_transports: { 'app-server': { models: ['gpt-6-astra'], platforms: ['win32'], resume: true, fork: true } },
       lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),
-    claudeCode: target(['analysis', 'implementation'], { text: true, files: false, images: false, workspace_readable: true }, { text: true, files: true, images: false }, {
+    claudeCode: target(['analysis', 'implementation'], { text: true, files: true, images: true, workspace_readable: true }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
     }, { transport: 'cli-stream-json', model_selection: 'explicit', cancel: 'local-request', resume: false, fork: false,
+      attachment_formats: { files: ['application/pdf', 'text/plain'], images: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] },
       lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),
     workbuddy: target(['analysis', 'implementation'], { text: true, files: false, images: true, workspace_readable: true }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
     }, { transport: 'cli', model_selection: 'mixed', cancel: 'local-request', resume: true, fork: true,
       lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),
-    dsh: target(['analysis', 'implementation'], { text: true, files: false, images: false, workspace_readable: true }, { text: true, files: true, images: false }, {
+    dsh: target(['analysis', 'implementation'], { text: true, files: false, images: true, workspace_readable: true }, { text: true, files: true, images: false }, {
       native: true, advisory_read_only: true, enforced_read_only: false, workspace_write: false, full_access: false,
     }, { transport: 'sdk-jsonrpc-stdio', model_selection: 'explicit', cancel: 'local-request', resume: false, fork: false,
       lifecycle: { managed: true, auto_launch: false, profile: 'inherit-env', ensure: true, resume: false, stop: false } }),

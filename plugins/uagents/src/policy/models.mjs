@@ -58,6 +58,8 @@ function nativeRoute(target, selector) {
     target, model, provider,
     route_id: target === 'opencode' || target === 'dsh' ? selector : `${target}/${model}`,
     kind: 'native_selected', enabled: true, opt_in: false,
-    inputs: { files: false, images: false },
+    // The native Codex/Claude/DSH/OpenCode transport decides whether a concrete
+    // model accepts an attachment. Other targets need route-level evidence.
+    ...(['codex', 'claudeCode', 'dsh', 'opencode'].includes(target) ? {} : { inputs: { files: false, images: false } }),
   };
 }

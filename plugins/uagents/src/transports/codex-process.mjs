@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { childEnvironment } from '../runtime/child-environment.mjs';
+import { verifiedNativeInputs } from '../artifacts/attachments.mjs';
 import { fail } from '../protocol/errors.mjs';
 import { uuidPattern } from '../protocol/schema.mjs';
 
@@ -27,8 +28,19 @@ export function locateCodexEntry(env = process.env, entryOverride = null) {
   return path.resolve(found);
 }
 
-export function codexExecArgs(request, workspace, entry, session = null) {
-  if (!session) return [entry, 'exec', '--json', '--model', request.model_resolved, '--cd', workspace, '-'];
+export function prepareCodexImages(request, workspace, snapshots = []) {
+  const inputs = request.inputs ?? [];
+  if (inputs.some(input => input.type !== 'image')) {
+    fail('unsupported_capability', 'Codex CLI has no native generic file attachment input.', {
+      category: 'policy', submission: 'not_sent',
+    });
+  }
+  return verifiedNativeInputs(workspace, inputs, snapshots).map(input => input.absolute_path);
+}
+
+export function codexExecArgs(request, workspace, entry, session = null, imagePaths = []) {
+  const imageArgs = imagePaths.flatMap(imagePath => ['--image', imagePath]);
+  if (!session) return [entry, 'exec', '--json', '--model', request.model_resolved, '--cd', workspace, ...imageArgs, '-'];
   if (!['continue', 'fork'].includes(session.action) || !uuidPattern.test(session.native_session_id ?? '')) {
     fail('invalid_native_session', 'Codex continuation/fork requires an explicit native UUID from a completed source task.', {
       category: 'user', submission: 'not_sent',
@@ -37,7 +49,7 @@ export function codexExecArgs(request, workspace, entry, session = null) {
   // Native exec resume/fork have no --cd option. cwd is pinned by spawn;
   // avoid --last or any implicit native session selection.
   return [entry, 'exec', session.action === 'continue' ? 'resume' : 'fork', '--json', '--model',
-    request.model_resolved, session.native_session_id, '-'];
+    request.model_resolved, ...imageArgs, session.native_session_id, '-'];
 }
 
 export function buildCodexPrompt(request, workspace) {
@@ -145,11 +157,11 @@ export function createCodexParser(onAccepted = () => {}, session = null) {
 }
 
 export function invokeCodexExec({ entry, request, workspace, publish = () => {}, onAccepted = () => {},
-  session = null, signal = null, isCancelRequested = null, spawnImpl = spawn, closeGraceMs = CLOSE_GRACE_MS } = {}) {
+  session = null, imagePaths = [], signal = null, isCancelRequested = null, spawnImpl = spawn, closeGraceMs = CLOSE_GRACE_MS } = {}) {
   if (signal?.aborted || isCancelRequested?.()) {
     return Promise.resolve({ status: 'cancelled', error: 'cancelled_before_send', submission: 'not_sent' });
   }
-  const args = codexExecArgs(request, workspace, entry, session);
+  const args = codexExecArgs(request, workspace, entry, session, imagePaths);
   return new Promise(resolve => {
     let child;
     try {
