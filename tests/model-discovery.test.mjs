@@ -99,6 +99,70 @@ test('WorkBuddy discovery marks the verified concrete route configured and usabl
   assert.equal(discoveredOnly.configured, false);
   assert.equal(discoveredOnly.selector, 'glm-5.3-flash');
   assert.equal(discoveredOnly.admission_allowed, true);
+  assert.equal(discoveredOnly.input_support.images.allowed, false);
+  assert.equal(discoveredOnly.input_support.images.verification, 'route_restriction');
+  assert.equal(discoveredOnly.input_support.files.verification, 'unmapped');
+  assert.equal(exact.input_support.images.allowed, true);
+  assert.equal(exact.input_support.images.verification, 'model_response');
+  const backendDefault = rows.find(row => row.route_id === 'workbuddy-default');
+  assert.equal(backendDefault.input_support.images.allowed, false);
+  assert.equal(backendDefault.input_support.images.verification, 'native_rejection');
+  assert.equal(backendDefault.input_support.images.observed_on, '2026-09-13');
+});
+
+test('model input evidence distinguishes a verified route, transport mapping and indeterminate delivery', async () => {
+  const adapterFactory = () => ({ discoverModels: async () => ({ status: 'configured_only', discovery: 'configured', models: [] }) });
+  const registry = createRegistry();
+  const claude = await discoverModelsForTarget('claudeCode', { registry, adapterFactory });
+  const flash = claude.find(row => row.selector === 'claudeCode/deepseek-v4-flash');
+  const pro = claude.find(row => row.selector === 'claudeCode/deepseek-v4-pro');
+  assert.equal(flash.input_support.files.verification, 'model_response');
+  assert.deepEqual(flash.input_support.files.formats, ['application/pdf', 'text/plain']);
+  assert.equal(pro.input_support.files.allowed, true);
+  assert.equal(pro.input_support.files.verification, 'transport_mapping');
+  assert.equal(pro.input_support.files.source, 'verification_record');
+  const dsh = await discoverModelsForTarget('dsh', { registry, adapterFactory });
+  assert.equal(dsh[0].input_support.images.allowed, true);
+  assert.equal(dsh[0].input_support.images.verification, 'indeterminate');
+  const otherDsh = createRegistry({ routes: { 'dsh/other': {
+    target: 'dsh', model: 'other', provider: 'deepseek-official', route_id: 'deepseek-official/other',
+  } } });
+  const dshRows = await discoverModelsForTarget('dsh', { registry: otherDsh, adapterFactory });
+  assert.equal(dshRows.find(row => row.selector === 'dsh/other').input_support.images.verification, 'transport_mapping');
+  const codex = await discoverModelsForTarget('codex', { registry, adapterFactory });
+  assert.equal(codex.find(row => row.selector === 'gpt-5.6-luna').input_support.images.verification, 'native_delivery');
+  assert.equal(codex.find(row => row.selector === 'gpt-6-astra').input_support.images.verification, 'transport_mapping');
+});
+
+test('model input listing applies current target restrictions without changing concrete model passthrough', async () => {
+  const registry = createRegistry({ targets: { opencode: { inputs: { images: false } } } });
+  const rows = await discoverModelsForTarget('opencode', {
+    registry,
+    adapterFactory: () => ({ discoverModels: async () => ({
+      status: 'ok', discovery: 'native_cli_catalog', models: [
+        { id: 'new-model', route_id: 'commandcode-goat/deepseek/new-model', provider: 'commandcode-goat/deepseek' },
+      ],
+    }) }),
+  });
+  const discovered = rows.find(row => row.selector === 'commandcode-goat/deepseek/new-model');
+  assert.equal(discovered.admission_allowed, true);
+  assert.equal(discovered.input_support.files.allowed, true);
+  assert.equal(discovered.input_support.files.verification, 'transport_mapping');
+  assert.equal(discovered.input_support.images.allowed, false);
+  assert.equal(discovered.input_support.images.verification, 'target_restriction');
+});
+
+test('a custom route cannot borrow native attachment evidence by reusing a built-in route ID', async () => {
+  const registry = createRegistry({ routes: { 'codex/custom': {
+    target: 'codex', model: 'custom', provider: 'codex', route_id: 'codex/gpt-5.6-luna',
+  } } });
+  const rows = await discoverModelsForTarget('codex', {
+    registry,
+    adapterFactory: () => ({ discoverModels: async () => ({ status: 'configured_only', discovery: 'configured', models: [] }) }),
+  });
+  const custom = rows.find(row => row.selector === 'codex/custom');
+  assert.equal(custom.input_support.images.allowed, true);
+  assert.equal(custom.input_support.images.verification, 'transport_mapping');
 });
 
 test('model listing identifies the configured default and selectable route', async () => {

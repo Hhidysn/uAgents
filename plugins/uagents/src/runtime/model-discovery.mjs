@@ -3,6 +3,7 @@ import { resolveModel } from '../policy/models.mjs';
 import { canonicalHash } from '../protocol/canonical-json.mjs';
 import { targetDescriptor } from '../registry/registry.mjs';
 import { modelDiscoveryScope } from '../transports/model-discovery.mjs';
+import { modelInputSupport } from './model-input-support.mjs';
 
 export const MODEL_DISCOVERY_TTL_MS = 10 * 60 * 1000;
 
@@ -195,6 +196,7 @@ export async function discoverModelsForTarget(target, {
 function mergeRows({ target, registry, configured, native, evidence, stale }) {
   const matched = new Set();
   const hasSnapshot = native.status === 'ok' || native.status === 'cache_only';
+  const descriptor = registry.targets[target];
   const rows = configured.map(([selector, model]) => {
     const matchIndex = hasSnapshot ? findNativeModel(native.models, model) : -1;
     if (matchIndex >= 0) matched.add(matchIndex);
@@ -210,6 +212,7 @@ function mergeRows({ target, registry, configured, native, evidence, stale }) {
       usable: discovered === null || stale ? null : discovered,
       provider_availability: 'unconfirmed',
       discovery: evidence,
+      input_support: modelInputSupport(target, descriptor, resolveModel(registry, target, selector)),
     };
   });
 
@@ -234,6 +237,7 @@ function mergeRows({ target, registry, configured, native, evidence, stale }) {
       usable: stale ? null : admissionAllowed,
       provider_availability: 'unconfirmed',
       discovery: evidence,
+      input_support: modelInputSupport(target, descriptor, selection),
     });
   });
   return rows;

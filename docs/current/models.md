@@ -26,12 +26,26 @@ discovery.observed_at_ms
 discovery.expires_at_ms
 discovery.age_ms
 discovery.stale
+input_support.files.allowed / input_support.images.allowed
+input_support.files.verification / input_support.images.verification
+input_support.files.source / input_support.images.source
+input_support.files.observed_on / input_support.images.observed_on
+input_support.files.evidence_ref / input_support.images.evidence_ref
 ```
 
 `provider_availability` 当前保持 `unconfirmed`；本机 help/catalog 不能证明登录、额度或 Provider 在线状态。
 `selector` 是 Task 请求的 `model` 值；`default=true` 表示该 target 当前 `model="default"` 解析到的路线。
 原生发现行有可直接提交的 `selector`。没有可靠目录的 target 也可以提交具体原生 ID，但列表只能显示已配置路线；
-未知模型可能在原生执行时失败，uAgents 不会自动换模型重试。新模型只开放 text + workspace，附件须另行验证。
+未知模型可能在原生执行时失败，uAgents 不会自动换模型重试。Codex、Claude Code、DSH 和 OpenCode 的新模型可使用已实现的原生附件映射，但具体模型能否接收仍未验证；其它 target 的新模型默认只开放 text + workspace。
+
+`input_support` 逐路线展示 uAgents 当前是否允许提交原生附件。`allowed=true` 只说明目标传输和当前路由策略允许提交，
+不保证 Provider/model 一定接受。`verification=model_response` 表示有该路线处理样例并回复的记录，
+`native_delivery` 表示已核对原生会话中收到附件字节，`transport_mapping` 表示只有原生接口/映射证据，
+`indeterminate` 表示真实 Task 尚未确认送达或结果；`native_rejection` 是原生拒绝记录。
+`unmapped`、`route_restriction`、`target_restriction` 和 `model_unavailable` 均不可提交该类附件。
+`observed_on` 是附件证据的日期，不是模型目录采集时间；目录采集时间仍见 `discovery.observed_at_ms`。
+Claude Code 的 `input_support.files.formats` 列出当前映射接受的 PDF 与 UTF-8 文本类型。
+证据记录来自仓库中的 `evidence_ref`；未测试过的具体模型不会因出现在目录里变成 `model_response`。
 
 ## 默认模型与单次覆盖
 
@@ -91,10 +105,10 @@ CLI/MCP 不做后台刷新。只有显式调用 model listing 且缓存缺失/�
 
 ## Codex 对话中的预选步骤
 
-Codex 使用 uAgents Skill 准备新 Task 时，先调用 `models <target>` 获取 `selector`、`default` 和 `discovery` 证据；所需 mode/输入能力由 `capabilities <target>` 核对。这些查询不发送 Prompt；`models trae` 也不会为列模型启动窗口。
+Codex 使用 uAgents Skill 准备新 Task 时，先调用 `models <target>` 获取 `selector`、`default`、`discovery` 和逐路线 `input_support` 证据；所需 mode 仍由 `capabilities <target>` 核对。这些查询不发送 Prompt；`models trae` 也不会为列模型启动窗口。
 
 - 用户已写明具体模型：直接把该 ID 用作本次 Task 的 `model`，不因它缺席列表而换模型或要求重新选择；仍按 target 与附件能力校验。
-- 用户要求“先选模型”：在对话中列出可提交的 selector、target 默认路线、来源及采集时间，然后等待用户回复 `default`、列表项或其它具体 ID。`partial`、`stale`、`configured_only` 和采集时间缺失均须明示。
+- 用户要求“先选模型”：在对话中列出可提交的 selector、target 默认路线、来源及采集时间；若任务带文件或图片，也列出对应的 `input_support` 及证据日期，然后等待用户回复 `default`、列表项或其它具体 ID。`partial`、`stale`、`configured_only` 和采集时间缺失均须明示。
 - 用户未指定且未要求选择：有已配置默认路线就说明后使用 `model="default"`；没有默认路线才请用户选择，不猜测一个默认模型。
 
 这一步只决定一次 Task 的路由，不修改 target 默认配置。列表是候选证据，不证明登录、额度或 Provider 在线。Codex 对话流程位于[agent-dispatch Skill](../../plugins/uagents/skills/agent-dispatch/references/model-choice.md)；当前不是 Codex 应用内的原生模型弹窗。

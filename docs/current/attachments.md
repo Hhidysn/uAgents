@@ -60,6 +60,7 @@ Ingestion 能力不会提升 target capability。一个 target 不支持 native 
 - OpenCode 继续使用原生 `--file`；WorkBuddy generic file 和 default/auto image 仍按既有负面真实验证关闭。agy、Doubao、TRAE 尚无经核实的原生附件映射。
 
 能力布尔值表示 uAgents 有 native transport 映射，不保证每个用户选择的 Provider/model 都接受该附件。未知或自定义模型 ID 可交给原生 target 判定；实际失败仍按 Task 状态记录。详情见 [2026-09-26 验证记录](../verification/2026-09-26-native-attachment-input.md)。
+提交前可运行 `uagents models <target>` 查看每条已列出路线的 `input_support.files` / `input_support.images`：`allowed` 是当前策略是否接收该输入，`verification` 和 `observed_on` 区分模型回复、原生送达、仅有传输映射及尚未确认的真实执行。列表不限制用户输入其它具体模型 ID。
 
 ## Limits
 
