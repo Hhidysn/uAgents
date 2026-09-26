@@ -89,6 +89,16 @@ WorkBuddy、OpenCode、agy 的 native catalog 使用 per-user HostStore 缓存�
 
 CLI/MCP 不做后台刷新。只有显式调用 model listing 且缓存缺失/过期，或调用方要求 refresh 时才执行 native discovery。
 
+## Codex 对话中的预选步骤
+
+Codex 使用 uAgents Skill 准备新 Task 时，先调用 `models <target>` 获取 `selector`、`default` 和 `discovery` 证据；所需 mode/输入能力由 `capabilities <target>` 核对。这些查询不发送 Prompt；`models trae` 也不会为列模型启动窗口。
+
+- 用户已写明具体模型：直接把该 ID 用作本次 Task 的 `model`，不因它缺席列表而换模型或要求重新选择；仍按 target 与附件能力校验。
+- 用户要求“先选模型”：在对话中列出可提交的 selector、target 默认路线、来源及采集时间，然后等待用户回复 `default`、列表项或其它具体 ID。`partial`、`stale`、`configured_only` 和采集时间缺失均须明示。
+- 用户未指定且未要求选择：有已配置默认路线就说明后使用 `model="default"`；没有默认路线才请用户选择，不猜测一个默认模型。
+
+这一步只决定一次 Task 的路由，不修改 target 默认配置。列表是候选证据，不证明登录、额度或 Provider 在线。Codex 对话流程位于[agent-dispatch Skill](../../plugins/uagents/skills/agent-dispatch/references/model-choice.md)；当前不是 Codex 应用内的原生模型弹窗。
+
 ## agy
 
 agy 1.2.5 使用：
