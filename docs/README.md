@@ -44,6 +44,9 @@
 
 验证记录继续保存在 [verification/](verification/)。其中可以包含日期、版本、真实请求 UUID、测试计数和失败过程；这些内容用于证明能力，而不是定义能力。
 
+- [最新本机插件发布与 OpenCode V2 兼容验证](verification/2026-10-02-plugin-release.md)
+- [agy 原生自动批准与真实只读审查](verification/2026-10-02-agy-native-auto-approval.md)
+
 ## 待实现功能
 
 - [Roadmap：Codex 后续能力、现有 Agent 补充及 Claude Code / Pi Agent 研究](roadmap.md)

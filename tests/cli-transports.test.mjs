@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { createParser, invokeCli, locateCli, nativeDriver } from '../plugins/uagents/src/transports/cli-process.mjs';
-import { buildOpenCodeArgs } from '../plugins/uagents/src/transports/opencode-driver.mjs';
+import { buildOpenCodeArgs, parseOpenCodeVersion } from '../plugins/uagents/src/transports/opencode-driver.mjs';
 import { buildWorkBuddyArgs, buildWorkBuddyInput } from '../plugins/uagents/src/transports/workbuddy-driver.mjs';
 import { WorkBuddyAdapter } from '../plugins/uagents/src/adapters/workbuddy/adapter.mjs';
 import { evaluateRequest } from '../plugins/uagents/src/policy/evaluate.mjs';
@@ -41,6 +41,32 @@ test('Windows discovery finds native npm executable without invoking a shell', {
   fs.writeFileSync(laterBinary, 'later PATH candidate');
   assert.equal(locateCli('opencode', { PATH: [path.join(root, 'npm path'), path.join(root, 'later path')].join(path.delimiter) }), binary);
   assert.throws(() => locateCli('opencode', { UAGENTS_OPENCODE_BIN: 'relative.cmd' }), { code: 'invalid_cli_path' });
+});
+
+test('Windows discovery resolves the scoped OpenCode v2 npm package', { skip: process.platform !== 'win32' }, () => {
+  const directory = path.join(root, 'v2 npm path');
+  const binary = path.join(directory, 'node_modules/@opencode/cli/bin/opencode.exe');
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  fs.writeFileSync(binary, 'fixture only');
+  assert.equal(locateCli('opencode', { PATH: directory }), binary);
+});
+
+test('OpenCode version verification accepts v1 and prefixed v2 but rejects unrelated output', () => {
+  assert.equal(parseOpenCodeVersion('1.18.34\r\n'), '1.18.34');
+  assert.equal(parseOpenCodeVersion('opencode v2.0.21\r\n'), '2.0.21');
+  assert.equal(parseOpenCodeVersion('v24.13.0'), null);
+  assert.equal(parseOpenCodeVersion('opencode v2.0.21\nunexpected output'), null);
+});
+
+test('OpenCode v2 uses the transport cwd and preserves continuation and file identity', () => {
+  const input = request('opencode', { continue_session_id: 'ses_parent', inputs: [{ type: 'file', path: 'input.md' }] });
+  assert.deepEqual(buildOpenCodeArgs(input, root, { majorVersion: 2 }), [
+    'run', '--session', 'ses_parent', '--model', input.model, '--format', 'json',
+    '--file', path.resolve(root, 'input.md'),
+  ]);
+  assert.throws(() => buildOpenCodeArgs({ ...input, native_args: ['--dir', 'other'] }, root, { majorVersion: 2 }), {
+    code: 'invalid_request',
+  });
 });
 
 test('WorkBuddy validates session/cwd and preserves approval/background-task evidence', () => {
@@ -135,6 +161,19 @@ test('OpenCode returns only the final completed message and rejects mixed identi
   assert.equal(parser.finish(0).result.response, 'complete');
   assert.equal(parser.finish(0).status, 'succeeded');
   assert.throws(() => parser.event({ ...ocEvent('text', 'more', 'final', { text: 'other' }), sessionID: 'ses_other' }), { code: 'native_session_mismatch' });
+});
+
+test('OpenCode keeps text and zero exit unconfirmed when the native completion event is absent', () => {
+  const parser = createParser(request('opencode'), root, () => {});
+  parser.event(ocEvent('step_start', 'start'));
+  parser.event(ocEvent('text', 'text', 'final', { text: 'UAGENTS_OPENCODE_V2_OK' }));
+  const outcome = parser.finish(0);
+  assert.equal(outcome.status, 'unknown');
+  assert.equal(outcome.error, 'native_completion_unconfirmed');
+  assert.equal(outcome.retry_safe, false);
+  assert.equal(outcome.native_exit_code, 0);
+  assert.equal(outcome.result.native_session_id, 'ses_test');
+  assert.equal(outcome.result.response, '');
 });
 
 test('OpenCode driver keeps native flags caller-controlled and maps file inputs to absolute paths', () => {

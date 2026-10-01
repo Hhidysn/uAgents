@@ -1,23 +1,23 @@
 # uAgents
 
-uAgents 是一个面向 Codex 的本地统一 Agent 调度层。它把多个本机 Agent 接到同一套 Task、状态、结果、附件、会话和 Council 工作流中。沙箱、命令和文件访问权限由各 Agent 的原生配置、声明的启动策略与运行环境控制。agy 按用户指定策略使用 `--dangerously-skip-permissions` 原生自动批准工具，不注入 `--sandbox`；只读审查依靠明确的任务提示与 `advisory-read-only` 指导。
+uAgents 是一个面向 Codex 的本地统一 Agent 调度层。它把多个本机 Agent 接到同一套 Task、状态、结果、附件、会话和 Council 工作流中。uAgents 负责调度与记录；执行权限由各 Agent 的原生配置、声明的启动策略与运行环境控制。
 
-当前仓库与个人 marketplace 安装构建版本见 [插件清单](plugins/uagents/.codex-plugin/plugin.json)；安装版验证见 [验证记录](docs/verification/2026-09-23-codex-app-server-spike.md)。
+当前构建版本见 [插件清单](plugins/uagents/.codex-plugin/plugin.json)，本机最新安装与验证见 [发布记录](docs/verification/2026-10-02-plugin-release.md)。
 
 ## 支持的 Agent
 
 | Target | Analysis | Implementation | File input | Image input | Continue / Fork |
 | --- | --- | --- | --- | --- | --- |
 | agy | ✅ | ✅ | — | — | — |
-| Codex CLI (`codex`) | ✅ | ✅ | — | — | Windows/Astra 显式预览 ✅ / ✅ |
-| Claude Code CLI (`claudeCode`) | ✅ | ✅ | — | — | — |
+| Codex CLI (`codex`) | ✅ | ✅ | — | ✅ | Windows/Astra 显式预览 ✅ / ✅ |
+| Claude Code CLI (`claudeCode`) | ✅ | ✅ | PDF / UTF-8 text | ✅ | — |
 | WorkBuddy | ✅ | ✅ | — | `deepseek-v4.1-flash` ✅ | ✅ / ✅ |
-| DeepSeek Harness (`dsh`) | ✅ | ✅ | — | — | — |
+| DeepSeek Harness (`dsh`) | ✅ | ✅ | — | 原生映射已接入，真实 Task 未确认 | — |
 | OpenCode | ✅ | ✅ | ✅ | ✅ | ✅ / ✅ |
 | 豆包工作 | ✅ | — | — | — | — |
 | TRAE CN | ✅ | ✅ | — | — | — |
 
-完整能力矩阵、模型选择和目标差异见 [当前 Agent 能力](docs/current/agents.md)。
+表格表示 uAgents 开放的输入映射，不保证每个模型都已完成真实 Provider 验证。完整能力矩阵、模型选择和目标差异见 [当前 Agent 能力](docs/current/agents.md)。
 
 ## 快速开始
 
@@ -64,7 +64,7 @@ node "<plugin-root>\bin\uagents.mjs" result <task-id>
 
 保存为 `request.json` 后使用上面的 `submit --request` 命令；通过 `status` / `result` 查询，不要为尚未确认结果的任务更换 UUID 重发。Codex 的 `probe` 只检查本机 CLI 版本，不是模型在线可用性测试。真实安装版 Luna 验收记录见 [Verification](docs/verification/2026-09-20-codex-luna-installed-e2e.md)。
 
-Claude Code CLI 使用 `target="claudeCode"` 和显式模型路线，例如本机 DeepSeek 网关的 `model="claudeCode/deepseek-v4-pro[1m]"`，并提供绝对路径 `workspace`。支持 text + workspace、analysis / implementation，以及原生 stream-json 图片、PDF 和 UTF-8 文本输入；用 `inputs` 的 `path`、`source` 或 `blob` 提交附件。Codex CLI 支持原生图片输入，DSH SDK 也提供内联图片协议；OpenCode 支持文件和图片，WorkBuddy 图片仍限已验证模型。权限完全沿用各 target 的原生设置。`probe` 仅检查 CLI 版本。Claude Code 暂不开放跨 Task continuation/fork；`status` / `result` 可查询已提交 Task。各路线及验证边界见 [当前附件能力](docs/current/attachments.md) 和 [验证记录](docs/verification/2026-09-26-native-attachment-input.md)。
+Claude Code CLI 使用 `target="claudeCode"` 和显式模型路线，例如本机 DeepSeek 网关的 `model="claudeCode/deepseek-v4-pro[1m]"`，并提供绝对路径 `workspace`。支持 text + workspace、analysis / implementation，以及原生 stream-json 图片、PDF 和 UTF-8 文本输入；用 `inputs` 的 `path`、`source` 或 `blob` 提交附件。Codex CLI 支持原生图片输入，DSH SDK 也提供内联图片协议；OpenCode 支持文件和图片，WorkBuddy 图片仍限已验证模型。Claude Code 权限沿用原生设置，`probe` 仅检查 CLI 版本。Claude Code 暂不开放跨 Task continuation/fork；`status` / `result` 可查询已提交 Task。各路线及验证边界见 [当前附件能力](docs/current/attachments.md) 和 [验证记录](docs/verification/2026-09-26-native-attachment-input.md)。
 
 精确字段和命令参数以 CLI discovery 为准：
 
@@ -117,6 +117,12 @@ Codex 在委派新 Task 前通过 uAgents Skill 查询模型证据：已指定�
 uAgents 可以发现并验证 Agent 安装；桌面目标使用受管实例。`status` / `result` 只读本地状态，`resume` / `reconcile` 不会把一个已经发送过的 Prompt 自动换 UUID 重放。
 
 详见 [当前 Runtime 与生命周期](docs/current/runtime.md)。
+
+### 执行权限
+
+`analysis` 和 `advisory-read-only` 是任务意图与提示指导，不构成强制只读沙箱。审查提示应明确禁止修改文件和运行有修改效果的命令。
+
+agy 按指定调度策略使用 `--dangerously-skip-permissions`，由原生 CLI 自动批准工具；uAgents 不注入 `--sandbox`，原生设置仍可启用沙箱。Codex、Claude Code 等目标沿用原生权限配置；OpenCode 可通过 `execution.native_args` 传入其当前版本支持的权限选项。遇到原生审批或发送后的不确定状态时，按 Task 规则记录，不自动换 UUID 重发。详见 [权限边界](docs/current/agents.md#权限边界)。
 
 ## Unified MCP
 

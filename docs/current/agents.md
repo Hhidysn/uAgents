@@ -30,7 +30,7 @@ uagents capabilities <target>
 - 模型必须显式选择；没有 default model。
 - `gemini-3.8-flash-medium` 是已真实验证的 configured route。
 - `uagents models agy` 通过 native `agy models` 发现本机 catalog；发现到的其它模型可直接用原生 ID 提交。
-- analysis / implementation 均按用户指定的调度策略传入 `--dangerously-skip-permissions`，由原生 CLI 自动批准工具；不再注入 `--sandbox`。原生配置仍可启用 sandbox。只读审查使用 `advisory-read-only` 和明确的禁止修改提示，不提供强制只读保证。旧版强制 sandbox 曾使 Windows `run_command` 在初始化沙箱时请求管理员提权，见 [验证记录](../verification/2026-10-02-agy-native-auto-approval.md)。
+- analysis / implementation 均按指定调度策略传入 `--dangerously-skip-permissions`，由原生 CLI 自动批准工具；不注入 `--sandbox`。原生配置仍可启用 sandbox。只读审查使用 `advisory-read-only` 和明确的禁止修改提示，不提供强制只读保证。真实终端审查验证见 [记录](../verification/2026-10-02-agy-native-auto-approval.md)。
 
 ## Codex CLI (`codex`)
 
@@ -75,6 +75,8 @@ uagents capabilities <target>
 - 支持 continuation 和 fork。
 - `models opencode` 发现到的其它 provider/model route 可直接提交；没有在当前发现范围内的原生 ID 也可显式交给 OpenCode 判定。
 - Windows 路线支持 durable native process observation 和 verified execution timeout。
+- 自动核对原生版本；V1 使用 `run --dir <workspace>`，V2 使用进程 cwd。模型发现按版本选择命令，V2 列举一次再按已配置 provider 过滤；不替用户迁移原生配置。`execution.native_args` 保持顺序透传，V2 不接受已移除的 `--pure` / `--variant`，variant 使用 `provider/model#variant`。本机兼容验证见 [发布记录](../verification/2026-10-02-plugin-release.md)。
+- 本机 V2.0.21 的真实 text Task 收到原生文本并以 0 退出，但缺少 `step_finish`，因此保持 `indeterminate / native_completion_unconfirmed`。V2 的完整终态、续接/fork 与附件 E2E 尚未确认；不把 V1 的历史验证当作 V2 验证，不自动重发缺少终态的请求。
 
 ## 豆包工作
 
@@ -94,4 +96,4 @@ uagents capabilities <target>
 
 ## 权限边界
 
-uAgents 是调度层，不提供执行沙箱或 Codex 审批代理。`analysis` 也不代表底层 Agent 被硬性限制为只读。命令、文件与网络访问权限由目标 Agent 的原生配置和运行环境控制。
+uAgents 是调度层，不提供执行沙箱或 Codex 审批代理。`analysis` 和 `advisory-read-only` 不代表底层 Agent 被硬性限制为只读。命令、文件与网络访问权限由目标 Agent 的原生配置、声明的启动策略和运行环境控制。agy 的启动策略启用原生工具自动批准；其它 target 不因此获得同样的启动参数。原生权限拒绝、取消及发送后的不确定状态仍按各 target 的 Task 规则记录。

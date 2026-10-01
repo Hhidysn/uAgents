@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { fail } from '../protocol/errors.mjs';
 import { childEnvironment } from '../runtime/child-environment.mjs';
-import { createOpenCodeDriver, createOpenCodeParser } from './opencode-driver.mjs';
+import { createOpenCodeDriver, createOpenCodeParser, parseOpenCodeVersion } from './opencode-driver.mjs';
 import { buildWorkBuddyArgs, buildWorkBuddyInput } from './workbuddy-driver.mjs';
 import { createClaudeCodeDriver } from './claude-code-driver.mjs';
 
@@ -50,7 +50,8 @@ export function nativeCliCandidates(target, env = process.env) {
         ...directories.flatMap(dir => [path.join(dir, process.platform === 'win32' ? 'claude.exe' : 'claude'),
           path.join(dir, 'node_modules/@anthropic-ai/claude-code/bin', process.platform === 'win32' ? 'claude.exe' : 'claude')])]
     : directories.flatMap(dir => [path.join(dir, process.platform === 'win32' ? 'opencode.exe' : 'opencode'),
-      ...(process.platform === 'win32' ? [path.join(dir, 'node_modules/opencode-ai/bin/opencode.exe')] : [])]);
+      ...(process.platform === 'win32' ? [path.join(dir, 'node_modules/@opencode/cli/bin/opencode.exe'),
+        path.join(dir, 'node_modules/opencode-ai/bin/opencode.exe')] : [])]);
 }
 
 export function nativeDriver(request, workspace, entryOverride = null, inputSnapshots = []) {
@@ -191,10 +192,10 @@ export function invokeCli(directory, workspace, request, publish, testDriver, en
       buffer += decoder.end(); if (buffer) line(buffer);
       if (outcome) { finish(outcome); return; }
       if (request.kind === 'probe') {
-        const match = version.trim().match(request.target === 'claudeCode'
+        const match = request.target === 'opencode' ? [null, parseOpenCodeVersion(version)] : version.trim().match(request.target === 'claudeCode'
           ? /^(\d+\.\d+\.\d+(?:[-+][\w.-]+)?) \(Claude Code\)$/
           : /^(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)$/);
-        finish(code === 0 && match ? { status: 'succeeded', scope: 'version_only', version: match[1], submission: 'not_sent' }
+        finish(code === 0 && match?.[1] ? { status: 'succeeded', scope: 'version_only', version: match[1], submission: 'not_sent' }
           : { status: 'failed', error: 'native_version_probe_failed', submission: 'not_sent' }); return;
       }
       try { finish(parser.finish(code)); } catch { finish({ status: 'unknown', error: 'result_handling_failed', retry_safe: false }); }

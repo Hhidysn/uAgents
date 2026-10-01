@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { discoverCliModelCatalog, parseAgyModelList, parseOpenCodeModelList, parseWorkBuddyModelHelp } from '../plugins/uagents/src/transports/model-discovery.mjs';
 import { discoverModelsForTarget, MODEL_DISCOVERY_TTL_MS } from '../plugins/uagents/src/runtime/model-discovery.mjs';
 import { createRegistry } from '../plugins/uagents/src/registry/registry.mjs';
@@ -48,6 +51,41 @@ test('agy native discovery uses its own 30-second catalog budget without sending
   assert.deepEqual(invocation.args, ['models']);
   assert.equal(invocation.options.timeout, 30_000);
   assert.deepEqual(catalog.models.map(model => model.id), ['gemini-3.8-flash-medium']);
+});
+
+test('OpenCode v2 discovery lists once and filters the configured providers without v1 flags', () => {
+  const calls = [];
+  const entry = path.join(mkdtempSync(path.join(tmpdir(), 'uagents-opencode-v2-')), 'opencode.exe');
+  writeFileSync(entry, 'fixture only');
+  const catalog = discoverCliModelCatalog('opencode', {
+    entryOverride: entry,
+    runner: (command, args) => {
+      calls.push(args);
+      if (args[0] === '--version') return { status: 0, stdout: 'opencode v2.0.21\n' };
+      assert.deepEqual(args, ['models']);
+      return { status: 0, stdout: 'commandcode-goat/deepseek/deepseek-v4.1-flash\nother/model\n' };
+    },
+  });
+  assert.deepEqual(calls, [['--version'], ['models']]);
+  assert.deepEqual(catalog.models.map(model => model.route_id), ['commandcode-goat/deepseek/deepseek-v4.1-flash']);
+});
+
+test('OpenCode v1 discovery retains provider-specific catalog arguments', () => {
+  const calls = [];
+  const entry = path.join(mkdtempSync(path.join(tmpdir(), 'uagents-opencode-v1-')), 'opencode.exe');
+  writeFileSync(entry, 'fixture only');
+  const catalog = discoverCliModelCatalog('opencode', {
+    entryOverride: entry,
+    runner: (command, args) => {
+      calls.push(args);
+      if (args[0] === '--version') return { status: 0, stdout: '1.18.34\n' };
+      assert.equal(args[0], 'models');
+      assert.equal(args.at(-1), '--pure');
+      return { status: 0, stdout: `${args[1]}/fixture\n` };
+    },
+  });
+  assert.equal(calls[0][0], '--version');
+  assert.ok(catalog.models.length > 0);
 });
 
 test('agy discovery exposes every native model as selectable', async () => {

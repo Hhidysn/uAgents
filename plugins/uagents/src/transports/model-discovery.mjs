@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { BUILTIN_REGISTRY } from '../registry/builtins.mjs';
 import { childEnvironment } from '../runtime/child-environment.mjs';
 import { locateCli } from './cli-process.mjs';
+import { openCodeMajorVersion } from './opencode-driver.mjs';
 
 const DISCOVERY_TIMEOUT_MS = 10_000;
 const AGY_DISCOVERY_TIMEOUT_MS = 30_000;
@@ -41,6 +42,12 @@ export function discoverCliModelCatalog(target, {
   if (target === 'opencode') {
     const providers = openCodeProviders(registry);
     const models = [];
+    if (openCodeMajorVersion(entry, { runner, env }) >= 2) {
+      // V2 lists all providers and no longer accepts a provider argument or --pure.
+      const result = run(runner, entry, ['models'], env);
+      for (const provider of providers) models.push(...parseOpenCodeModelList(result.stdout, provider));
+      return { status: 'ok', discovery: 'native_cli_catalog', models: dedupe(models, item => item.route_id) };
+    }
     for (const provider of providers) {
       const result = run(runner, entry, ['models', provider, '--pure'], env);
       models.push(...parseOpenCodeModelList(result.stdout, provider));

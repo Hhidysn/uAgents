@@ -115,7 +115,7 @@ Codex 使用 uAgents Skill 准备新 Task 时，先调用 `models <target>` 获�
 
 ## agy
 
-agy 1.2.5 使用：
+当前已核对的 agy 1.2.14 使用：
 
 ```text
 agy models
@@ -181,8 +181,7 @@ commandcode-goat/deepseek/deepseek-v4-flash
 commandcode-goat/z-ai/glm-5.3-flash
 ```
 
-本机 `opencode models <provider> --pure` 发现到的其它模型可直接按 `provider/model` 传入。当前目录范围由已配置路线涉及的 provider 决定；
-不在列表中的 provider/model 也可以显式提交，最终由 OpenCode 校验。
+V1 使用 `opencode models <provider> --pure`；V2 使用一次 `opencode models`，再过滤已配置路线涉及的 provider。发现到的其它模型可直接按 `provider/model` 传入；不在列表中的 provider/model 也可以显式提交，最终由 OpenCode 校验。V2 的 variant 用 `provider/model#variant` 表示，不传已移除的 `--variant`。本机版本与目录验证见 [发布记录](../verification/2026-10-02-plugin-release.md)。
 
 ## 其它 target
 

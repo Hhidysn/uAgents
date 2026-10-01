@@ -46,13 +46,23 @@ Doubao/TRAE 使用受管隔离 profile。uAgents 不自动登录、不接管用�
 
 TRAE 的受管桌面退出后，下一次 `ensure trae` 会在旧网关身份可验证、原生队列为空且本次使用的 Task 状态库中没有关联未决任务时清理伴随网关，再启动新一代实例。证据不足时保留旧网关，并把 `gateway_cleanup` 的跳过原因写入旧实例记录；如果旧网关仍可能运行，返回 `gateway_cleanup_deferred`，不启动新网关覆盖其共享 token。不会根据单独的 PID 杀进程。使用多个独立 `--state-dir` 时，未传入本次调用的其它 Task 状态库不在此检查范围内。
 
-## 开发门禁
+## 本机插件安装
 
-核心回归：
+本机 `personal` marketplace 已配置时，先让其插件源与待发布仓库构建一致，再运行：
+
+```powershell
+codex plugin add uagents@personal --json
+```
+
+返回的 version 和 installedPath 是本次安装证据；核对仓库、marketplace 插件源和缓存中的文件内容一致后，从返回的插件目录运行统一 CLI。不要凭固定缓存路径判断已安装最新版。最近一次安装记录见 [发布验证](../verification/2026-10-02-plugin-release.md)。
+
+## 开发验证
+
+根据变更选择针对性测试；完整回归可执行：
 
 ```powershell
 npm test
 npm --prefix plugins/uagents/mcp/unified test
 ```
 
-插件发布前还应运行 Skill validator、Plugin validator 和 `git diff --check`。历史具体命令与每次测试计数保存在 `docs/verification/`，不作为当前功能定义。
+插件发布前核对 Skill 格式、插件打包、`git diff --check` 和安装内容一致性。打包测试使用 `node --test tests/plugin-package.test.mjs`。具体命令与每次测试计数保存在 `docs/verification/`，不作为当前功能定义。

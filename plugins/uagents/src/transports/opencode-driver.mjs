@@ -1,5 +1,7 @@
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { errorRecord, fail, UAgentsError } from '../protocol/errors.mjs';
+import { childEnvironment } from '../runtime/child-environment.mjs';
 
 const OPENCODE_PROTOCOL_FLAGS = Object.freeze(['--model', '--format', '--dir', '--title']);
 
@@ -24,7 +26,22 @@ export function validateOpenCodeNativeArgs(nativeArgs = []) {
   return nativeArgs;
 }
 
-export function buildOpenCodeArgs(request, workspace) {
+export function parseOpenCodeVersion(text) {
+  return String(text).trim().match(/^(?:opencode v)?(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)$/)?.[1] ?? null;
+}
+
+export function openCodeMajorVersion(entry, { runner = spawnSync, env = process.env } = {}) {
+  const result = runner(entry, ['--version'], {
+    encoding: 'utf8', windowsHide: true, env: childEnvironment(env), timeout: 5_000, maxBuffer: 8192,
+  });
+  const version = result.status === 0 && !result.error ? parseOpenCodeVersion(result.stdout) : null;
+  if (!version) fail('native_version_probe_failed', 'Installed OpenCode version could not be verified.', {
+    category: 'target', submission: 'not_sent',
+  });
+  return Number(version.split('.')[0]);
+}
+
+export function buildOpenCodeArgs(request, workspace, { majorVersion = 1 } = {}) {
   if (request.kind === 'probe') return ['--version'];
   const nativeArgs = validateOpenCodeNativeArgs(request.native_args ?? []);
   const sourceSession = request.continue_session_id ?? request.fork_session_id ?? null;
@@ -38,7 +55,8 @@ export function buildOpenCodeArgs(request, workspace) {
     'run',
     ...(sourceSession ? ['--session', sourceSession] : []),
     ...(request.fork_session_id ? ['--fork'] : []),
-    '--model', request.model, '--format', 'json', '--dir', workspace,
+    '--model', request.model, '--format', 'json',
+    ...(majorVersion < 2 ? ['--dir', workspace] : []),
     ...(sourceSession ? [] : ['--title', `uAgents ${request.request_id}`]),
     ...files,
     ...nativeArgs,
@@ -52,7 +70,10 @@ export function buildOpenCodePrompt(request, workspace) {
 export function createOpenCodeDriver(request, workspace, entry) {
   return {
     command: entry,
-    args: buildOpenCodeArgs(request, workspace),
+    // Both transports set cwd to workspace. V2 removed the redundant --dir flag.
+    args: buildOpenCodeArgs(request, workspace, {
+      majorVersion: request.kind === 'probe' ? 1 : openCodeMajorVersion(entry),
+    }),
     createParser: publish => createOpenCodeParser(request, workspace, publish),
     buildPrompt: () => buildOpenCodePrompt(request, workspace),
     initialObservation: { native_edit_mode: 'inherited' },
