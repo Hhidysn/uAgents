@@ -4,17 +4,23 @@ import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { childEnvironment } from '../runtime/child-environment.mjs';
 
+export function buildAgyArgs(workspace, request) {
+  return [
+    '--input-format', 'stream-json', '--output-format', 'stream-json',
+    '--add-dir', workspace,
+    ...(request.mode === 'implementation' ? ['--mode', 'accept-edits'] : []),
+    '--model', request.model, '--dangerously-skip-permissions',
+    '--disable-slash-commands', '--print-timeout', `${request.timeout_ms}ms`,
+    '--log-file', process.platform === 'win32' ? 'NUL' : '/dev/null',
+  ];
+}
+
 export function invokeAgy(directory, workspace, request, publish, testDriver, { entry = null } = {}) {
   return new Promise(resolve => {
     // `entry` is a supervisor-verified absolute agy executable; without it the
     // bare command name is resolved by the OS (legacy behavior).
-    const driver = testDriver ?? { command: entry ?? (process.platform === 'win32' ? 'agy.exe' : 'agy'), args: [
-      '--input-format', 'stream-json', '--output-format', 'stream-json',
-      '--add-dir', workspace,
-      ...(request.mode === 'implementation' ? ['--mode', 'accept-edits'] : []),
-      '--model', request.model, '--sandbox', '--disable-slash-commands', '--print-timeout', `${request.timeout_ms}ms`,
-      '--log-file', process.platform === 'win32' ? 'NUL' : '/dev/null',
-    ] };
+    const driver = testDriver ?? { command: entry ?? (process.platform === 'win32' ? 'agy.exe' : 'agy'),
+      args: buildAgyArgs(workspace, request) };
     const child = spawn(driver.command, driver.args, { cwd: workspace, windowsHide: true, env: driver.env ?? childEnvironment(), stdio: ['pipe', 'pipe', 'pipe'] });
     let sent = false, init, finalResult, outcome, stopped = false, finished = false, closeTimer, buffer = '', byteCount = 0, stderr = '', permissionDenied = false;
     const decoder = new StringDecoder('utf8');
@@ -62,8 +68,8 @@ export function invokeAgy(directory, workspace, request, publish, testDriver, { 
           tool_count: Array.isArray(settings.tools) ? settings.tools.length : null,
           native_permission_mode: settings.permission_mode ?? null, permission_policy: request.permission_policy,
           native_edit_mode: request.mode === 'implementation' ? 'accept-edits' : 'inherited' });
-        // Native agy permissions govern tools. This adapter does not enforce read-only access
-        // or disable tool approval. Implementation opts into native accept-edits for files.
+        // The configured native flag auto-approves tools. Read-only review guidance
+        // remains advisory; implementation also selects native accept-edits mode.
         if (fs.existsSync(path.join(directory, 'cancel.json'))) { stop('cancelled', 'cancelled_before_send'); return; }
         if (request.kind === 'probe') {
           outcome = { status: 'succeeded', scope: 'preflight_only', submission: 'not_sent' };

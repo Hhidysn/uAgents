@@ -20,7 +20,7 @@ Before submitting a Task, use `schema request`; before a Council, use `schema co
 - [Doubao Work](references/doubao-work.md): backend-default desktop Agent over a prepared loopback CDP connection.
 - [TRAE CN](references/trae-cn.md): backend-default Solo Agent over the prepared local gateway.
 
-Do not invent an unsupported target, capability, model, or fallback. Do not automatically install tools, sign in, approve native dialogs, buy quota, or replace a failed route. Send only task-relevant text and authorized files; never forward credentials or the entire conversation by default. Desktop targets are launched and managed by uAgents. Doubao Work and TRAE CN default to dedicated isolated profiles. TRAE also supports an explicit `ensure trae --profile personal` after the original window has been closed; this starts a managed CDP process using the personal configuration.
+Do not invent an unsupported target, capability, model, or fallback. Do not automatically install tools, sign in, manually approve native dialogs, buy quota, or replace a failed route. agy uses the declared native `--dangerously-skip-permissions` launch policy; review Tasks must explicitly prohibit modifications because `advisory-read-only` is prompt guidance. Send only task-relevant text and authorized files; never forward credentials or the entire conversation by default. Desktop targets are launched and managed by uAgents. Doubao Work and TRAE CN default to dedicated isolated profiles. TRAE also supports an explicit `ensure trae --profile personal` after the original window has been closed; this starts a managed CDP process using the personal configuration.
 
 ## Workflow
 

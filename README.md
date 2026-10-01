@@ -1,6 +1,6 @@
 # uAgents
 
-uAgents 是一个面向 Codex 的本地统一 Agent 调度层。它把多个本机 Agent 接到同一套 Task、状态、结果、附件、会话和 Council 工作流中。沙箱、命令和文件访问权限由各 Agent 的原生配置与运行环境控制；uAgents 不代替 Agent 授权或自动批准请求。
+uAgents 是一个面向 Codex 的本地统一 Agent 调度层。它把多个本机 Agent 接到同一套 Task、状态、结果、附件、会话和 Council 工作流中。沙箱、命令和文件访问权限由各 Agent 的原生配置、声明的启动策略与运行环境控制。agy 按用户指定策略使用 `--dangerously-skip-permissions` 原生自动批准工具，不注入 `--sandbox`；只读审查依靠明确的任务提示与 `advisory-read-only` 指导。
 
 当前仓库与个人 marketplace 安装构建版本见 [插件清单](plugins/uagents/.codex-plugin/plugin.json)；安装版验证见 [验证记录](docs/verification/2026-09-23-codex-app-server-spike.md)。
 

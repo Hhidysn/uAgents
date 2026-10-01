@@ -30,6 +30,7 @@ uagents capabilities <target>
 - 模型必须显式选择；没有 default model。
 - `gemini-3.8-flash-medium` 是已真实验证的 configured route。
 - `uagents models agy` 通过 native `agy models` 发现本机 catalog；发现到的其它模型可直接用原生 ID 提交。
+- analysis / implementation 均按用户指定的调度策略传入 `--dangerously-skip-permissions`，由原生 CLI 自动批准工具；不再注入 `--sandbox`。原生配置仍可启用 sandbox。只读审查使用 `advisory-read-only` 和明确的禁止修改提示，不提供强制只读保证。旧版强制 sandbox 曾使 Windows `run_command` 在初始化沙箱时请求管理员提权，见 [验证记录](../verification/2026-10-02-agy-native-auto-approval.md)。
 
 ## Codex CLI (`codex`)
 
