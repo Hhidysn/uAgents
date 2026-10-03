@@ -1,6 +1,6 @@
 # Unified MCP Reference
 
-插件提供一个统一 stdio MCP Server：`uagents-unified`。它和 CLI 使用同一 Node.js Core。
+插件提供一个统一 stdio MCP Server：`uagents-unified`。独立服务还提供 loopback HTTP MCP 与 stdio 桥接。三者和 CLI 使用同一 Node.js Core，接入与范围约束见 [Local Service](service.md)。
 
 当前工具包括：
 

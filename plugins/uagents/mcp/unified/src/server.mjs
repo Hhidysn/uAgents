@@ -162,14 +162,19 @@ export function createToolHandlers(runtime) {
   };
 }
 
-export function createServer({ runtime = createRuntime(), supervisor = null } = {}) {
+export function createServer({ runtime = null, supervisor = null, handlers = null, enabledTools = null } = {}) {
   // The shared host supervisor is injected by start(); hosts constructing the
   // server directly (tests) keep null and lifecycle tools degrade to a
   // structured unsupported error.
-  if (supervisor) runtime.supervisor = supervisor;
-  const handlers = createToolHandlers(runtime);
+  if (!handlers) {
+    runtime ??= createRuntime();
+    if (supervisor) runtime.supervisor = supervisor;
+    handlers = createToolHandlers(runtime);
+  }
   const server = new McpServer({ name: 'uagents-unified', version: '0.2.0-alpha.1' }, { capabilities: { tools: {} } });
-  const register = (name, description, inputSchema) => server.registerTool(name, { description, inputSchema }, invoke(handlers[name]));
+  const register = (name, description, inputSchema) => {
+    if (!enabledTools || enabledTools.includes(name)) server.registerTool(name, { description, inputSchema }, invoke(handlers[name]));
+  };
   register('uagents_list_targets', 'List enabled Agent targets from the static registry. Does not contact providers.', z.object({}).strict());
   register('uagents_get_capabilities', 'Return the declared capabilities of one Agent target.', z.object({ target: z.string().min(1).max(64) }).strict());
   register('uagents_list_models', 'List routes with no-prompt native model discovery and route-level file/image evidence. Catalog presence does not prove model attachment support, authentication, quota, or live availability.', z.object({ target: z.string().min(1).max(64), refresh: z.boolean().optional() }).strict());
@@ -235,4 +240,4 @@ export async function start(argv = process.argv) {
   serveStdio(() => createServer({ supervisor }), { onerror: error => process.stderr.write(`uagents unified mcp: ${error.message}\n`) });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await start();
+if (process.argv[1] && path.basename(process.argv[1]) === 'server.mjs' && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await start();

@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { canonicalHash } from '../protocol/canonical-json.mjs';
 import { errorRecord, fail } from '../protocol/errors.mjs';
 import { buildCouncilMemberRequests, parseCouncilRequest } from '../protocol/council-schema.mjs';
 import { evaluateRequest } from '../policy/evaluate.mjs';
 import { atomicWriteJson } from '../store/task-files.mjs';
+import { ControlDatabase } from '../store/database.mjs';
 import { uuidPattern } from '../protocol/schema.mjs';
 import { executeCouncilWorktreeCleanup, inspectCouncilWorktree, prepareCouncilWorktreeCleanup, prepareCouncilWorktrees } from './council-worktrees.mjs';
 import { adoptCouncilWorktree, inspectCouncilWorktreeDiff } from './council-candidates.mjs';
@@ -12,13 +14,17 @@ import { parseCouncilValidation } from '../protocol/council-validation-schema.mj
 import { loadCouncilValidationProfile } from '../protocol/council-validation-profiles.mjs';
 import { runCouncilValidation } from './council-validation.mjs';
 import { blobAttachmentIdentity } from '../artifacts/attachments.mjs';
+import { acquireLeaseRow, assertFencing, releaseLeases, renewLeases } from './leases.mjs';
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 const ATTENTION = new Set(['waiting_user', 'indeterminate']);
+const COUNCIL_LEASE_TTL_MS = 5 * 60_000;
+const VALIDATION_LEASE_MARGIN_MS = 30_000;
 
 export class CouncilService {
-  constructor({ stateRoot, registry, submitTask, statusTask, resultTask, clock = () => Date.now() }) {
+  constructor({ stateRoot, control = null, registry, submitTask, statusTask, resultTask, clock = () => Date.now() }) {
     this.stateRoot = stateRoot;
+    this.control = control;
     this.registry = registry;
     this.submitTask = submitTask;
     this.statusTask = statusTask;
@@ -28,10 +34,15 @@ export class CouncilService {
 
   submit(input) {
     const council = parseCouncilRequest(input);
+    return this.#withCouncilLease(council.council_id, 'submit', lease => this.#submit(council, lease));
+  }
+
+  #submit(council, lease) {
     const provisionalRequests = buildCouncilMemberRequests(council);
     for (const request of provisionalRequests) evaluateRequest(request, { registry: this.registry });
     const hash = canonicalHash(council);
     const directory = councilDirectory(this.stateRoot, council.council_id);
+    this.#guardLease(lease, { renew: true });
     fs.mkdirSync(directory, { recursive: true });
     const requestFile = path.join(directory, 'request.json');
     const manifestFile = path.join(directory, 'manifest.json');
@@ -43,8 +54,10 @@ export class CouncilService {
         fail('request_conflict', 'council_id is already registered with different content.', { category: 'conflict', submission: 'not_sent' });
       }
     } else {
-      worktreePlan = prepareCouncilWorktrees({ stateRoot: this.stateRoot, council });
-      atomicWriteJson(requestFile, storedCouncilRequest(council));
+      this.#guardLease(lease, { renew: true });
+      worktreePlan = prepareCouncilWorktrees({ stateRoot: this.stateRoot, council,
+        beforeMutation: () => this.#guardLease(lease, { renew: true }) });
+      this.#writeJson(lease, requestFile, storedCouncilRequest(council));
       manifest = {
         schema_version: council.schema_version,
         council_id: council.council_id,
@@ -63,7 +76,7 @@ export class CouncilService {
           registration_error: null,
         })),
       };
-      atomicWriteJson(manifestFile, manifest);
+      this.#writeJson(lease, manifestFile, manifest);
     }
 
     const workspaces = Object.fromEntries(manifest.members
@@ -74,13 +87,14 @@ export class CouncilService {
 
     for (const [index, request] of memberRequests.entries()) {
       if (manifest.members[index].cleanup?.removed) continue;
+      this.#guardLease(lease, { renew: true });
       try {
         this.submitTask(request);
         manifest.members[index].registration_error = null;
       } catch (error) {
         manifest.members[index].registration_error = errorRecord(error);
       }
-      atomicWriteJson(manifestFile, manifest);
+      this.#writeJson(lease, manifestFile, manifest);
     }
     return { ...this.status(council.council_id), duplicate };
   }
@@ -160,6 +174,10 @@ export class CouncilService {
   }
 
   adopt(councilId, { memberId, workspace }) {
+    return this.#withCouncilLease(councilId, 'adopt', lease => this.#adopt(councilId, { memberId, workspace }, lease));
+  }
+
+  #adopt(councilId, { memberId, workspace }, lease) {
     const status = this.status(councilId);
     if (status.workspace_strategy !== 'git-worktree') {
       fail('unsupported_capability', 'council-adopt requires a git-worktree Council.', { submission: 'not_sent' });
@@ -171,17 +189,27 @@ export class CouncilService {
         category: 'conflict', submission: 'not_sent', details: { member_id: memberId, status: member.task?.status ?? null },
       });
     }
+    this.#guardLease(lease, { renew: true });
+    const adopted = adoptCouncilWorktree(member, workspace, {
+      beforeMutation: () => this.#guardLease(lease, { renew: true }),
+    });
+    this.#guardLease(lease);
     return {
       schema_version: status.schema_version,
       council_id: status.council_id,
       member_id: member.member_id,
       target: member.target,
       model: member.model,
-      ...adoptCouncilWorktree(member, workspace),
+      ...adopted,
     };
   }
 
   validate(councilId, { memberId = null, all = false, validation = null, profile = null }) {
+    return this.#withCouncilLease(councilId, 'validate', lease =>
+      this.#validate(councilId, { memberId, all, validation, profile }, lease));
+  }
+
+  #validate(councilId, { memberId, all, validation, profile }, lease) {
     if (Boolean(memberId) === Boolean(all)) fail('invalid_request', 'Council validation requires exactly one of memberId or all=true.');
     if (Boolean(validation) === Boolean(profile)) fail('invalid_request', 'Council validation requires exactly one of validation or profile.');
     const status = this.status(councilId);
@@ -209,12 +237,24 @@ export class CouncilService {
 
     const manifest = this.#manifest(councilId);
     const results = [];
+    const checks = parsedValidation.checks ?? [parsedValidation];
+    const commandCount = selected.length * checks.length;
+    const timeoutBudget = selected.length * checks.reduce((sum, check) => sum + check.timeout_ms, 0);
+    // spawnSync blocks the event loop: reserve the entire worst-case sequence
+    // before running any command, including all members even on_failure=stop.
+    lease.ttlMs = Math.max(COUNCIL_LEASE_TTL_MS,
+      timeoutBudget + commandCount * 1000 + VALIDATION_LEASE_MARGIN_MS);
+    this.#guardLease(lease, { renew: true });
     for (const member of selected) {
-      const evidence = runCouncilValidation(member, parsedValidation, { clock: this.clock });
+      this.#guardLease(lease);
+      const evidence = runCouncilValidation(member, parsedValidation, {
+        clock: this.clock, beforeCheck: () => this.#guardLease(lease),
+      });
+      this.#guardLease(lease);
       if (source.profile_name) evidence.profile = { name: source.profile_name, file: source.profile_file };
       const stored = manifest.members.find(item => item.member_id === member.member_id);
       stored.validation = evidence;
-      atomicWriteJson(path.join(councilDirectory(this.stateRoot, councilId), 'manifest.json'), manifest);
+      this.#writeJson(lease, path.join(councilDirectory(this.stateRoot, councilId), 'manifest.json'), manifest);
       results.push({ member_id: member.member_id, target: member.target, model: member.model, validation: evidence });
     }
     return {
@@ -226,6 +266,11 @@ export class CouncilService {
   }
 
   cleanup(councilId, { memberId = null, all = false, force = false } = {}) {
+    return this.#withCouncilLease(councilId, 'cleanup', lease =>
+      this.#cleanup(councilId, { memberId, all, force }, lease));
+  }
+
+  #cleanup(councilId, { memberId, all, force }, lease) {
     if (Boolean(memberId) === Boolean(all)) fail('invalid_request', 'Council cleanup requires exactly one of memberId or all=true.');
     const status = this.status(councilId);
     if (status.workspace_strategy !== 'git-worktree') {
@@ -240,15 +285,22 @@ export class CouncilService {
         });
       }
     }
-    const plans = selected.map(member => prepareCouncilWorktreeCleanup(member, { force }));
+    const plans = selected.map(member => {
+      this.#guardLease(lease, { renew: true });
+      return prepareCouncilWorktreeCleanup(member, { force });
+    });
     const manifest = this.#manifest(councilId);
     const results = [];
     for (const plan of plans) {
-      const result = { member_id: plan.member_id, cleanup: executeCouncilWorktreeCleanup(plan) };
+      this.#guardLease(lease, { renew: true });
+      const result = { member_id: plan.member_id, cleanup: executeCouncilWorktreeCleanup(plan, {
+        beforeMutation: () => this.#guardLease(lease, { renew: true }),
+      }) };
+      this.#guardLease(lease);
       const member = manifest.members.find(item => item.member_id === result.member_id);
       if (!result.cleanup.already_removed) {
         member.cleanup = { ...result.cleanup, cleaned_at_ms: this.clock() };
-        atomicWriteJson(path.join(councilDirectory(this.stateRoot, councilId), 'manifest.json'), manifest);
+        this.#writeJson(lease, path.join(councilDirectory(this.stateRoot, councilId), 'manifest.json'), manifest);
       }
       results.push(result);
     }
@@ -275,6 +327,40 @@ export class CouncilService {
     const request = readJsonIfExists(path.join(councilDirectory(this.stateRoot, councilId), 'request.json'));
     if (!request) fail('task_not_found', `Unknown council: ${councilId}`);
     return request;
+  }
+
+  #withCouncilLease(councilId, operation, callback) {
+    councilDirectory(this.stateRoot, councilId);
+    const control = this.control ?? new ControlDatabase(this.stateRoot);
+    let context;
+    try {
+      const lease = control.transaction(database => acquireLeaseRow(database,
+        `council:${councilId.toLowerCase()}`, 'council', randomUUID(),
+        COUNCIL_LEASE_TTL_MS, this.clock(), { operation }));
+      context = { control, lease, ttlMs: COUNCIL_LEASE_TTL_MS };
+      return callback(context);
+    } finally {
+      // Expired leases can only be taken over by an explicit later mutation.
+      // A crash retains its full budget; callers inspect persisted results
+      // and confirm old processes ended before explicitly retrying validation.
+      try { if (context) releaseLeases(control, [context.lease]); }
+      finally { if (!this.control) control.close(); }
+    }
+  }
+
+  #guardLease(context, { renew = false } = {}) {
+    const now = this.clock();
+    return context.control.transaction(database => {
+      assertFencing(database, context.lease, now);
+      if (renew) context.lease = renewLeases(context.control, [context.lease], {
+        ttlMs: context.ttlMs, now,
+      })[0];
+    });
+  }
+
+  #writeJson(context, file, value) {
+    this.#guardLease(context);
+    atomicWriteJson(file, value);
   }
 }
 

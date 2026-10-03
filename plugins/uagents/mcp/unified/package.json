@@ -9,6 +9,7 @@
     "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "esbuild": "0.28.2",
     "zod": "4.5.4"

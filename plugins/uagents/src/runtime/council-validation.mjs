@@ -4,9 +4,12 @@ import { parseCouncilValidation } from '../protocol/council-validation-schema.mj
 export const COUNCIL_VALIDATION_OUTPUT_BYTES = 64 * 1024;
 const SPAWN_BUFFER_BYTES = 4 * 1024 * 1024;
 
-export function runCouncilValidation(member, input, { clock = () => Date.now(), env = process.env } = {}) {
+export function runCouncilValidation(member, input, { clock = () => Date.now(), env = process.env, beforeCheck = () => {} } = {}) {
   const validation = parseCouncilValidation(input);
-  if (validation.command) return runSingle(member.worktree.workspace, validation, { clock, env });
+  if (validation.command) {
+    beforeCheck();
+    return runSingle(member.worktree.workspace, validation, { clock, env });
+  }
 
   const startedAt = clock();
   const checks = [];
@@ -16,6 +19,7 @@ export function runCouncilValidation(member, input, { clock = () => Date.now(), 
       checks.push(skippedCheck(check));
       continue;
     }
+    beforeCheck();
     const evidence = runSingle(member.worktree.workspace, check, { clock, env });
     checks.push({ name: check.name, ...evidence });
     if (validation.on_failure === 'stop' && evidence.outcome !== 'passed') stopped = true;

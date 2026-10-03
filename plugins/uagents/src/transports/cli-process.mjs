@@ -54,10 +54,10 @@ export function nativeCliCandidates(target, env = process.env) {
         path.join(dir, 'node_modules/opencode-ai/bin/opencode.exe')] : [])]);
 }
 
-export function nativeDriver(request, workspace, entryOverride = null, inputSnapshots = []) {
+export function nativeDriver(request, workspace, entryOverride = null, inputSnapshots = [], { majorVersion = 1 } = {}) {
   const entry = locateCli(request.target, process.env, entryOverride);
   const advisoryReadOnly = isAdvisoryReadOnly(request);
-  if (request.target === 'opencode') return createOpenCodeDriver(request, workspace, entry);
+  if (request.target === 'opencode') return createOpenCodeDriver(request, workspace, entry, { majorVersion });
   if (request.target === 'claudeCode') return createClaudeCodeDriver(request, workspace, entry, inputSnapshots);
   return { command: process.execPath, args: [entry, ...buildWorkBuddyArgs(request)],
     ...(request.kind === 'probe' ? {} : { stdinPayload: buildWorkBuddyInput(request, workspace, inputSnapshots) }),
@@ -131,7 +131,7 @@ export function createParser(request, workspace, publish) {
   };
 }
 
-export function invokeCli(directory, workspace, request, publish, testDriver, entryOverride = null) {
+export async function invokeCli(directory, workspace, request, publish, testDriver, entryOverride = null) {
   if (fs.existsSync(path.join(directory, 'cancel.json'))) return Promise.resolve({ status: 'cancelled', submission: 'not_sent', error: 'cancelled_before_send' });
   const driver = testDriver ?? nativeDriver(request, workspace, entryOverride);
   return new Promise(resolve => {

@@ -58,6 +58,20 @@ test('OpenCode version verification accepts v1 and prefixed v2 but rejects unrel
   assert.equal(parseOpenCodeVersion('opencode v2.0.21\nunexpected output'), null);
 });
 
+test('OpenCode probe invokes a native version command without sending the prompt', async () => {
+  for (const [output, version] of [['1.2.3', '1.2.3'], ['opencode v2.0.21', '2.0.21']]) {
+    const script = `let input=''; process.stdin.setEncoding('utf8'); ` +
+      `process.stdin.on('data', chunk => input += chunk); ` +
+      `process.stdin.on('end', () => process.stdout.write(input ? 'PROMPT_SENT' : ${JSON.stringify(`${output}\n`)}));`;
+    const result = await invokeCli(root, root, request('opencode', {
+      kind: 'probe', prompt: 'secret probe prompt must not be sent', timeout_ms: 5_000,
+    }), () => {}, { command: process.execPath, args: ['-e', script] });
+    assert.deepEqual(result, {
+      status: 'succeeded', scope: 'version_only', version, submission: 'not_sent',
+    });
+  }
+});
+
 test('OpenCode v2 uses the transport cwd and preserves continuation and file identity', () => {
   const input = request('opencode', { continue_session_id: 'ses_parent', inputs: [{ type: 'file', path: 'input.md' }] });
   assert.deepEqual(buildOpenCodeArgs(input, root, { majorVersion: 2 }), [

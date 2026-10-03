@@ -1,6 +1,6 @@
 # uAgents
 
-uAgents 是一个面向 Codex 的本地统一 Agent 调度层。它把多个本机 Agent 接到同一套 Task、状态、结果、附件、会话和 Council 工作流中。uAgents 负责调度与记录；执行权限由各 Agent 的原生配置、声明的启动策略与运行环境控制。
+uAgents 是一个可供 Codex 和其它 Agent 宿主使用的本地统一 Agent 调度层。它把多个本机 Agent 接到同一套 Task、状态、结果、附件、会话和 Council 工作流中。uAgents 负责调度与记录；执行权限由各 Agent 的原生配置、声明的启动策略与运行环境控制。
 
 当前构建版本见 [插件清单](plugins/uagents/.codex-plugin/plugin.json)，本机最新安装与验证见 [发布记录](docs/verification/2026-10-02-plugin-release.md)。
 
@@ -129,6 +129,8 @@ agy 按指定调度策略使用 `--dangerously-skip-permissions`，由原生 CLI
 没有本地 Shell、或宿主明确要求 MCP 时，可以使用插件提供的 `uagents-unified` stdio MCP Server。CLI 和 MCP 共用同一 Core contract。
 
 详见 [MCP Reference](docs/reference/mcp.md)。
+
+多个宿主共用独立编排进程时，可以连接 loopback HTTP MCP；只支持 stdio 的宿主使用薄桥接。配置与启动见 [共享本地服务](docs/current/service.md)。
 
 ## 当前限制
 

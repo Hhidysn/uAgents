@@ -1,7 +1,7 @@
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { errorRecord, fail, UAgentsError } from '../protocol/errors.mjs';
 import { childEnvironment } from '../runtime/child-environment.mjs';
+import { runNoPromptCommand } from './no-prompt-command.mjs';
 
 const OPENCODE_PROTOCOL_FLAGS = Object.freeze(['--model', '--format', '--dir', '--title']);
 
@@ -30,10 +30,17 @@ export function parseOpenCodeVersion(text) {
   return String(text).trim().match(/^(?:opencode v)?(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)$/)?.[1] ?? null;
 }
 
-export function openCodeMajorVersion(entry, { runner = spawnSync, env = process.env } = {}) {
-  const result = runner(entry, ['--version'], {
-    encoding: 'utf8', windowsHide: true, env: childEnvironment(env), timeout: 5_000, maxBuffer: 8192,
-  });
+export async function openCodeMajorVersion(entry, { runner = runNoPromptCommand, env = process.env } = {}) {
+  let result;
+  try {
+    result = await runner(entry, ['--version'], {
+      windowsHide: true, env: childEnvironment(env), timeout: 5_000, maxBuffer: 8192,
+    });
+  } catch {
+    fail('native_version_probe_failed', 'Installed OpenCode version could not be verified.', {
+      category: 'target', submission: 'not_sent',
+    });
+  }
   const version = result.status === 0 && !result.error ? parseOpenCodeVersion(result.stdout) : null;
   if (!version) fail('native_version_probe_failed', 'Installed OpenCode version could not be verified.', {
     category: 'target', submission: 'not_sent',
@@ -67,13 +74,11 @@ export function buildOpenCodePrompt(request, workspace) {
   return `uAgents task workspace: ${workspace}\nMode: ${request.mode}. Expected files: ${JSON.stringify(request.expected_outputs ?? [])}\nWork only on this task. Do not delegate or start background work. You are not alone; do not revert others' edits.\n\n${request.prompt}`;
 }
 
-export function createOpenCodeDriver(request, workspace, entry) {
+export function createOpenCodeDriver(request, workspace, entry, { majorVersion = 1 } = {}) {
   return {
     command: entry,
     // Both transports set cwd to workspace. V2 removed the redundant --dir flag.
-    args: buildOpenCodeArgs(request, workspace, {
-      majorVersion: request.kind === 'probe' ? 1 : openCodeMajorVersion(entry),
-    }),
+    args: buildOpenCodeArgs(request, workspace, { majorVersion }),
     createParser: publish => createOpenCodeParser(request, workspace, publish),
     buildPrompt: () => buildOpenCodePrompt(request, workspace),
     initialObservation: { native_edit_mode: 'inherited' },

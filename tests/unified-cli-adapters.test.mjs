@@ -587,16 +587,19 @@ test('persisted cancel intent interrupts a live CLI process without claiming rem
 
 test('durable OpenCode cancel stops observation without killing the native process', async () => {
   const control = new ControlDatabase(path.join(root, `cancel-live-opencode-${randomUUID()}`));
-  let nativePid = null;
+  let nativePid = null, running = null, service = null, registered = null;
   try {
-    const service = new TaskService(control);
+    service = new TaskService(control);
     const input = baseRequest({ target: 'opencode', mode: 'analysis', execution: { observation_timeout_ms: 10_000, effort: 'medium', permission: 'native' } });
     const driver = { command: process.execPath, args: [fakeCli, 'opencode', input.request_id, 'hang'] };
     const adapter = new OpenCodeAdapter({ testDriver: driver });
-    const registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
-    const running = runTask({ service, taskId: registered.task_id, adapter });
+    registered = service.submit(input, { adapterVersion: 'unified-fixture-1' });
+    running = runTask({ service, taskId: registered.task_id, adapter });
+    running.catch(() => {});
     const marker = path.join(service.payload(registered.task_id).request.workspace, 'received.txt');
-    for (let attempt = 0; attempt < 100 && !fs.existsSync(marker); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+    // Windows identity inspection starts multiple local processes. Under a
+    // parallel test load, allow readiness within the task's existing 10s budget.
+    for (let attempt = 0; attempt < 400 && !fs.existsSync(marker); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
     assert.equal(fs.existsSync(marker), true);
     nativePid = control.raw.prepare('SELECT pid FROM native_processes WHERE attempt_id = ?').get(registered.attempt.attempt_id)?.pid ?? null;
     service.requestCancel(registered.task_id);
@@ -608,6 +611,11 @@ test('durable OpenCode cancel stops observation without killing the native proce
     assert.equal(processRecord.process_state, 'running');
     assert.equal(['held', 'unknown'].includes(processRecord.workspace_guard_state), true);
   } finally {
+    if (running) {
+      try { service.requestCancel(registered.task_id); } catch {}
+      await running.catch(() => {});
+      nativePid ??= control.raw.prepare('SELECT pid FROM native_processes WHERE attempt_id = ?').get(registered.attempt.attempt_id)?.pid ?? null;
+    }
     if (nativePid) try { process.kill(nativePid); } catch {}
     control.close();
   }

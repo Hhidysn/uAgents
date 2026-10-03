@@ -26,5 +26,6 @@ optional:
 - [Council](council.md)
 - [模型与路由](models.md)
 - [Runtime 与生命周期](runtime.md)
+- [共享本地服务与跨宿主接入](service.md)
 
 精确 schema、命令和 capability 字段定义见 [Reference](../reference/README.md)。测试和真实 Provider 证据见 [Verification](../verification/)。

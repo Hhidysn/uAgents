@@ -7,6 +7,11 @@
 /.local/
 node_modules/
 dist/
+# Portable MCP entry points are built and reviewed with their source.
+!plugins/uagents/mcp/unified/dist/
+!plugins/uagents/mcp/unified/dist/server.mjs
+!plugins/uagents/mcp/unified/dist/service.mjs
+!plugins/uagents/mcp/unified/dist/bridge.mjs
 coverage/
 *.log
 *.bak

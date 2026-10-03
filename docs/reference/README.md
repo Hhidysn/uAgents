@@ -4,6 +4,7 @@ Reference 只定义当前 contract，不记录设计讨论或测试过程。
 
 - [CLI](cli.md)
 - [MCP](mcp.md)
+- [Local Service](service.md)
 - [Request / Task Protocol](protocol.md)
 - [Capability 语义](capabilities.md)
 

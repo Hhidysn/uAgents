@@ -38,9 +38,9 @@ test('agy model parser ignores status text, ANSI and duplicate rows', () => {
   assert.equal(models[0].route_id, 'agy/gemini-3.8-flash-medium');
 });
 
-test('agy native discovery uses its own 30-second catalog budget without sending a prompt', () => {
+test('agy native discovery uses its own 30-second catalog budget without sending a prompt', async () => {
   let invocation;
-  const catalog = discoverCliModelCatalog('agy', {
+  const catalog = await discoverCliModelCatalog('agy', {
     entryOverride: process.execPath,
     runner: (command, args, options) => {
       invocation = { command, args, options };
@@ -53,11 +53,11 @@ test('agy native discovery uses its own 30-second catalog budget without sending
   assert.deepEqual(catalog.models.map(model => model.id), ['gemini-3.8-flash-medium']);
 });
 
-test('OpenCode v2 discovery lists once and filters the configured providers without v1 flags', () => {
+test('OpenCode v2 discovery lists once and filters the configured providers without v1 flags', async () => {
   const calls = [];
   const entry = path.join(mkdtempSync(path.join(tmpdir(), 'uagents-opencode-v2-')), 'opencode.exe');
   writeFileSync(entry, 'fixture only');
-  const catalog = discoverCliModelCatalog('opencode', {
+  const catalog = await discoverCliModelCatalog('opencode', {
     entryOverride: entry,
     runner: (command, args) => {
       calls.push(args);
@@ -70,11 +70,11 @@ test('OpenCode v2 discovery lists once and filters the configured providers with
   assert.deepEqual(catalog.models.map(model => model.route_id), ['commandcode-goat/deepseek/deepseek-v4.1-flash']);
 });
 
-test('OpenCode v1 discovery retains provider-specific catalog arguments', () => {
+test('OpenCode v1 discovery retains provider-specific catalog arguments', async () => {
   const calls = [];
   const entry = path.join(mkdtempSync(path.join(tmpdir(), 'uagents-opencode-v1-')), 'opencode.exe');
   writeFileSync(entry, 'fixture only');
-  const catalog = discoverCliModelCatalog('opencode', {
+  const catalog = await discoverCliModelCatalog('opencode', {
     entryOverride: entry,
     runner: (command, args) => {
       calls.push(args);
@@ -86,6 +86,16 @@ test('OpenCode v1 discovery retains provider-specific catalog arguments', () => 
   });
   assert.equal(calls[0][0], '--version');
   assert.ok(catalog.models.length > 0);
+});
+
+test('model discovery awaits injected runners and propagates runner errors', async () => {
+  const entry = path.join(mkdtempSync(path.join(tmpdir(), 'uagents-discovery-runner-error-')), 'agy.exe');
+  writeFileSync(entry, 'fixture only');
+  const expected = new Error('runner fixture failed');
+  await assert.rejects(discoverCliModelCatalog('agy', {
+    entryOverride: entry,
+    runner: async () => { throw expected; },
+  }), error => error === expected);
 });
 
 test('agy discovery exposes every native model as selectable', async () => {

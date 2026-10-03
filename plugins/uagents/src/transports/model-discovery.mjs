@@ -1,22 +1,22 @@
-import { spawnSync } from 'node:child_process';
 import { BUILTIN_REGISTRY } from '../registry/builtins.mjs';
 import { childEnvironment } from '../runtime/child-environment.mjs';
 import { locateCli } from './cli-process.mjs';
 import { openCodeMajorVersion } from './opencode-driver.mjs';
+import { runNoPromptCommand } from './no-prompt-command.mjs';
 
 const DISCOVERY_TIMEOUT_MS = 10_000;
 const AGY_DISCOVERY_TIMEOUT_MS = 30_000;
 const DISCOVERY_MAX_BUFFER = 2 * 1024 * 1024;
 
-export function discoverCliModelCatalog(target, {
+export async function discoverCliModelCatalog(target, {
   entryOverride = null,
   registry = BUILTIN_REGISTRY,
-  runner = spawnSync,
+  runner = runNoPromptCommand,
   env = process.env,
 } = {}) {
   const entry = locateCli(target, env, entryOverride);
   if (target === 'agy') {
-    const result = run(runner, entry, ['models'], env, AGY_DISCOVERY_TIMEOUT_MS);
+    const result = await run(runner, entry, ['models'], env, AGY_DISCOVERY_TIMEOUT_MS);
     const models = parseAgyModelList(result.stdout);
     if (hasUnrecognizedAgyOutput(result.stdout)) {
       const error = new Error('Native agy model catalog format was not recognized.');
@@ -26,7 +26,7 @@ export function discoverCliModelCatalog(target, {
     return { status: 'ok', discovery: 'native_cli_catalog', models };
   }
   if (target === 'workbuddy') {
-    const result = run(runner, process.execPath, [entry, '--help'], env);
+    const result = await run(runner, process.execPath, [entry, '--help'], env);
     const models = parseWorkBuddyModelHelp(result.stdout);
     if (!models.length) {
       const error = new Error('Native WorkBuddy model help format was not recognized.');
@@ -42,14 +42,14 @@ export function discoverCliModelCatalog(target, {
   if (target === 'opencode') {
     const providers = openCodeProviders(registry);
     const models = [];
-    if (openCodeMajorVersion(entry, { runner, env }) >= 2) {
+    if (await openCodeMajorVersion(entry, { runner, env }) >= 2) {
       // V2 lists all providers and no longer accepts a provider argument or --pure.
-      const result = run(runner, entry, ['models'], env);
+      const result = await run(runner, entry, ['models'], env);
       for (const provider of providers) models.push(...parseOpenCodeModelList(result.stdout, provider));
       return { status: 'ok', discovery: 'native_cli_catalog', models: dedupe(models, item => item.route_id) };
     }
     for (const provider of providers) {
-      const result = run(runner, entry, ['models', provider, '--pure'], env);
+      const result = await run(runner, entry, ['models', provider, '--pure'], env);
       models.push(...parseOpenCodeModelList(result.stdout, provider));
     }
     return { status: 'ok', discovery: 'native_cli_catalog', models: dedupe(models, item => item.route_id) };
@@ -106,9 +106,8 @@ export function parseOpenCodeModelList(text, provider) {
   })), item => item.route_id);
 }
 
-function run(runner, command, args, env, timeout = DISCOVERY_TIMEOUT_MS) {
-  const result = runner(command, args, {
-    encoding: 'utf8',
+async function run(runner, command, args, env, timeout = DISCOVERY_TIMEOUT_MS) {
+  const result = await runner(command, args, {
     windowsHide: true,
     env: childEnvironment(env),
     timeout,

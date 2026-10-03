@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fail } from '../protocol/errors.mjs';
 
-export function prepareCouncilWorktrees({ stateRoot, council }) {
+export function prepareCouncilWorktrees({ stateRoot, council, beforeMutation = () => {} }) {
   if (council.workspace_strategy !== 'git-worktree') return null;
   if (!council.workspace) fail('invalid_workspace', 'git-worktree Council requires workspace.');
 
@@ -12,6 +12,7 @@ export function prepareCouncilWorktrees({ stateRoot, council }) {
   const baseHead = git(sourceWorkspace, ['rev-parse', 'HEAD']).trim();
   const relativeWorkspace = path.relative(repository, sourceWorkspace);
   const worktreesRoot = path.join(stateRoot, 'councils', council.council_id, 'worktrees');
+  beforeMutation();
   fs.mkdirSync(worktreesRoot, { recursive: true });
 
   return {
@@ -22,8 +23,9 @@ export function prepareCouncilWorktrees({ stateRoot, council }) {
     members: council.members.map(member => {
       const branch = councilBranch(council.council_id, member.task_id);
       const worktreeRoot = path.join(worktreesRoot, member.task_id);
-      ensureWorktree(repository, worktreeRoot, branch, baseHead);
+      ensureWorktree(repository, worktreeRoot, branch, baseHead, beforeMutation);
       const workspace = relativeWorkspace ? path.join(worktreeRoot, relativeWorkspace) : worktreeRoot;
+      beforeMutation();
       fs.mkdirSync(workspace, { recursive: true });
       return {
         member_id: member.member_id,
@@ -88,12 +90,16 @@ export function prepareCouncilWorktreeCleanup(member, { force = false } = {}) {
   };
 }
 
-export function executeCouncilWorktreeCleanup(plan) {
+export function executeCouncilWorktreeCleanup(plan, { beforeMutation = () => {} } = {}) {
   if (plan.already_removed) return { ...plan.cleanup, already_removed: true };
+  beforeMutation();
   gitWithDir(plan.common_git_dir, ['worktree', 'remove', ...(plan.force ? ['--force'] : []), plan.root]);
   const branchRef = `refs/heads/${plan.branch}`;
   const branchExists = gitDirStatus(plan.common_git_dir, ['show-ref', '--verify', '--quiet', branchRef]) === 0;
-  if (branchExists) gitWithDir(plan.common_git_dir, ['branch', '-D', plan.branch]);
+  if (branchExists) {
+    beforeMutation();
+    gitWithDir(plan.common_git_dir, ['branch', '-D', plan.branch]);
+  }
   return {
     removed: true,
     already_removed: false,
@@ -106,13 +112,15 @@ export function executeCouncilWorktreeCleanup(plan) {
   };
 }
 
-function ensureWorktree(repository, destination, branch, baseHead) {
+function ensureWorktree(repository, destination, branch, baseHead, beforeMutation) {
   if (fs.existsSync(path.join(destination, '.git'))) return;
+  beforeMutation();
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   const branchExists = gitStatus(repository, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]) === 0;
   const args = branchExists
     ? ['worktree', 'add', destination, branch]
     : ['worktree', 'add', '-b', branch, destination, baseHead];
+  beforeMutation();
   git(repository, args);
 }
 

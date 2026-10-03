@@ -46,7 +46,7 @@ export function verifiedNativeInputs(workspace, inputs = [], snapshots = []) {
 
 export function ingestAttachmentInputs(workspace, inputs) {
   if (!inputs.some(input => input.source !== undefined || input.blob !== undefined)) return inputs;
-  canonicalWorkspace(workspace);
+  const root = canonicalWorkspace(workspace);
   return inputs.map(input => {
     if (input.source === undefined && input.blob === undefined) return input;
     let attachment;
@@ -64,8 +64,25 @@ export function ingestAttachmentInputs(workspace, inputs) {
     }
     const relative = `.uagents/inputs/${attachment.sha256}-${name}`;
     const destination = path.resolve(workspace, relative);
-    fs.mkdirSync(path.dirname(destination), { recursive: true });
-    fs.writeFileSync(destination, attachment.bytes);
+    // Check each ancestor before creating anything: an existing inputs
+    // junction must not receive bytes outside the admitted workspace.
+    for (const directory of [path.join(workspace, '.uagents'), path.dirname(destination)]) {
+      if (!fs.existsSync(directory)) {
+        try { fs.mkdirSync(directory); }
+        catch (error) { if (error.code !== 'EEXIST') throw error; }
+      }
+      const real = fs.realpathSync.native(directory).normalize('NFC');
+      if (!pathIsWithin(root, process.platform === 'win32' ? real.toLocaleLowerCase('en-US') : real)) fail('invalid_input', 'Attachment destination escapes its workspace.');
+    }
+    try {
+      fs.writeFileSync(destination, attachment.bytes, { flag: 'wx' });
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      const info = fs.lstatSync(destination);
+      if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || !fs.readFileSync(destination).equals(attachment.bytes)) {
+        fail('invalid_input', 'Existing attachment destination is not the expected regular file.');
+      }
+    }
     return { type: input.type, path: relative };
   });
 }

@@ -29,6 +29,7 @@ export class UnifiedRuntime {
     this.service = new TaskService(this.control, { registry });
     this.councils = new CouncilService({
       stateRoot: this.stateRoot,
+      control: this.control,
       registry,
       submitTask: input => this.submit(input),
       statusTask: taskId => this.status(taskId),

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fail } from '../protocol/errors.mjs';
+import { pathIsWithin } from '../path-containment.mjs';
 
 export const COUNCIL_DIFF_LIMITS = Object.freeze({
   patch_bytes: 1024 * 1024,
@@ -12,16 +13,32 @@ export function inspectCouncilWorktreeDiff(member) {
   if (!member.worktree) return null;
   if (!fs.existsSync(member.worktree.worktree_root)) return removedWorktree(member);
   const root = member.worktree.worktree_root;
+  const realRoot = fs.realpathSync.native(root);
   const baseHead = member.worktree.base_head;
   const head = git(root, ['rev-parse', 'HEAD']).trim();
   const patch = boundedText(git(root, ['diff', '--no-ext-diff', '--no-color', baseHead, '--']), COUNCIL_DIFF_LIMITS.patch_bytes);
   const tracked = parseNameStatus(git(root, ['diff', '--name-status', '--no-renames', '-z', baseHead, '--']));
   const untracked = splitNul(git(root, ['ls-files', '--others', '--exclude-standard', '-z'])).map(relativePath => {
     const file = path.join(root, ...relativePath.split('/'));
-    const stat = fs.statSync(file);
+    const stat = fs.lstatSync(file);
     const descriptor = { path: relativePath, status: 'untracked', bytes: stat.size };
-    if (!stat.isFile() || stat.size > COUNCIL_DIFF_LIMITS.untracked_text_bytes) return descriptor;
-    const body = fs.readFileSync(file);
+    if (stat.isSymbolicLink()) return { ...descriptor, symlink: true };
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > COUNCIL_DIFF_LIMITS.untracked_text_bytes) return descriptor;
+    const opened = openContainedRegularFile(realRoot, file);
+    if (!opened) return descriptor;
+    let body;
+    try {
+      if (opened.stat.size > COUNCIL_DIFF_LIMITS.untracked_text_bytes) return descriptor;
+      // Read only the admitted size, even if the file grows after inspection.
+      const buffer = Buffer.alloc(opened.stat.size);
+      let bytes = 0;
+      while (bytes < buffer.length) {
+        const count = fs.readSync(opened.fd, buffer, bytes, buffer.length - bytes, bytes);
+        if (!count) break;
+        bytes += count;
+      }
+      body = buffer.subarray(0, bytes);
+    } finally { fs.closeSync(opened.fd); }
     const text = decodeUtf8(body);
     return text === null ? { ...descriptor, binary: true } : { ...descriptor, binary: false, text };
   });
@@ -40,7 +57,7 @@ export function inspectCouncilWorktreeDiff(member) {
   };
 }
 
-export function adoptCouncilWorktree(member, destinationWorkspace) {
+export function adoptCouncilWorktree(member, destinationWorkspace, { beforeMutation = () => {} } = {}) {
   if (!member.worktree) fail('unsupported_capability', 'Council candidate adoption requires a git worktree member.', { submission: 'not_sent' });
   if (!fs.existsSync(member.worktree.worktree_root)) {
     fail('request_conflict', 'Council candidate worktree has already been cleaned up.', {
@@ -49,9 +66,9 @@ export function adoptCouncilWorktree(member, destinationWorkspace) {
   }
   if (!path.isAbsolute(destinationWorkspace ?? '')) fail('invalid_workspace', 'Candidate adoption requires an absolute destination workspace.');
 
-  const sourceRoot = member.worktree.worktree_root;
+  const sourceRoot = fs.realpathSync.native(member.worktree.worktree_root);
   const destination = path.resolve(destinationWorkspace);
-  const destinationRoot = git(destination, ['rev-parse', '--show-toplevel']).trim();
+  const destinationRoot = fs.realpathSync.native(git(destination, ['rev-parse', '--show-toplevel']).trim());
   const destinationHead = git(destination, ['rev-parse', 'HEAD']).trim();
   if (destinationHead !== member.worktree.base_head) {
     fail('request_conflict', 'Destination HEAD must match the Council base HEAD before adoption.', {
@@ -64,23 +81,42 @@ export function adoptCouncilWorktree(member, destinationWorkspace) {
   const untracked = untrackedPaths.map(relativePath => {
     const source = path.join(sourceRoot, ...relativePath.split('/'));
     const destinationFile = path.join(destinationRoot, ...relativePath.split('/'));
-    const stat = fs.lstatSync(source);
-    if (!stat.isFile()) fail('unsupported_capability', `Cannot adopt non-file untracked path: ${relativePath}`, { submission: 'not_sent' });
-    if (fs.existsSync(destinationFile)) {
+    const identity = containedRegularFile(sourceRoot, source);
+    if (!identity) fail('unsupported_capability', 'Candidate untracked path is not a contained regular file.', {
+      submission: 'not_sent', details: { path: relativePath },
+    });
+    checkDestinationParents(destinationRoot, destinationFile);
+    if (lstatIfExists(destinationFile)) {
       fail('request_conflict', `Destination already contains candidate untracked path: ${relativePath}`, {
         category: 'conflict', submission: 'not_sent', details: { path: relativePath },
       });
     }
-    return { path: relativePath, source, destination: destinationFile, bytes: stat.size };
+    return { path: relativePath, source, destination: destinationFile, bytes: identity.stat.size, mode: identity.stat.mode };
   });
 
   const patch = gitBuffer(sourceRoot, ['diff', '--binary', '--no-ext-diff', member.worktree.base_head, '--']);
   if (patch.length) gitApply(destinationRoot, patch, true);
-  if (patch.length) gitApply(destinationRoot, patch, false);
+  if (patch.length) {
+    beforeMutation();
+    gitApply(destinationRoot, patch, false);
+  }
   for (const file of untracked) {
-    fs.mkdirSync(path.dirname(file.destination), { recursive: true });
-    fs.copyFileSync(file.source, file.destination);
-    fs.chmodSync(file.destination, fs.lstatSync(file.source).mode);
+    checkDestinationParents(destinationRoot, file.destination, { create: true, beforeMutation });
+    beforeMutation();
+    checkDestinationParents(destinationRoot, file.destination);
+    const identity = containedRegularFile(sourceRoot, file.source);
+    if (!identity) fail('request_conflict', 'Candidate untracked file changed before adoption.', { details: { path: file.path } });
+    try { fs.copyFileSync(identity.real, file.destination, fs.constants.COPYFILE_EXCL); }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      fail('request_conflict', 'Candidate destination already exists.', { details: { path: file.path } });
+    }
+    beforeMutation();
+    checkDestinationParents(destinationRoot, file.destination);
+    const copied = openContainedRegularFile(destinationRoot, file.destination);
+    if (!copied) fail('request_conflict', 'Candidate destination changed before its permissions could be applied.', { details: { path: file.path } });
+    try { fs.fchmodSync(copied.fd, file.mode); }
+    finally { fs.closeSync(copied.fd); }
   }
 
   const status = git(destinationRoot, ['status', '--porcelain=v1', '--untracked-files=all']);
@@ -105,6 +141,66 @@ export function adoptCouncilWorktree(member, destinationWorkspace) {
       untracked_files: untracked.map(file => ({ path: file.path, bytes: file.bytes })),
     },
   };
+}
+
+function normalizedPath(value) {
+  const normalized = value.normalize('NFC');
+  return process.platform === 'win32' ? normalized.toLocaleLowerCase('en-US') : normalized;
+}
+
+function isWithin(root, file) {
+  return pathIsWithin(normalizedPath(root), normalizedPath(file));
+}
+
+function lstatIfExists(file) {
+  try { return fs.lstatSync(file); }
+  catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function containedRegularFile(root, file) {
+  const stat = lstatIfExists(file);
+  if (!stat?.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) return null;
+  const real = fs.realpathSync.native(file);
+  return isWithin(root, real) ? { real, stat } : null;
+}
+
+function openContainedRegularFile(root, file) {
+  const identity = containedRegularFile(root, file);
+  if (!identity) return null;
+  const fd = fs.openSync(identity.real, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+  const stat = fs.fstatSync(fd);
+  if (!stat.isFile() || stat.nlink !== 1 || stat.dev !== identity.stat.dev || stat.ino !== identity.stat.ino) {
+    fs.closeSync(fd);
+    return null;
+  }
+  return { fd, stat };
+}
+
+function checkDestinationParents(root, destination, { create = false, beforeMutation = () => {} } = {}) {
+  if (!isWithin(root, destination)) fail('request_conflict', 'Candidate destination escapes its repository.');
+  if (!isWithin(root, fs.realpathSync.native(root))) fail('request_conflict', 'Candidate destination repository changed before adoption.');
+  const relative = path.relative(root, path.dirname(destination));
+  let directory = root;
+  for (const component of relative.split(path.sep).filter(Boolean)) {
+    const parent = directory;
+    directory = path.join(directory, component);
+    if (!lstatIfExists(directory)) {
+      if (!create) continue;
+      beforeMutation();
+      if (!isWithin(root, fs.realpathSync.native(parent))) fail('request_conflict', 'Candidate destination directory escapes its repository.');
+      try { fs.mkdirSync(directory); }
+      catch (error) { if (error.code !== 'EEXIST') throw error; }
+    }
+    let real;
+    try { real = fs.realpathSync.native(directory); }
+    catch { fail('request_conflict', 'Candidate destination directory cannot be resolved safely.'); }
+    if (!isWithin(root, real) || !fs.statSync(real).isDirectory()) {
+      fail('request_conflict', 'Candidate destination directory escapes its repository.');
+    }
+  }
 }
 
 function removedWorktree(member) {

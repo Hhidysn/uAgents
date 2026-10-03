@@ -1,8 +1,8 @@
 import { BUILTIN_REGISTRY } from '../registry/builtins.mjs';
 import { fail } from '../protocol/errors.mjs';
-import { invokeCli, nativeDriver } from '../transports/cli-process.mjs';
+import { invokeCli, locateCli, nativeDriver } from '../transports/cli-process.mjs';
 import { invokeAgy } from '../transports/agy-process.mjs';
-import { createOpenCodeDriver, createOpenCodeParser, buildOpenCodePrompt } from '../transports/opencode-driver.mjs';
+import { createOpenCodeParser, buildOpenCodePrompt, openCodeMajorVersion } from '../transports/opencode-driver.mjs';
 import {
   launchAndAccept,
   observeDurableExecution,
@@ -82,9 +82,16 @@ export class CliAdapter {
     const legacy = this.#legacyRequest(request, 'run', context.session ?? context.continuation ?? null);
     const installation = await this.#verifiedInstallation(context);
     const entry = installation?.canonical_path ?? null;
-    let driver = this.target === 'agy'
-      ? this.testDriver
-      : this.testDriver ?? nativeDriver(legacy, request.workspace, entry, context.inputSnapshots ?? []);
+    let driver = this.testDriver;
+    if (!driver && this.target !== 'agy') {
+      let majorVersion = 1;
+      let nativeEntry = entry;
+      if (this.target === 'opencode' && legacy.kind !== 'probe') {
+        nativeEntry ??= locateCli(this.target);
+        majorVersion = await openCodeMajorVersion(nativeEntry);
+      }
+      driver = nativeDriver(legacy, request.workspace, nativeEntry, context.inputSnapshots ?? [], { majorVersion });
+    }
     if (this.target === 'opencode' && this.testDriver) {
       driver = decorateOpenCodeDriver(driver, legacy, request.workspace);
     }
@@ -231,7 +238,13 @@ export class CliAdapter {
     // Reconcile is parser-only. Build the OpenCode parser/argv contract from
     // persisted evidence without resolving the current installation and
     // without invoking any spawn path.
-    let driver = this.testDriver ?? createOpenCodeDriver(legacy, context.request.workspace, persistedExecutable);
+    let driver = this.testDriver ?? {
+      command: persistedExecutable,
+      args: [],
+      createParser: publish => createOpenCodeParser(legacy, context.request.workspace, publish),
+      buildPrompt: () => buildOpenCodePrompt(legacy, context.request.workspace),
+      initialObservation: { native_edit_mode: 'inherited' },
+    };
     if (this.testDriver) driver = decorateOpenCodeDriver(driver, legacy, context.request.workspace);
     const inspector = context.processInspector ?? (process.platform === 'win32' ? createProcessInspector() : null);
     const cancellation = cancellableSignal(context);
