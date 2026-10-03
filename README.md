@@ -1,54 +1,20 @@
 # uAgents
 
-uAgents 是一个可供 Codex 和其它 Agent 宿主使用的本地统一 Agent 调度层。它把多个本机 Agent 接到同一套 Task、状态、结果、附件、会话和 Council 工作流中。uAgents 负责调度与记录；执行权限由各 Agent 的原生配置、声明的启动策略与运行环境控制。
+uAgents 是供 Codex 和其它 Agent 宿主使用的本地统一调度层。CLI、MCP 和共享本地服务使用同一套 Task、Attempt、结果、附件、会话与 Council。
 
-当前构建版本见 [插件清单](plugins/uagents/.codex-plugin/plugin.json)，本机最新安装与验证见 [发布记录](docs/verification/2026-10-02-plugin-release.md)。
-
-## 支持的 Agent
-
-| Target | Analysis | Implementation | File input | Image input | Continue / Fork |
-| --- | --- | --- | --- | --- | --- |
-| agy | ✅ | ✅ | — | — | — |
-| Codex CLI (`codex`) | ✅ | ✅ | — | ✅ | Windows/Astra 显式预览 ✅ / ✅ |
-| Claude Code CLI (`claudeCode`) | ✅ | ✅ | PDF / UTF-8 text | ✅ | — |
-| WorkBuddy | ✅ | ✅ | — | `deepseek-v4.1-flash` ✅ | ✅ / ✅ |
-| DeepSeek Harness (`dsh`) | ✅ | ✅ | — | 原生映射已接入，真实 Task 未确认 | — |
-| OpenCode | ✅ | ✅ | ✅ | ✅ | ✅ / ✅ |
-| 豆包工作 | ✅ | — | — | — | — |
-| TRAE CN | ✅ | ✅ | — | — | — |
-
-表格表示 uAgents 开放的输入映射，不保证每个模型都已完成真实 Provider 验证。完整能力矩阵、模型选择和目标差异见 [当前 Agent 能力](docs/current/agents.md)。
+支持 `agy`、`codex`、`claudeCode`、`workbuddy`、`dsh`、`opencode`、`doubao` 和 `trae`。各目标的输入与会话能力见 [Agent 能力矩阵](docs/current/agents.md)。执行权限由原生 Agent 配置和启动策略控制。
 
 ## 快速开始
 
-插件安装后，从当前插件根目录运行统一 CLI：
+需要 Node.js `>=22.13.0`，并先安装、登录所需 Agent。在已安装的插件根目录查询目标和模型：
 
 ```powershell
 node "<plugin-root>\bin\uagents.mjs" targets
-node "<plugin-root>\bin\uagents.mjs" capabilities opencode
-node "<plugin-root>\bin\uagents.mjs" models opencode
-node "<plugin-root>\bin\uagents.mjs" submit --request "F:\path\request.json"
-node "<plugin-root>\bin\uagents.mjs" status <task-id>
-node "<plugin-root>\bin\uagents.mjs" result <task-id>
+node "<plugin-root>\bin\uagents.mjs" capabilities codex
+node "<plugin-root>\bin\uagents.mjs" models codex
 ```
 
-`submit` 也支持 `--request-stdin`。Prompt 和完整请求 JSON 不需要放进进程参数。
-
-最小请求示例：
-
-```json
-{
-  "schema_version": "1.0",
-  "request_id": "<uuid>",
-  "target": "dsh",
-  "model": "deepseek-official/deepseek-flash",
-  "mode": "analysis",
-  "workspace": "F:\\project",
-  "prompt": "Review this repository and summarize the main risks."
-}
-```
-
-使用已通过安装版真实任务验收的 Codex CLI / GPT-5.6 Luna 时，将请求中的 `target` 设为 `codex`、`model` 设为 `gpt-5.6-luna`，并填写自己的工作区和新 UUID。例如：
+保存请求为 `request.json`，填写新的 UUID 和自己的绝对工作区路径：
 
 ```json
 {
@@ -62,101 +28,20 @@ node "<plugin-root>\bin\uagents.mjs" result <task-id>
 }
 ```
 
-保存为 `request.json` 后使用上面的 `submit --request` 命令；通过 `status` / `result` 查询，不要为尚未确认结果的任务更换 UUID 重发。Codex 的 `probe` 只检查本机 CLI 版本，不是模型在线可用性测试。真实安装版 Luna 验收记录见 [Verification](docs/verification/2026-09-20-codex-luna-installed-e2e.md)。
-
-Claude Code CLI 使用 `target="claudeCode"` 和显式模型路线，例如本机 DeepSeek 网关的 `model="claudeCode/deepseek-v4-pro[1m]"`，并提供绝对路径 `workspace`。支持 text + workspace、analysis / implementation，以及原生 stream-json 图片、PDF 和 UTF-8 文本输入；用 `inputs` 的 `path`、`source` 或 `blob` 提交附件。Codex CLI 支持原生图片输入，DSH SDK 也提供内联图片协议；OpenCode 支持文件和图片，WorkBuddy 图片仍限已验证模型。Claude Code 权限沿用原生设置，`probe` 仅检查 CLI 版本。Claude Code 暂不开放跨 Task continuation/fork；`status` / `result` 可查询已提交 Task。各路线及验证边界见 [当前附件能力](docs/current/attachments.md) 和 [验证记录](docs/verification/2026-09-26-native-attachment-input.md)。
-
-精确字段和命令参数以 CLI discovery 为准：
-
-```text
-uagents describe
-uagents describe <command>
-uagents schema request
-uagents schema council
-uagents schema council-validation
-uagents schema council-validation-profiles
+```powershell
+node "<plugin-root>\bin\uagents.mjs" submit --request request.json
+node "<plugin-root>\bin\uagents.mjs" status <task-id>
+node "<plugin-root>\bin\uagents.mjs" result <task-id>
 ```
 
-## 用户功能
-
-### 附件
-
-Core 支持 workspace 相对路径、本地绝对 source 和 inline blob。Unified MCP 还支持宿主已经物化的本地临时附件。不同 target 是否真正支持 file/image 由目标能力决定。
-
-详见 [当前附件能力](docs/current/attachments.md)。
-
-### 多轮会话
-
-WorkBuddy 和 OpenCode 支持继续上一 native session，或从上一轮上下文 fork 独立分支。Codex 在 Windows 上可为 `gpt-6-astra` 显式设置 `execution.codex_transport="app-server"` 使用预览版 continuation/fork。每一轮仍然是新的 uAgents Task。
-
-详见 [当前会话能力](docs/current/sessions.md)。
-
-### Council
-
-Council 可以把同一任务 fan-out 给多个 Agent。分析任务可共享 workspace；并行实现任务可使用独立 Git worktree，并支持 diff、validation、adopt 和 cleanup。
-
-详见 [当前 Council 能力](docs/current/council.md)。
-
-### 模型发现
-
-`models <target>` 会展示配置路线和可获得的原生模型发现证据。agy、WorkBuddy、OpenCode 的 native catalog
-使用 10 分钟本机缓存，可用 `models <target> --refresh` 显式刷新。`models trae` 只复用已存在且身份可验证的受管窗口读取实时选择器，不会为了列模型启动第二个 TRAE 窗口；否则只读列出个人 TRAE CN 配置缓存中的 SOLO 模型候选，并标记 `discovery.status=partial`、`usable=null`。TRAE 默认使用隔离配置；明确执行 `ensure trae --profile personal` 可在关闭原有 TRAE 窗口后用现有个人配置启动受管窗口。受管桌面退出后，下次 `ensure` 仅在旧网关身份、空任务队列及当前 Task 存储中的无未决任务均得到确认时回收旧网关，并记录清理状态；旧网关可能仍运行时会延后新实例启动，避免覆盖其 token。真实 CLI 已验证实时列举、界面模型切换、analysis/implementation text + workspace Task、必需文件捕获、默认模型路线和这一路径的网关回收；网关尚无逐 Task 模型自报，`model_verified=false`。
-
-Codex 在委派新 Task 前通过 uAgents Skill 查询模型证据：已指定模型时直接使用；要求先选时展示 selector、target 默认、来源、采集时间，以及各路线文件/图片的 `input_support`；未指定且有默认路线时说明后继续。附件的 `allowed` 表示 uAgents 可提交，验证层级说明原生送达或模型回复是否有记录，并非账号额度保证。详见[当前模型与路由](docs/current/models.md#codex-对话中的预选步骤)。
-原生目录中的模型可直接作为单次 Task 的 `model`；不要求另行登记静态路线。发现到模型不代表 Provider 登录、额度或在线状态已经确认。
-
-每个 target 可以在用户配置中设置 `defaults`；请求省略 `model` 或写 `"model":"default"` 时使用该默认路线，
-本次 Task 写入具体 `model` 则覆盖它。CLI 可用 `--config <绝对路径>` 加载配置，CLI/MCP 共用时可设置
-`UAGENTS_CONFIG=<绝对路径>`。`models <target>` 的 `selector` 是请求可用的模型值，`default=true` 标出当前默认路线。
-没有默认路线的 target 在省略模型时会于提交前报 `model_unavailable`。
-
-详见 [当前模型与路由](docs/current/models.md)。
-
-### 本机生命周期
-
-uAgents 可以发现并验证 Agent 安装；桌面目标使用受管实例。`status` / `result` 只读本地状态，`resume` / `reconcile` 不会把一个已经发送过的 Prompt 自动换 UUID 重放。
-
-详见 [当前 Runtime 与生命周期](docs/current/runtime.md)。
-
-### 执行权限
-
-`analysis` 和 `advisory-read-only` 是任务意图与提示指导，不构成强制只读沙箱。审查提示应明确禁止修改文件和运行有修改效果的命令。
-
-agy 按指定调度策略使用 `--dangerously-skip-permissions`，由原生 CLI 自动批准工具；uAgents 不注入 `--sandbox`，原生设置仍可启用沙箱。Codex、Claude Code 等目标沿用原生权限配置；OpenCode 可通过 `execution.native_args` 传入其当前版本支持的权限选项。遇到原生审批或发送后的不确定状态时，按 Task 规则记录，不自动换 UUID 重发。详见 [权限边界](docs/current/agents.md#权限边界)。
-
-## Unified MCP
-
-没有本地 Shell、或宿主明确要求 MCP 时，可以使用插件提供的 `uagents-unified` stdio MCP Server。CLI 和 MCP 共用同一 Core contract。
-
-详见 [MCP Reference](docs/reference/mcp.md)。
-
-多个宿主共用独立编排进程时，可以连接 loopback HTTP MCP；只支持 stdio 的宿主使用薄桥接。配置与启动见 [共享本地服务](docs/current/service.md)。
-
-## 当前限制
-
-- uAgents 只负责调度与记录，不提供执行沙箱或审批代理。Codex/OpenCode 等目标的权限由各自的原生配置控制。Codex app-server 若要求交互审批，Task 保持不确定；uAgents 不会代答，也不会自动重发该 Prompt。
-- WorkBuddy generic file attachment 当前不可用；图片只对已验证的显式 `deepseek-v4.1-flash` 路线开放。
-- DSH SDK 已映射内联图片但真实 Task 尚未确认成功；generic file、continuation 和 fork 暂不开放。
-- Codex CLI 默认使用显式 `gpt-6-astra` 或 `gpt-5.6-luna` 的 exec 路线，支持 text + workspace 和原生图片；generic file 暂未开放。跨 Task continuation/fork 仅对 Windows/Astra 显式 app-server 预览路线开放。
-- Claude Code CLI 内置 DeepSeek 路线 `claudeCode/deepseek-v4-pro[1m]`、`claudeCode/deepseek-v4-pro`、`claudeCode/deepseek-v4-flash`，以及已验证的 `claude-sonnet-4-6` 模型 ID；其它显式 ID 也交由原生 CLI 判定。原生 `init.model` 与请求解析的 ID 不一致时 Task 失败。取消或超时后的远端状态不能仅凭 CLI 关闭确认，Task 保持不确定且不会自动重发。
-- Council 不自动选择 winner、自动 synthesis、自动 merge 或后台 cleanup。
-- 显式模型选择交给原生 CLI/网关判断。没有原生目录的 target 可以直接传模型 ID，但 `models` 只显示配置路线；Codex、Claude Code、DSH 和 OpenCode 的新模型沿用其 target 原生附件映射，实际 Provider 接受度由原生结果决定；WorkBuddy 的新模型附件能力仍默认关闭。TRAE 当前没有可核对的逐 Task 原生模型自报。
+每个有意的新任务使用新 UUID；遇到响应丢失或不确定状态，先查询原任务。安装、stdin 提交和配置方法见 [快速开始](docs/current/quick-start.md)。
 
 ## 文档
 
-- [当前实现](docs/current/README.md)：现在已经实现并可使用的功能。
-- [协议与命令 Reference](docs/reference/README.md)：稳定 contract、CLI/MCP 和 capability 语义。
-- [Verification](docs/verification/)：provider-free、实机和真实 Provider 验证证据。
-- [History](docs/history/README.md)：旧架构、设计讨论、实施计划、评审和历史状态快照。
-- [文档总入口](docs/README.md)：文档维护规则与完整导航。
-
-## 开发验证
-
-需要 Node.js `>=22.13.0`。
-
-```powershell
-npm test
-npm --prefix plugins/uagents/mcp/unified test
-```
-
-Skill 和 Plugin validator 的具体命令见 [当前 Runtime 与生命周期](docs/current/runtime.md)。
+- [当前设计与使用](docs/current/README.md)：架构、Agent、附件、会话、模型、Council 和 Runtime。
+- [共享本地服务](docs/current/service.md)：HTTP MCP、stdio 桥接与跨宿主接入。
+- [协议与命令](docs/reference/README.md)：CLI/MCP、请求字段和 capability 语义。
+- [开发与验证](docs/development.md)：构建、针对性测试和插件打包检查。
+- [验证证据](docs/verification/README.md)：测试、安装与真实 Provider 调用记录。
+- [历史归档](docs/history/README.md)：设计讨论、旧规划、评审和阶段快照。
+- [文档维护规则](docs/README.md)；当前构建版本见 [插件清单](plugins/uagents/.codex-plugin/plugin.json)。

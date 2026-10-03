@@ -46,23 +46,10 @@ Doubao/TRAE 使用受管隔离 profile。uAgents 不自动登录、不接管用�
 
 TRAE 的受管桌面退出后，下一次 `ensure trae` 会在旧网关身份可验证、原生队列为空且本次使用的 Task 状态库中没有关联未决任务时清理伴随网关，再启动新一代实例。证据不足时保留旧网关，并把 `gateway_cleanup` 的跳过原因写入旧实例记录；如果旧网关仍可能运行，返回 `gateway_cleanup_deferred`，不启动新网关覆盖其共享 token。不会根据单独的 PID 杀进程。使用多个独立 `--state-dir` 时，未传入本次调用的其它 Task 状态库不在此检查范围内。
 
-## 本机插件安装
+## 共享服务与并发
 
-本机 `personal` marketplace 已配置时，先让其插件源与待发布仓库构建一致，再运行：
+CLI、原 stdio MCP 和 HTTP 服务使用同一 Core；只有状态目录相同才共享 Task、Attempt 和 Council。HTTP 调用断开不取消已登记 Task，停止服务也不终止已启动的独立 worker；启动和恢复边界见 [共享本地服务](service.md)。
 
-```powershell
-codex plugin add uagents@personal --json
-```
+Council 的 submit、validate、adopt 和 cleanup 使用每 Council 的共享 SQLite lease/fencing，操作期间其它进程修改同一 Council 会遇到 `lease_conflict`。验证预算覆盖所有选中成员和命令；丢失响应后先查询已有证据并确认旧进程结束，再决定是否显式重试。
 
-返回的 version 和 installedPath 是本次安装证据；核对仓库、marketplace 插件源和缓存中的文件内容一致后，从返回的插件目录运行统一 CLI。不要凭固定缓存路径判断已安装最新版。最近一次安装记录见 [发布验证](../verification/2026-10-02-plugin-release.md)。
-
-## 开发验证
-
-根据变更选择针对性测试；完整回归可执行：
-
-```powershell
-npm test
-npm --prefix plugins/uagents/mcp/unified test
-```
-
-插件发布前核对 Skill 格式、插件打包、`git diff --check` 和安装内容一致性。打包测试使用 `node --test tests/plugin-package.test.mjs`。具体命令与每次测试计数保存在 `docs/verification/`，不作为当前功能定义。
+组件职责与持久化见 [当前架构](architecture.md)，插件安装见 [快速开始](quick-start.md)，仓库构建与检查见 [开发与验证](../development.md)。

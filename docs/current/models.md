@@ -113,78 +113,25 @@ Codex 使用 uAgents Skill 准备新 Task 时，先调用 `models <target>` 获�
 
 这一步只决定一次 Task 的路由，不修改 target 默认配置。列表是候选证据，不证明登录、额度或 Provider 在线。Codex 对话流程位于[agent-dispatch Skill](../../plugins/uagents/skills/agent-dispatch/references/model-choice.md)；当前不是 Codex 应用内的原生模型弹窗。
 
-## agy
+## 目标模型来源
 
-当前已核对的 agy 1.2.14 使用：
+| Target | 内置 selector / 默认值 | 模型来源 |
+| --- | --- | --- |
+| agy | `gemini-3.8-flash-medium`；无内置 default | 原生 `agy models` |
+| codex | `gpt-6-astra`、`gpt-5.6-luna`；无内置 default | configured-only |
+| claudeCode | `claudeCode/deepseek-v4-pro[1m]`、`claudeCode/deepseek-v4-pro`、`claudeCode/deepseek-v4-flash`、`claude-sonnet-4-6`；无内置 default | configured-only |
+| workbuddy | backend-default、`deepseek-v4.1-flash` | CLI help 的 supported labels |
+| dsh | `deepseek-official/deepseek-flash`；无内置 default | configured-only |
+| opencode | `commandcode-goat/deepseek/deepseek-v4-flash`、`commandcode-goat/z-ai/glm-5.3-flash`；无内置 default | 原生版本对应的 provider/model catalog |
+| doubao | backend-default | 配置路线 |
+| trae | backend-default | 已存在的受管窗口选择器，或个人配置缓存 |
 
-```text
-agy models
-```
+Codex 的 exec 与 Windows/Astra app-server 能力见 [会话规则](sessions.md)。`probe` 只验证版本；没有可信原生模型自报时，即使 Task 成功，`model_verified=false` 仍是准确记录。
 
-作为 no-prompt native catalog。当前已真实验证的 concrete route：
+Claude Code 将模型 ID 传给 `--model`，以 stream JSON 的 `init.model` 核对。`[1M]` 规范化为 `[1m]`；模型自报相符只证明原生 CLI 身份，不凭名称推断实际上游 Provider。网关与账号目录不由 uAgents 枚举。
 
-```text
-gemini-3.8-flash-medium
-```
+DSH 使用明确的 `provider/model` SDK ID，不根据 Web UI label 自动转换。OpenCode V1 使用 `models <provider> --pure`，V2 使用一次 `models` 后按已配置 provider 过滤；variant 使用 `provider/model#variant`。
 
-它作为内置 configured route 保存；agy 没有内置 default model，但可以在用户配置中指定。
+TRAE 的显式 `model` 是界面选择器显示名，backend-default 保留当前界面模型。`models trae` 不启动新窗口；无受管实例时只读个人配置的 `solo_agent` 缓存，仅返回 `status=true`、`selectable=true` 的候选。此时 `discovery.status=partial`、`source=local_profile_cache`、`usable=null`；敏感配置不返回或保存，账户缓存不唯一时不使用。
 
-其它被 native catalog 发现的模型，包括 Claude/GPT 标签，均可用返回的 `selector` 提交。
-
-## WorkBuddy
-
-内置路线：
-
-```text
-default
-deepseek-v4.1-flash
-```
-
-`default` 是 backend-default 文本路线；`deepseek-v4.1-flash` 是显式 concrete route，并拥有已验证的 image capability。
-
-本机其它 supported labels 会显示为 discovered-only，也可直接用于 text + workspace Task。
-
-## DSH
-
-当前内置路线：
-
-```text
-deepseek-official/deepseek-flash
-```
-
-DeepSeek Harness Web UI 的展示名不等于 SDK API model id。可传入其它明确的 `provider/model` SDK ID；
-uAgents 不根据 UI label 自动转换，也没有原生目录可预先确认这些 ID。
-
-## Codex CLI
-
-当前内置路线：
-
-```text
-gpt-6-astra
-gpt-5.6-luna
-```
-
-`gpt-5.6-luna` 已通过本机 Codex CLI 原生请求及安装版 uAgents `submit` / `result` 的真实模型调用，见 [2026-09-20 验证记录](../verification/2026-09-20-codex-luna-installed-e2e.md)。`gpt-6-astra` 已通过安装版 Windows app-server 显式预览路线的真实多轮续接、fork 及简化版普通任务调用，见 [app-server 验证记录](../verification/2026-09-23-codex-app-server-spike.md)。默认 `exec` 路线和显式 app-server 路线的能力范围见 [会话规则](sessions.md)。Codex CLI 当前没有可靠的 no-prompt native model catalog，`models codex` 展示 configured-only route；没有内置 default，未配置用户默认值时提交仍需显式传入模型。`probe codex --model gpt-5.6-luna` 和 `probe codex --model gpt-6-astra` 都是 version-only，本身不能证明 Provider 当前可用。原生事件没有可信模型自报字段，真实调用成功时 `model_verified=false` 仍为准确的模型身份记录。
-
-## Claude Code CLI
-
-当前内置显式路线：`claudeCode/deepseek-v4-pro[1m]`、`claudeCode/deepseek-v4-pro`、`claudeCode/deepseek-v4-flash`，以及 `claude-sonnet-4-6`。前面三个对应本机 Claude Code 用户设置中的 DeepSeek 网关模型；CLI 将 `[1M]` 规范化为 `[1m]`，uAgents 使用规范化的小写形式。`claude-sonnet-4-6` 是先前单独验证的 CLI 模型 ID，不能仅凭其名称或 CLI 自报断定实际上游 Provider。
-
-uAgents 将解析后的模型 ID 传给 Claude Code `--model`，并核对 stream JSON 的 `init.model`；`model_verified=true` 只表示 CLI 自报与请求相符。`models claudeCode` 为 configured-only，不自动枚举网关/账号模型目录，也不提供内置默认模型；用户可以配置默认路线。`probe claudeCode --model claudeCode/deepseek-v4-pro[1m]` 为 version-only。当前机器的原生 CLI 与 uAgents Task 验证见 [记录](../verification/2026-09-25-claude-code-cli.md)。
-
-## OpenCode
-
-当前内置路线包括：
-
-```text
-commandcode-goat/deepseek/deepseek-v4-flash
-commandcode-goat/z-ai/glm-5.3-flash
-```
-
-V1 使用 `opencode models <provider> --pure`；V2 使用一次 `opencode models`，再过滤已配置路线涉及的 provider。发现到的其它模型可直接按 `provider/model` 传入；不在列表中的 provider/model 也可以显式提交，最终由 OpenCode 校验。V2 的 variant 用 `provider/model#variant` 表示，不传已移除的 `--variant`。本机版本与目录验证见 [发布记录](../verification/2026-10-02-plugin-release.md)。
-
-## 其它 target
-
-Codex、Claude Code 和 DSH 当前只展示 configured route；没有原生目录，不推断其完整模型列表。Doubao 继续使用 backend/default contract。
-TRAE 网关提供 `GET /api/models`：列出当前界面模型选择器中的名称；Task 可显式传入该名称，网关会在发送任务前切换模型。
-TRAE 的 backend default 仍沿用当前界面模型，不从列表猜一个默认值。`models trae` 只对已存在且身份可验证的受管实例读取网关模型选择器；模型列举本身不会启动新窗口。若没有可用的受管实例，uAgents 会只读读取个人 TRAE CN 配置数据库中的 `solo_agent` 缓存，仅返回 `status=true` 且 `selectable=true` 的模型 ID 和显示名；`selector` 使用显示名。此时 `discovery.status=partial`、`source=local_profile_cache`、`usable=null`，不能证明这些模型已经可执行。缓存含有其它敏感配置，uAgents 不返回或保存这些字段；账户缓存不唯一时不使用。`ensure trae --profile personal` 是显式使用个人配置的受管启动方式。2026-09-25 真实验证读到 22 个当前选择器选项；显式 `GLM-5.3` 完成了 analysis 和 implementation Task，省略模型的 backend default 也完成了 analysis Task。网关仍无逐 Task 模型自报，因此执行模型身份未独立核验。
+实机调用、路由和模型证据见 [验证记录](../verification/README.md)。

@@ -43,8 +43,8 @@ A private temporary service config and isolated Core state were created. The pro
 
 Authenticated `/health` reported a live fenced scheduler, zero errors and zero remaining tool children. The temporary service and files were closed/removed after the check. The real probe initially exposed a missing `parseOpenCodeVersion` import in the async refactor; the import was restored and a real `invokeCli` version-only subprocess regression now covers both bare and prefixed output without sending a prompt.
 
-## Review and limits
+## Verification limits
 
-Astra reviewed the shared-runtime architecture, Luna supplied an independent proposal, and Sol performed adversarial read-only review. Final Sol review confirmed the original bridge ambiguity and Council diff/adopt scope issues were resolved; it independently executed the four bridge response tests. Implementation decisions and initial acceptance criteria are archived in [the design](../history/superpowers/specs/2026-10-03-shared-local-service.md).
+The final independent review executed the four bridge response tests. Architecture review, implementation decisions and initial acceptance criteria are archived in [the design](../history/superpowers/specs/2026-10-03-shared-local-service.md).
 
 Actual WorkBuddy application configuration, its sandbox-to-loopback access and application-exit behavior have not been tested here. Cross-user access, adversarial same-user filesystem races and long-running Git filters/hooks are also outside this verification. The service is a dispatcher for one OS user's trust domain, not a native execution sandbox. Startup instructions and these operating boundaries are documented in [current service behavior](../current/service.md).

@@ -1,14 +1,12 @@
-# Reference
+# 协议与命令
 
-Reference 只定义当前 contract，不记录设计讨论或测试过程。
+本目录解释当前 contract 的字段、语义和入口；具体 schema 以 Core parser 和机器可读 discovery 为准。
 
 - [CLI](cli.md)
 - [MCP](mcp.md)
 - [Local Service](service.md)
 - [Request / Task Protocol](protocol.md)
 - [Capability 语义](capabilities.md)
-
-机器可读 discovery 优先于手写文档：
 
 ```text
 uagents describe
@@ -21,4 +19,4 @@ uagents capabilities <target>
 uagents models <target>
 ```
 
-手写 Reference 用于解释这些 contract 的语义和入口，不替代 Core parser/runtime。
+使用方法见 [当前设计与使用](../current/README.md)；构建、测试和打包见 [开发与验证](../development.md)。

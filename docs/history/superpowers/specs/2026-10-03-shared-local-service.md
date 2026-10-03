@@ -41,3 +41,11 @@ existing native adapters and permission settings.
 - Modern MCP and legacy initialize/list/call work; bridge accepts JSON or SSE.
 - Tests use fixtures without paid Provider calls. Actual WorkBuddy sandbox and
   application-exit behavior must be reported separately from these tests.
+
+## Review context
+
+Astra reviewed the shared-runtime architecture, Luna supplied an independent
+proposal, and Sol performed adversarial read-only review. Final Sol review
+confirmed the original bridge ambiguity and Council diff/adopt scope issues
+were resolved. This is historical implementation context; executed checks and
+remaining verification limits are recorded in [service verification](../../../verification/2026-10-03-shared-local-service.md).

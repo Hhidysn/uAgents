@@ -18,16 +18,13 @@ flowchart LR
 
 ## 初始化与启动
 
-需要 Node.js `>=22.13.0`，以及执行目标自身的安装、登录和配置。仓库开发环境先构建；分发的插件包含 MCP bundles，无需安装运行时 npm 依赖。
+需要 Node.js `>=22.13.0`，以及执行目标自身的安装、登录和配置。分发插件包含 MCP bundles；开发仓库先按 [开发说明](../development.md#构建) 构建。
 
 ```powershell
-npm --prefix plugins/uagents/mcp/unified ci --ignore-scripts
-npm --prefix plugins/uagents/mcp/unified run build
-
-$taskPlugin = 'F:\documents\software\uAgents\plugins\uagents'
+$taskPlugin = 'C:\path\to\uagents'
 $taskConfig = Join-Path $env:LOCALAPPDATA 'uAgents\service-v1\config.json'
 node "$taskPlugin\bin\uagents-service.mjs" init --config "$taskConfig" `
-  --workspace 'F:\documents\software' --target opencode --target agy
+  --workspace 'F:\project' --target opencode --target agy
 node "$taskPlugin\bin\uagents-service.mjs" serve --config "$taskConfig"
 ```
 
@@ -59,9 +56,9 @@ init 生成随机 Bearer token，仅输出文件路径。配置、token 和其�
     "uagents-service": {
       "command": "node",
       "args": [
-        "F:\\documents\\software\\uAgents\\plugins\\uagents\\bin\\uagents-mcp-bridge.mjs",
+        "C:\\path\\to\\uagents\\bin\\uagents-mcp-bridge.mjs",
         "--config",
-        "C:\\Users\\24590\\AppData\\Local\\uAgents\\service-v1\\config.json"
+        "C:\\Users\\<user>\\AppData\\Local\\uAgents\\service-v1\\config.json"
       ]
     }
   }
@@ -70,7 +67,7 @@ init 生成随机 Bearer token，仅输出文件路径。配置、token 和其�
 
 桥接只持有 HTTP 连接，任务执行由独立服务完成。也可用 `--endpoint http://127.0.0.1:4319/mcp --token-file <绝对路径>`，token 内容不进入 argv。宿主需要能够启动 Node；禁止子进程但允许本机网络的环境应使用原生 HTTP MCP。如果两者都禁止，需要宿主开放受支持的连接方式。
 
-连接后用 `tools/list` 读取 schema，默认公开原有 20 个 `uagents_*` 工具。支持现代 MCP 和旧版 initialize / POST；旧版持久 SSE GET / DELETE 返回 `405`。官方 SDK 桥接兼容 JSON / SSE 响应。
+连接后用 `tools/list` 读取 schema，默认公开 20 个 `uagents_*` 工具。支持现代 MCP 和旧版 initialize / POST；旧版持久 SSE GET / DELETE 返回 `405`。官方 SDK 桥接兼容 JSON / SSE 响应。
 
 给调用 Agent 的最小工作说明：
 
@@ -99,4 +96,4 @@ Council 由调用方判断、验证与采用候选，不自动选择 winner 或 
 - 清理 worktree 或删除 workspace 后，任务历史仍可查询；新执行仍要求存在的 workspace。
 - 原生任务不会直接继承服务 token 环境、Authorization 或 token 内容。这是同一 OS 用户的调度 API 边界；拥有该用户文件权限的 Agent 仍能访问该用户文件，scope 不构成执行沙箱。不同用户与远程调用需要额外身份和隔离设计。
 
-配置修改后重启生效。机器可读入口为 `uagents-service.mjs describe` / `schema config`。字段见 [Service Reference](../reference/service.md)，验证记录见 [Verification](../verification/2026-10-03-shared-local-service.md)。
+配置修改后重启生效。机器可读入口为 `uagents-service.mjs describe` / `schema config`。字段见 [Service Reference](../reference/service.md)，验证记录见 [共享服务验证](../verification/2026-10-03-shared-local-service.md)。

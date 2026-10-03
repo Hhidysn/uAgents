@@ -6,6 +6,14 @@
 node <plugin-root>/bin/uagents.mjs <command>
 ```
 
+## 公共配置
+
+- `--config <绝对文件路径>` / `UAGENTS_CONFIG`：用户模型路线与默认值。
+- `--state-dir <绝对目录路径>` / `UAGENTS_STATE_DIR`：Task 状态根目录；Windows 默认 `%LOCALAPPDATA%\uAgents\v1`。
+- `config validate --config <绝对文件路径>`：校验配置路线与默认值。
+
+安装与提交示例见 [快速开始](../current/quick-start.md)，独立服务及桥接命令见 [Local Service](service.md)。
+
 ## Discovery
 
 ```text

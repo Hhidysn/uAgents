@@ -1,6 +1,6 @@
-# uAgents 待实现功能
+# 历史 roadmap 快照
 
-> 状态：规划 / 研究，**不代表当前已实现或已发布**。本文件与仅说明现有能力的 `docs/current/` 分开。基线为 2026-09-20 的 Codex CLI v1、GPT-5.6 Luna 安装版真实 E2E；后续以代码和当时验证结果为准。
+> 归档日期：2026-10-03；来源：原 `docs/roadmap.md`。以下保留当时的规划、研究与阶段状态，不代表当前已实现或未实现的能力。原基线为 2026-09-20；当前设计见 [当前文档](../../current/README.md)。
 
 ## 准入与实施原则
 
@@ -24,7 +24,7 @@
 | P2 | Code Review 模式 | 限定 diff/commit/base，结构化 findings 与可复核位置，不自动选 Council winner | planned |
 | P2 | 模型与登录/额度诊断 | no-prompt 证据与真实任务可用性分离，不把版本 probe 当成 provider 验证 | planned |
 
-实现设计见 [Codex CLI v2 提案](history/superpowers/specs/2026-09-20-codex-cli-v2-design.md)；已撤回的审批代理方案留在[历史草案](history/superpowers/specs/2026-09-24-codex-app-server-approval-design.md)。实验见 [2026-09-23 续接/fork 验证记录](verification/2026-09-23-codex-session-prototype.md)及 [app-server 验证记录](verification/2026-09-23-codex-app-server-spike.md)。当前已发布能力见 [Agent 能力矩阵](current/agents.md)。
+实现设计见 [Codex CLI v2 提案](../superpowers/specs/2026-09-20-codex-cli-v2-design.md)；已撤回的审批代理方案留在[历史草案](../superpowers/specs/2026-09-24-codex-app-server-approval-design.md)。实验见 [2026-09-23 续接/fork 验证记录](../../verification/2026-09-23-codex-session-prototype.md)及 [app-server 验证记录](../../verification/2026-09-23-codex-app-server-spike.md)。当前已发布能力见 [Agent 能力矩阵](../../current/agents.md)。
 
 ## 已接入 Agent 的能力补充
 
