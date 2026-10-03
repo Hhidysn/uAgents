@@ -4,6 +4,7 @@
 
 ## 主要入口
 
+- [自动签到](2026-10-04-auto-checkin.md)：原生登录兼容、独立每日任务、实际安装与签到结果。
 - [共享本地服务](2026-10-03-shared-local-service.md)：HTTP/stdio、认证与范围、调度恢复、Council 并发和路径检查。
 - [插件安装与 OpenCode V2 兼容](2026-10-02-plugin-release.md)：构建与安装身份、原生版本及已知终态限制。
 - [agy 原生自动批准](2026-10-02-agy-native-auto-approval.md)：启动策略与真实审查。

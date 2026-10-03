@@ -28,9 +28,10 @@ npm --prefix plugins/uagents/mcp/unified run build
 | --- | --- |
 | Core / adapter | `node --test tests/<相关文件>.test.mjs` |
 | 服务策略、调度、Council 并发或路径 | `npm run test:service` |
+| 登录态读取、签到或计划任务 | `npm run test:checkin`，必要时验证真实 Windows 任务 |
 | 统一 MCP、HTTP 服务或桥接 | `npm --prefix plugins/uagents/mcp/unified test`（包含构建） |
 | 插件入口与分发目录 | `node --test tests/plugin-package.test.mjs` |
-| 完整仓库回归 | `npm test`（包含服务与各 MCP 测试） |
+| 完整仓库回归 | `npm test`（包含签到、服务与各 MCP 测试） |
 | 文档或提交内容 | 检查本地链接、示例与实际 discovery，并运行 `git diff --check` |
 
 对 Windows 原生进程生命周期测试，需要串行复核时使用 `node --test --test-concurrency=1 <相关测试文件>`。provider-free fixture 和真实 Provider 调用分别记录；版本 probe 不能替代模型、附件或会话的真实验收。

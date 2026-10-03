@@ -2,6 +2,8 @@
 
 需要 Node.js `>=22.13.0`，并先完成执行目标的安装、登录和原生权限配置。uAgents 插件包含 MCP bundles；安装后的运行目录不需要 `node_modules`。从开发仓库运行时，先按 [开发说明](../development.md) 安装构建依赖并构建。
 
+Windows 下插件启动会检查已登录的 TRAE / WorkBuddy，并注册或复用每日自动签到任务；手动 `init`、只查状态和停用方法见 [自动签到](checkin.md)。
+
 ## 插件与入口
 
 已配置 `personal` marketplace 且其插件源对应待安装构建时，可以安装：

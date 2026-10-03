@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createMcpHandler, hostHeaderValidationResponse, originValidationResponse } from '@modelcontextprotocol/server';
 import { createServer } from './server.mjs';
+import { bootstrapCheckin } from '../../../src/checkin/scheduler.mjs';
+import { CHECKIN_TARGETS } from '../../../src/checkin/checkin.mjs';
+import { loadRegistry } from '../../../src/registry/config-file.mjs';
 import { runToolChild, runSchedulerChild } from './service-child.mjs';
 import { runRegisteredTask } from '../../../src/runtime/worker-factory.mjs';
 import { ToolRunner } from '../../../src/service/tool-runner.mjs';
@@ -15,6 +18,15 @@ import { notOk, ok } from '../../../src/protocol/envelope.mjs';
 import { fail } from '../../../src/protocol/errors.mjs';
 
 const entry = fileURLToPath(import.meta.url);
+
+export async function bootstrapServiceCheckin(config, options = {}) {
+  try {
+    // Match service children: only the service's registry file may override defaults.
+    const registry = loadRegistry({ configPath: config.registry_config, env: {} });
+    const targets = config.targets.filter(target => CHECKIN_TARGETS.includes(target) && registry.targets[target]?.enabled);
+    return await bootstrapCheckin({ ...options, targets });
+  } catch { return { status: 'failed', reason: 'auto_registration_failed' }; }
+}
 
 export async function createLocalService({ config, token = readServiceToken(config.token_file), runner = null, scheduler = true, childEntry = entry } = {}) {
   config = validateServiceConfig(config);
@@ -156,7 +168,8 @@ export async function main(argv = process.argv.slice(2), io = console) {
         targets: values.target ?? ['agy', 'codex', 'claudeCode', 'workbuddy', 'dsh', 'opencode', 'doubao', 'trae'],
         registry_config: values['registry-config'] ?? null,
       });
-      io.log(JSON.stringify(ok({ config_file: path.resolve(values.config), endpoint: `http://127.0.0.1:${config.port}/mcp`, token_file: config.token_file }))); return 0;
+      const checkin = await bootstrapServiceCheckin(config);
+      io.log(JSON.stringify(ok({ config_file: path.resolve(values.config), endpoint: `http://127.0.0.1:${config.port}/mcp`, token_file: config.token_file, checkin }))); return 0;
     }
     const config = readServiceConfig(values.config);
     await verifyServiceFiles(values.config, config.token_file);
@@ -167,6 +180,9 @@ export async function main(argv = process.argv.slice(2), io = console) {
     }
     if (command !== 'serve') fail('usage', 'Use init|serve|health --config <absolute-file>.');
     const service = await createLocalService({ config });
+    void bootstrapServiceCheckin(config).then(result => {
+      if (result.status === 'failed') process.stderr.write(`uagents check-in: ${result.reason}\n`);
+    });
     io.log(JSON.stringify(ok({ endpoint: service.url, config_file: path.resolve(values.config) })));
     let stopping = false;
     const stop = async () => { if (stopping) return; stopping = true; await service.close(); };

@@ -237,6 +237,13 @@ export async function start(argv = process.argv) {
   // return a structured unsupported error.
   const { createHostSupervisor } = await import('../../../src/host/target-supervisor.mjs');
   const supervisor = await createHostSupervisor();
+  const { bootstrapCheckin } = await import('../../../src/checkin/scheduler.mjs');
+  const registry = loadRegistry();
+  void bootstrapCheckin({ targets: ['trae', 'workbuddy'].filter(target => registry.targets[target]?.enabled) }).then(result => {
+    if (result.status === 'failed' || (result.status === 'registered' && !result.reused)) {
+      process.stderr.write(`uagents check-in: ${result.status}${result.reason ? ` (${result.reason})` : ''}\n`);
+    }
+  });
   serveStdio(() => createServer({ supervisor }), { onerror: error => process.stderr.write(`uagents unified mcp: ${error.message}\n`) });
 }
 

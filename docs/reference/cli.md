@@ -54,6 +54,20 @@ probe <target>
 stop <target>
 ```
 
+## Check-in
+
+```text
+init
+checkin [run] [--target trae|workbuddy ...] [--check-only]
+checkin status
+checkin enable [--target trae|workbuddy ...] [--time HH:mm]
+checkin disable
+```
+
+`init` 按登录态注册 Windows 每日任务，尊重停用偏好；`enable` 显式重新启用，默认时间 `00:30`。`status` 只读本机任务及报告；`run` 的 `--check-only` 只查询 Provider 状态。`--time` 只适用于 enable，target 必须为 registry 启用的 TRAE 或 WorkBuddy。
+
+返回单独的 check-in report，不创建 Task / Attempt。单目标状态见 [自动签到](../current/checkin.md)。手动执行出现 `failed` 或 `unconfirmed` 时 CLI 退出码为 1。
+
 ## Council
 
 ```text

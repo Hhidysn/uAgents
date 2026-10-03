@@ -39,6 +39,11 @@ test('service discovery and bridge load from a copied plugin without node_module
       encoding: 'utf8', windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'],
     });
     assert.equal(JSON.parse(output).data.transport, 'streamable-http');
+    const checkin = execFileSync(process.execPath, [path.join(copy, 'bin', 'uagents-checkin.mjs'), '--target', 'trae', '--check-only'], {
+      encoding: 'utf8', windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, APPDATA: path.join(copy, 'missing-profile'), UAGENTS_AUTO_CHECKIN: '0' },
+    });
+    assert.equal(JSON.parse(checkin).data.results[0].reason, 'auth_missing');
     const url = pathToFileURL(path.join(copy, 'mcp', 'unified', 'dist', 'bridge.mjs')).href;
     const bridge = execFileSync(process.execPath, ['--input-type=module', '-e', `const m = await import(${JSON.stringify(url)}); console.log(typeof m.connectService);`], {
       encoding: 'utf8', windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'],

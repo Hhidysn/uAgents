@@ -17,6 +17,9 @@ export const CLI_PARSE_OPTIONS = Object.freeze({
   force: Object.freeze({ type: 'boolean' }),
   validation: Object.freeze({ type: 'string' }),
   profile: Object.freeze({ type: 'string' }),
+  target: Object.freeze({ type: 'string', multiple: true }),
+  'check-only': Object.freeze({ type: 'boolean' }),
+  time: Object.freeze({ type: 'string' }),
 });
 
 const stateDir = option('--state-dir', 'absolute_path', 'Use one explicit task-state directory for this command.');
@@ -25,6 +28,12 @@ const taskId = positional('task_id', 'uuid', true);
 const target = positional('target', 'target_id', true);
 
 export const CLI_COMMANDS = Object.freeze({
+  init: command('init', 'init [--config <file>]', 'Detect locally logged-in TRAE/WorkBuddy accounts and register daily check-in on Windows.', [], [configFile], 'local_state_change'),
+  checkin: command('checkin', 'checkin [run|status|enable|disable] [--target trae|workbuddy ...] [--check-only] [--time HH:mm]', 'Run or inspect check-in, or manage the independent Windows daily task.', [positional('action', 'enum', false, ['run', 'status', 'enable', 'disable'])], [
+    option('--target', 'string', 'Limit check-in to TRAE or WorkBuddy; repeat to select both.'),
+    option('--check-only', 'boolean', 'Query provider check-in state without claiming credits.'),
+    option('--time', 'string', 'Daily local Windows time for enable; default 00:30.'), configFile,
+  ], 'may_claim_checkin_credits'),
   targets: command('targets', 'targets [--config <file>]', 'List enabled target IDs.', [], [configFile], 'local_only'),
   capabilities: command('capabilities', 'capabilities <target> [--config <file>]', 'Read the static capability descriptor for one target.', [target], [configFile], 'local_only'),
   models: command('models', 'models <target> [--refresh]', 'List model routes, native no-prompt discovery, and route-level file/image evidence.', [target], [

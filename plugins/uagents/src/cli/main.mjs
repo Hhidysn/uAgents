@@ -20,6 +20,22 @@ export async function execute(argv, options = {}) {
   if (!command || extra.length) fail('usage', 'Invalid uagents command arguments.');
   if (!isKnownCliCommand(command)) fail('usage', `Unknown command: ${command}`);
 
+  if (command === 'init' || command === 'checkin') {
+    const { initializeCheckin, checkinScheduleStatus, disableCheckin } = await import('../checkin/scheduler.mjs');
+    const { runCheckins, CHECKIN_TARGETS } = await import('../checkin/checkin.mjs');
+    const env = options.env ?? process.env;
+    const targets = values.target ?? CHECKIN_TARGETS.filter(target => registry.targets[target]?.enabled);
+    const action = command === 'init' ? 'enable' : subject ?? 'run';
+    if ((command === 'init' && subject) || !['run', 'status', 'enable', 'disable'].includes(action)) fail('usage', 'Use init or checkin run|status|enable|disable.');
+    if (targets.some(target => !CHECKIN_TARGETS.includes(target) || !registry.targets[target]?.enabled)) fail('invalid_target', 'Check-in target must be enabled TRAE or WorkBuddy.');
+    if ((values['check-only'] && action !== 'run') || (values.time && action !== 'enable')) fail('usage', '--check-only applies to run; --time applies to enable.');
+    const injected = options.checkinOptions ?? {};
+    if (action === 'run') return ok(await runCheckins({ ...injected, env, targets, checkOnly: values['check-only'] === true }));
+    if (action === 'status') return ok(await checkinScheduleStatus({ ...injected, env }));
+    if (action === 'disable') return ok(await disableCheckin({ ...injected, env }));
+    return ok(await initializeCheckin({ ...injected, env, targets, time: values.time ?? null, explicit: command !== 'init' }));
+  }
+
   if (command === 'targets') return ok(Object.entries(registry.targets).filter(([, value]) => value.enabled).map(([id]) => id));
   if (command === 'capabilities') return ok({ target: subject, ...targetDescriptor(registry, required(subject, 'target')) });
   if (command === 'models') {
@@ -137,9 +153,17 @@ async function createSupervisor(stateRoot = null) {
 
 export async function main(argv = process.argv.slice(2), io = console) {
   try {
+    // Discovery and observation commands keep their read-only contract. CLI-only
+    // users get the same registration hook on dispatch/ensure, or explicitly init.
+    const parsed = parseArgs({ args: argv, allowPositionals: true, strict: true, options: CLI_PARSE_OPTIONS });
+    if (['submit', 'council-submit', 'ensure'].includes(parsed.positionals[0])) {
+      const { bootstrapCheckin } = await import('../checkin/scheduler.mjs');
+      const registry = loadRegistry({ configPath: parsed.values.config });
+      await bootstrapCheckin({ targets: ['trae', 'workbuddy'].filter(target => registry.targets[target]?.enabled) });
+    }
     const envelope = await execute(argv);
     io.log(argv.includes('table') && argv.includes('--format') ? renderTable(envelope) : JSON.stringify(envelope));
-    return 0;
+    return envelope.data?.results?.some(item => ['failed', 'unconfirmed'].includes(item.status)) ? 1 : 0;
   }
   catch (error) { io.log(JSON.stringify(notOk(error))); return 1; }
 }

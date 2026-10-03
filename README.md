@@ -40,6 +40,7 @@ node "<plugin-root>\bin\uagents.mjs" result <task-id>
 
 - [当前设计与使用](docs/current/README.md)：架构、Agent、附件、会话、模型、Council 和 Runtime。
 - [共享本地服务](docs/current/service.md)：HTTP MCP、stdio 桥接与跨宿主接入。
+- [自动签到](docs/current/checkin.md)：登录检测、每日计划任务与手动签到。
 - [协议与命令](docs/reference/README.md)：CLI/MCP、请求字段和 capability 语义。
 - [开发与验证](docs/development.md)：构建、针对性测试和插件打包检查。
 - [验证证据](docs/verification/README.md)：测试、安装与真实 Provider 调用记录。

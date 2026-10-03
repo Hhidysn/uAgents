@@ -6,7 +6,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { createLocalService } from '../src/service.mjs';
+import { bootstrapServiceCheckin, createLocalService } from '../src/service.mjs';
 import { connectService } from '../src/bridge.mjs';
 import { ToolRunner } from '../../../src/service/tool-runner.mjs';
 import { initializeServiceConfig } from '../../../src/service/config.mjs';
@@ -58,6 +58,30 @@ async function legacy(service, method, params = {}, options = {}) {
     : JSON.parse(text);
   return { response, message };
 }
+
+test('service check-in registration respects registry and service target restrictions', async t => {
+  fs.mkdirSync(base, { recursive: true });
+  const root = fs.mkdtempSync(path.join(base, 'service-checkin-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const registryFile = path.join(root, 'registry.json');
+  fs.writeFileSync(registryFile, JSON.stringify({ targets: { trae: { enabled: false } } }));
+  const accounts = [], schedules = [];
+  const options = { env: { LOCALAPPDATA: root }, platform: 'win32',
+    authLoader: async target => { accounts.push(target); return { logged_in: true, source: 'fixture' }; },
+    schedulerRunner: async input => { schedules.push(input); return input.action === 'status' ? {} : { status: 'registered' }; },
+  };
+  const config = { registry_config: registryFile, targets: ['trae', 'workbuddy', 'codex'] };
+  const result = await bootstrapServiceCheckin(config, options);
+  assert.equal(result.status, 'registered');
+  assert.deepEqual(accounts, ['workbuddy']);
+  assert.deepEqual(JSON.parse(fs.readFileSync(schedules[1].plan, 'utf8')).targets, ['workbuddy']);
+  accounts.length = 0; schedules.length = 0;
+  assert.equal((await bootstrapServiceCheckin({ ...config, targets: ['trae', 'codex'] }, options)).reason, 'targets_disabled');
+  assert.deepEqual(accounts, []); assert.deepEqual(schedules, []);
+  fs.writeFileSync(registryFile, 'invalid');
+  assert.equal((await bootstrapServiceCheckin(config, options)).status, 'failed');
+  assert.deepEqual(accounts, []); assert.deepEqual(schedules, []);
+});
 
 test('HTTP authenticates and validates local Origin/Host before protocol handling', async t => {
   const { config } = await fixture(t); const service = await start(t, config);

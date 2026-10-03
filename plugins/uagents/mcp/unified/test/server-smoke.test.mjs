@@ -19,7 +19,7 @@ test('bundled stdio server initializes and lists the unified tool surface', asyn
   fs.mkdirSync(base, { recursive: true });
   const root = fs.mkdtempSync(path.join(base, 'unified-mcp-'));
   const child = spawn(process.execPath, ['dist/server.mjs'], {
-    cwd: path.resolve('.'), env: { ...process.env, UAGENTS_STATE_DIR: root }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+    cwd: path.resolve('.'), env: { ...process.env, UAGENTS_STATE_DIR: root, UAGENTS_AUTO_CHECKIN: '0' }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
   });
   let buffer = ''; const messages = []; let wake;
   child.stdout.on('data', chunk => {

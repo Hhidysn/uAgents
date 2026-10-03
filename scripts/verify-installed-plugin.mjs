@@ -53,6 +53,7 @@ async function listTools(serverName, expectedTools) {
     LOCALAPPDATA: path.join(isolatedHome, 'AppData', 'Local'),
     PLUGIN_ROOT: pluginRoot,
     UAGENTS_TRAE_STATE_DIR: path.join(stateRoot, serverName, 'gateway'),
+    UAGENTS_AUTO_CHECKIN: '0',
   };
   delete childEnv.PLUGIN_DATA;
   delete childEnv.UAGENTS_STATE_DIR;

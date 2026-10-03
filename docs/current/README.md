@@ -13,5 +13,6 @@
 | [模型与路由](models.md) | 默认模型、单次选择、目录缓存与附件证据 |
 | [Runtime 与生命周期](runtime.md) | 幂等、租约、恢复与受管实例 |
 | [共享本地服务](service.md) | loopback HTTP MCP、stdio 桥接与服务范围 |
+| [自动签到](checkin.md) | 本机登录检测、独立每日计划任务、手动签到与停用 |
 
 精确字段见 [协议与命令](../reference/README.md)，仓库构建和测试见 [开发与验证](../development.md)。
