@@ -9,7 +9,14 @@ process.stdin.on('end',()=>{
   const session = sessionOverride ?? (target === 'workbuddy' ? id : 'ses_fixture');
   const initialize = () => {
     if (target === 'workbuddy') emit({type:'system',subtype:'init',session_id:session,cwd:process.cwd(),model:'fixture-default',permissionMode:'acceptEdits'});
-    else emit({type:'step_start',sessionID:session,part:{id:'start',messageID:'answer',sessionID:session,type:'step-start'}});
+    else {
+      if(scenario==='v2-recovered-error'){
+        emit({type:'step_start',sessionID:session,part:{id:'interrupted-start',messageID:'interrupted',sessionID:session,type:'step-start'}});
+        emit({type:'error',sessionID:session,error:{type:'provider.invalid-output',status:200,message:'OpenAI Chat stream ended without finish_reason'}});
+        process.exitCode=1;
+      }
+      emit({type:'step_start',sessionID:session,part:{id:'start',messageID:'answer',sessionID:session,type:'step-start'}});
+    }
   };
   const complete = () => {
     if(scenario==='malformed'){process.stdout.write('null\n');return;}
@@ -29,7 +36,7 @@ process.stdin.on('end',()=>{
         return;
       }
       emit({type:'text',sessionID:session,part:{id:'text',messageID:'answer',sessionID:session,type:'text',text:'中文结果 ✓'}});
-      emit({type:'step_finish',sessionID:session,part:{id:'finish',messageID:'answer',sessionID:session,type:'step-finish',reason:'stop',tokens:{total:0}}});
+      if(!['v2-success','v2-recovered-error'].includes(scenario))emit({type:'step_finish',sessionID:session,part:{id:'finish',messageID:'answer',sessionID:session,type:'step-finish',reason:'stop',tokens:{total:0}}});
     }
   };
   if(scenario==='delayed-session'){

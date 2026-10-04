@@ -57,7 +57,9 @@ uAgents 提供 8 个 target。以下是 uAgents 开放的映射与模式；具�
 - 原生 `--file` 映射文件和图片；支持 continuation/fork，Windows 上支持 durable process observation 与 verified execution timeout。
 - 自动核对原生版本：V1 使用 `run --dir <workspace>`，V2 使用进程 cwd。模型目录按版本获取；显式 `provider/model` 最终由原生 CLI 判定。
 - `execution.native_args` 保持顺序透传非冲突参数；V2 的 variant 使用 `provider/model#variant`，不接受已移除的 `--pure` / `--variant`。
-- 完成状态需要原生终态证据；仅有文本和 0 退出码时保持 `indeterminate / native_completion_unconfirmed`。V2 的完整终态、续接/fork 和附件 E2E 尚未确认，边界见 [兼容验证](../verification/2026-10-02-plugin-release.md)。
+- 完成状态需要原生终态证据。V2 缺少 `step_finish` 时，只读导出同一 session，核对 workspace、最终 message ID、完成及 idle 时刻、provider/model 和与 stdout 一致的答案；核查失败保持 `indeterminate / native_completion_unconfirmed` 并保留部分文本。核对成功时记录原生模型自报。V2 文本与同 Attempt 恢复已实测，续接/fork 和附件仍需各自真实 E2E，见 [V2 回执修复](../verification/2026-10-04-opencode-v2-completion.md)。
+- V2 设置 `execution_timeout_ms` 时自动使用 `--standalone` 私有服务，拒绝同时指定 `--server`，使时限覆盖拥有的执行进程树；本地停止仍不代表 Provider 已确认取消。
+- V2 在中途 Provider 错误后可能自行恢复，并仍退出 1。若出现新的最终消息，uAgents 只读核对同 session 的成功终态及上述身份／正文证据后才确认恢复；无证明仍失败，不覆盖最终错误或审批等待。见 [L1 分发调查](../verification/2026-10-04-l1-dispatch-errors.md)。旧任务的 terminal 状态不自动改写。
 
 ## 豆包工作
 

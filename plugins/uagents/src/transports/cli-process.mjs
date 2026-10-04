@@ -187,7 +187,7 @@ export async function invokeCli(directory, workspace, request, publish, testDriv
       let end;
       while ((end = buffer.indexOf('\n')) >= 0) { const current = buffer.slice(0, end); buffer = buffer.slice(end + 1); line(current); }
     });
-    child.on('close', code => {
+    child.on('close', async code => {
       if (finished) return;
       buffer += decoder.end(); if (buffer) line(buffer);
       if (outcome) { finish(outcome); return; }
@@ -198,7 +198,10 @@ export async function invokeCli(directory, workspace, request, publish, testDriv
         finish(code === 0 && match?.[1] ? { status: 'succeeded', scope: 'version_only', version: match[1], submission: 'not_sent' }
           : { status: 'failed', error: 'native_version_probe_failed', submission: 'not_sent' }); return;
       }
-      try { finish(parser.finish(code)); } catch { finish({ status: 'unknown', error: 'result_handling_failed', retry_safe: false }); }
+      // Close ended execution; an asynchronous read-only terminal lookup must
+      // not race the execution timer/cancellation loop into a false timeout.
+      clearTimeout(timer); clearInterval(cancellation);
+      try { finish(await parser.finish(code)); } catch { finish({ status: 'unknown', error: 'result_handling_failed', retry_safe: false }); }
     });
   });
 }

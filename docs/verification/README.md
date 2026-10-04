@@ -4,6 +4,8 @@
 
 ## 主要入口
 
+- [OpenCode V2 回执与时限修复](2026-10-04-opencode-v2-completion.md)：三条实际模型路由、原 Attempt 对账恢复、私有服务执行超时及定向回归。
+- [L1 实际分发失败调查](2026-10-04-l1-dispatch-errors.md)：DeepSeek 原生 HTTP400、GLM 流恢复后误报失败、原日志回放与修复边界。
 - [自动签到](2026-10-04-auto-checkin.md)：原生登录兼容、独立每日任务、实际安装与签到结果。
 - [共享本地服务](2026-10-03-shared-local-service.md)：HTTP/stdio、认证与范围、调度恢复、Council 并发和路径检查。
 - [插件安装与 OpenCode V2 兼容](2026-10-02-plugin-release.md)：构建与安装身份、原生版本及已知终态限制。

@@ -608,7 +608,7 @@ function createParserSession({ driver, target, checkpoint, publishPatch }) {
       await flush();
     },
     async finish(code) {
-      const result = typeof parser.finish === 'function' ? parser.finish(code) : null;
+      const result = typeof parser.finish === 'function' ? await parser.finish(code) : null;
       await flush();
       return result;
     },

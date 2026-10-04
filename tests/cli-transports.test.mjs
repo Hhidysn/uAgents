@@ -187,7 +187,7 @@ test('OpenCode keeps text and zero exit unconfirmed when the native completion e
   assert.equal(outcome.retry_safe, false);
   assert.equal(outcome.native_exit_code, 0);
   assert.equal(outcome.result.native_session_id, 'ses_test');
-  assert.equal(outcome.result.response, '');
+  assert.equal(outcome.result.response, 'UAGENTS_OPENCODE_V2_OK');
 });
 
 test('OpenCode driver keeps native flags caller-controlled and maps file inputs to absolute paths', () => {

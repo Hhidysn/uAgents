@@ -32,6 +32,8 @@ uagents reconcile <task-id>
 
 OpenCode 在 Windows 上可以持久化 native process/transcript，并在 Worker 重启后继续观察。Observation timeout 或本地 observer cancel 不等于 Provider/native 已确认取消。
 
+OpenCode V2 的 `reconcile` 可以通过原 Attempt 的 executable 执行只读 `session export`，补齐缺失的完成事件；不会执行 `run` 或重发 prompt。导出的原始上下文仅留在内存，不写入日志；身份、workspace、最终消息及文本必须与持久 transcript 对应。设置硬执行时限的 V2 新任务使用 `--standalone` 私有服务，避免只终止 CLI 后共享服务仍继续执行。旧共享服务任务的超时记录不会自动撤销。
+
 Codex 的 Windows/Astra 显式 app-server 路线保存原生 Thread/Turn 与进程证据；Worker 失联后只读复查原 Turn，不自动重新发送 Prompt。原生历史不足以证明终态时保持 `indeterminate`。Codex 的执行权限仍由其原生配置控制。
 
 ## Workspace

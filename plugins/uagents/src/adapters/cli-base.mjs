@@ -3,6 +3,7 @@ import { fail } from '../protocol/errors.mjs';
 import { invokeCli, locateCli, nativeDriver } from '../transports/cli-process.mjs';
 import { invokeAgy } from '../transports/agy-process.mjs';
 import { createOpenCodeParser, buildOpenCodePrompt, openCodeMajorVersion } from '../transports/opencode-driver.mjs';
+import { readOpenCodeSession } from '../transports/opencode-session.mjs';
 import {
   launchAndAccept,
   observeDurableExecution,
@@ -55,6 +56,8 @@ export class CliAdapter {
           ? { reported: true, verification: 'runtime_self_report' }
         : this.target === 'workbuddy'
           ? { reported: true, verification: 'unverified_backend_default' }
+        : this.target === 'opencode'
+          ? { reported: true, verification: 'runtime_self_report_when_session_verified' }
           : { reported: false, verification: 'unsupported' },
     };
   }
@@ -166,7 +169,7 @@ export class CliAdapter {
     if (!nativeSessionId) return { handle: { session_id: null, task_id: null, status: outcome.native_status ?? null }, outcome };
     const handle = { session_id: nativeSessionId, task_id: null, status: outcome.native_status ?? 'accepted' };
     context.checkpoint('accepted', { handle, evidence_ref: `${this.target}:native-session` });
-    this.#outcomes.set(nativeSessionId, { ...outcome, model_reported: modelReported, request: prepared.request });
+    this.#outcomes.set(nativeSessionId, { ...outcome, model_reported: modelReported ?? outcome.model_reported ?? null, request: prepared.request });
     return { handle };
   }
 
@@ -235,13 +238,14 @@ export class CliAdapter {
         category: 'runtime', submission: context.submission ?? 'may_have_been_sent',
       });
     }
-    // Reconcile is parser-only. Build the OpenCode parser/argv contract from
-    // persisted evidence without resolving the current installation and
-    // without invoking any spawn path.
+    // Replay the original transcript; a missing V2 terminal event may query
+    // the same session through the persisted executable, never run a new turn.
     let driver = this.testDriver ?? {
       command: persistedExecutable,
       args: [],
-      createParser: publish => createOpenCodeParser(legacy, context.request.workspace, publish),
+      createParser: publish => createOpenCodeParser(legacy, context.request.workspace, publish, {
+        sessionReader: session => readOpenCodeSession(persistedExecutable, context.request.workspace, session),
+      }),
       buildPrompt: () => buildOpenCodePrompt(legacy, context.request.workspace),
       initialObservation: { native_edit_mode: 'inherited' },
     };
@@ -346,8 +350,8 @@ function outcomeEvent(target, request, outcome, modelReported) {
       : outcome.status === 'cancelled' ? 'cancelled'
         : outcome.status === 'failed' || outcome.status === 'blocked' ? 'failed' : 'indeterminate';
   const requested = request.model_resolved;
-  const reported = modelReported;
-  const verified = (target === 'agy' || target === 'claudeCode') && typeof reported === 'string' && reported === requested;
+  const reported = modelReported ?? outcome.model_reported ?? null;
+  const verified = (target === 'agy' || target === 'claudeCode' || target === 'opencode') && typeof reported === 'string' && reported === requested;
   return {
     type,
     same_native_identity: true,
