@@ -1,6 +1,6 @@
 # 当前 Agent 与能力
 
-uAgents 提供 8 个 target。以下是 uAgents 开放的映射与模式；具体平台、模型和原生版本限制以 `uagents capabilities <target>` 及对应规则为准。
+uAgents 提供 9 个 target。以下是 uAgents 开放的映射与模式；具体平台、模型和原生版本限制以 `uagents capabilities <target>` 及对应规则为准。
 
 | Target | Modes | File input | Image input | Continue | Fork | Transport |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
@@ -10,6 +10,7 @@ uAgents 提供 8 个 target。以下是 uAgents 开放的映射与模式；具�
 | `workbuddy` | analysis / implementation | false | model-specific | true | true | CLI |
 | `dsh` | analysis / implementation | false | true（端到端成功未确认） | false | false | SDK JSON-RPC stdio |
 | `opencode` | analysis / implementation | true | true | true | true | CLI |
+| `pi` | analysis / implementation | true | true | true | true | CLI JSONL |
 | `doubao` | analysis | false | false | false | false | managed desktop/CDP |
 | `trae` | analysis / implementation | false | false | false | false | managed desktop/gateway |
 
@@ -61,6 +62,18 @@ uAgents 提供 8 个 target。以下是 uAgents 开放的映射与模式；具�
 - 完成状态需要原生终态证据。V2 缺少 `step_finish` 时，只读导出同一 session，核对 workspace、最终 message ID、完成及 idle 时刻、provider/model 和与 stdout 一致的答案；核查失败保持 `indeterminate / native_completion_unconfirmed` 并保留部分文本。核对成功时记录原生模型自报。V2 文本与同 Attempt 恢复已实测，续接/fork 和附件仍需各自真实 E2E，见 [V2 回执修复](../verification/2026-10-04-opencode-v2-completion.md)。
 - V2 设置 `execution_timeout_ms` 时自动使用 `--standalone` 私有服务，拒绝同时指定 `--server`，使时限覆盖拥有的执行进程树；本地停止仍不代表 Provider 已确认取消。
 - V2 在中途 Provider 错误后可能自行恢复，并仍退出 1。若出现新的最终消息，uAgents 只读核对同 session 的成功终态及上述身份／正文证据后才确认恢复；无证明仍失败，不覆盖最终错误或审批等待。见 [L1 分发调查](../verification/2026-10-04-l1-dispatch-errors.md)。旧任务的 terminal 状态不自动改写。
+
+## pi
+
+- 每次执行显式加载会话守卫，保留用户扩展与权限配置；执行中通过扩展上下文新建、切换、分叉或改选会话树会被阻止并保持不确定。结束时再次核对 session/cwd，扩展重载后需重新确认守卫。它不隔离同进程的任意 JavaScript 扩展。
+- 原生模型自报同时核对 provider 和 model；不匹配时失败，不标记 `model_verified=true`。
+- 启动已安装的 `@earendil-works/pi-coding-agent` bundle（`dist/bundle/cli.js`，由当前 Node 运行），使用 `--mode json` JSONL 事件流；Prompt 走 stdin，workspace 为进程 cwd。
+- 原生 `@path` 映射文件与图片；支持 analysis / implementation 和 continuation/fork（`--session` / `--fork`）。
+- 模型使用原生 `provider/model` selector，随 Task 传 `--provider` / `--model`；`execution.effort` 映射为 `--thinking`。`models pi` 读取 `--list-models` 原生目录。
+- 模型自报来自最终 assistant `message_end` 的 `model`。只在该消息 `stopReason` 为 `stop`/`length`、进程正常退出且收到 `agent_settled` 时才确认成功；仅存在最终文本但不 settle 时保持 `indeterminate / native_completion_unconfirmed`。
+- 沿用 pi 原生权限与 project trust 默认；不注入工具白名单或 `--approve`。`native_args` 暂不开放。`execution_timeout_ms` 不支持（无持久进程观察）。
+- 本机安装发现不读取登录或凭据；未登录或模型不可用由原生进程执行时确认。
+- 文本、续接/分叉、文件与图片已按 [真实调用记录](../verification/2026-10-06-pi-cli.md) 验证；附件是否可用还取决于 provider（antigravity bridge 在附件上会崩溃）。
 
 ## 豆包工作
 

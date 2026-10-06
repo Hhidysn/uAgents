@@ -73,7 +73,7 @@ test('desktop adapters load on demand, so a core-only copy still serves every ot
 
     const targets = run(['targets']);
     assert.equal(targets.status, 0, targets.stderr);
-    assert.deepEqual(targets.envelope.data, ['agy', 'codex', 'claudeCode', 'workbuddy', 'dsh', 'opencode', 'doubao', 'trae']);
+    assert.deepEqual(targets.envelope.data, ['agy', 'codex', 'claudeCode', 'workbuddy', 'dsh', 'opencode', 'pi', 'doubao', 'trae']);
     const codex = run(['capabilities', 'codex']);
     assert.equal(codex.status, 0, codex.stderr);
     assert.equal(codex.envelope.data.target, 'codex');

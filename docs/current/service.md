@@ -28,7 +28,7 @@ uagents-service init --config "$taskConfig" `
 uagents-service serve --config "$taskConfig"
 ```
 
-`--workspace` / `--target` 可重复。workspace root 是允许调用方提交任务的目录范围；init 未指定 target 时允许八个内置目标。默认端口 `4319`，默认 state directory `%LOCALAPPDATA%\uAgents\v1`。可通过 `--port` / `--state-dir` 修改；用 `--registry-config <绝对路径>` 固定模型路线与默认值。
+`--workspace` / `--target` 可重复。workspace root 是允许调用方提交任务的目录范围；init 未指定 target 时允许九个内置目标。默认端口 `4319`，默认 state directory `%LOCALAPPDATA%\uAgents\v1`。可通过 `--port` / `--state-dir` 修改；用 `--registry-config <绝对路径>` 固定模型路线与默认值。
 
 Windows 的 init / serve 会检查允许的 TRAE、WorkBuddy 登录态，注册或复用独立的 [每日签到任务](checkin.md)。服务初始化只读取本机登录态，不领取积分；注册失败不阻断服务。服务未允许这两个 target 时跳过。
 

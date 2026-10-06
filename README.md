@@ -2,7 +2,7 @@
 
 uAgents 是供各类 Agent 宿主使用的本地统一调度层。CLI、MCP 和共享本地服务使用同一套 Task、Attempt、结果、附件、会话与 Council。
 
-支持 `agy`、`codex`、`claudeCode`、`workbuddy`、`dsh`、`opencode`、`doubao` 和 `trae`。各目标的输入与会话能力见 [Agent 能力矩阵](docs/current/agents.md)。执行权限由原生 Agent 配置和启动策略控制。
+支持 `agy`、`codex`、`claudeCode`、`workbuddy`、`dsh`、`opencode`、`pi`、`doubao` 和 `trae`。各目标的输入与会话能力见 [Agent 能力矩阵](docs/current/agents.md)。执行权限由原生 Agent 配置和启动策略控制。
 
 ## 快速开始
 

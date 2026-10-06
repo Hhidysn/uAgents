@@ -19,7 +19,7 @@ const request = patch => ({
 test('discovery commands expose configured routes plus local native model evidence', async () => {
   const targets = await execute(['targets']);
   assert.equal(targets.ok, true);
-  assert.deepEqual(targets.data, ['agy', 'codex', 'claudeCode', 'workbuddy', 'dsh', 'opencode', 'doubao', 'trae']);
+  assert.deepEqual(targets.data, ['agy', 'codex', 'claudeCode', 'workbuddy', 'dsh', 'opencode', 'pi', 'doubao', 'trae']);
   const capabilities = await execute(['capabilities', 'opencode']);
   assert.deepEqual(capabilities.data.modes, ['analysis', 'implementation']);
   assert.equal('available' in capabilities.data, false);
@@ -32,6 +32,7 @@ test('discovery commands expose configured routes plus local native model eviden
   }) }) });
   assert.deepEqual(models.data.filter(model => model.configured).map(model => model.route_id).sort(), [
     'commandcode-goat/deepseek/deepseek-v4-flash', 'commandcode-goat/z-ai/glm-5.3-flash',
+    'opencode-go/deepseek-v4-flash', 'opencode-go/glm-5.3-flash',
   ]);
   assert.equal(models.data.find(model => model.route_id === 'commandcode-goat/deepseek/deepseek-v4-flash').usable, true);
   assert.equal(models.data.find(model => model.route_id === 'commandcode-goat/deepseek/deepseek-v4-pro').configured, false);

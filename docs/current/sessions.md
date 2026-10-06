@@ -1,6 +1,6 @@
 # 当前会话能力
 
-WorkBuddy 和 OpenCode 支持把新 Task 映射到已有 native session。Codex 在 Windows 上显式选择 `gpt-6-astra` 的 app-server 预览路线也支持此操作。
+WorkBuddy 和 OpenCode 支持把新 Task 映射到已有 native session。pi 同样支持 continuation/fork。Codex 在 Windows 上显式选择 `gpt-6-astra` 的 app-server 预览路线也支持此操作。
 
 继续同一 native session：
 
@@ -31,6 +31,8 @@ WorkBuddy 和 OpenCode 支持把新 Task 映射到已有 native session。Codex 
 WorkBuddy continuation 使用 native `--resume <session-id>`；fork 在此基础上增加 `--fork-session`。
 
 OpenCode continuation 使用 `run --session <session-id>`；fork 增加 `--fork`。
+
+pi continuation 使用 `--session <session-id>`；fork 使用 `--fork <session-id>`（两者不能同用），新 native session identity 取自事件流首条 session header。
 
 Codex 预览路线需在每条 Task 的 `execution` 中显式加入 `"codex_transport": "app-server"`，并选择 `target=codex`、`model=gpt-6-astra`。不填此字段时，Codex 仍使用 `exec --json`，且不接受跨 Task 会话。来源 Task 也必须来自 app-server 路线；Luna 和非 Windows 平台不开放此预览路线。
 

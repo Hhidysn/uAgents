@@ -48,6 +48,14 @@ function nativeRoute(target, selector) {
     if (parts.length < 2 || parts.some(part => !nativeId(part))) return null;
     model = parts.at(-1);
     provider = parts.slice(0, -1).join('/');
+  } else if (target === 'pi') {
+    // pi selects `provider/id`; the concrete model id may itself contain
+    // slashes (for example an OpenRouter `google/...` model), so the provider
+    // is the first segment and the model is the remainder.
+    const parts = selector.split('/');
+    if (parts.length < 2 || parts.some(part => !nativeId(part))) return null;
+    provider = parts[0];
+    model = parts.slice(1).join('/');
   } else if (target === 'trae') {
     if (typeof model !== 'string' || !model.trim() || model !== model.trim() ||
         Buffer.byteLength(model) > 256 || /[\x00-\x1f\x7f]/.test(model)) return null;
@@ -56,10 +64,10 @@ function nativeRoute(target, selector) {
   }
   return {
     target, model, provider,
-    route_id: target === 'opencode' || target === 'dsh' ? selector : `${target}/${model}`,
+    route_id: target === 'opencode' || target === 'dsh' || target === 'pi' ? selector : `${target}/${model}`,
     kind: 'native_selected', enabled: true, opt_in: false,
-    // The native Codex/Claude/DSH/OpenCode transport decides whether a concrete
+    // The native Codex/Claude/DSH/OpenCode/Pi transport decides whether a concrete
     // model accepts an attachment. Other targets need route-level evidence.
-    ...(['codex', 'claudeCode', 'dsh', 'opencode'].includes(target) ? {} : { inputs: { files: false, images: false } }),
+    ...(['codex', 'claudeCode', 'dsh', 'opencode', 'pi'].includes(target) ? {} : { inputs: { files: false, images: false } }),
   };
 }

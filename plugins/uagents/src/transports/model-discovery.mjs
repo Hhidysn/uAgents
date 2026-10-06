@@ -39,6 +39,16 @@ export async function discoverCliModelCatalog(target, {
       models,
     };
   }
+  if (target === 'pi') {
+    const result = await run(runner, process.execPath, [entry, '--list-models'], env);
+    const models = parsePiModelList(result.stdout);
+    if (!models.length) {
+      const error = new Error('Native pi model catalog format was not recognized.');
+      error.code = 'model_discovery_parse_failed';
+      throw error;
+    }
+    return { status: 'ok', discovery: 'native_cli_catalog', models };
+  }
   if (target === 'opencode') {
     const major = await openCodeMajorVersion(entry, { runner, env });
     // Ask the native CLI for its complete catalog; built-ins do not limit providers.
@@ -51,6 +61,7 @@ export async function discoverCliModelCatalog(target, {
 export function modelDiscoveryScope(target, registry = BUILTIN_REGISTRY) {
   if (target === 'agy') return { version: 1, method: 'native_cli_catalog', argv: ['models'] };
   if (target === 'workbuddy') return { version: 1, method: 'native_cli_help', argv: ['--help'] };
+  if (target === 'pi') return { version: 2, method: 'native_cli_catalog', argv: ['--list-models'] };
   if (target === 'opencode') {
     return { version: 2, method: 'native_cli_catalog', providers: 'all' };
   }
@@ -85,6 +96,32 @@ export function parseWorkBuddyModelHelp(text) {
     provider: 'workbuddy',
     kind: 'native_catalog',
   })), item => item.id);
+}
+
+export function parsePiModelList(text) {
+  const lines = stripAnsi(String(text)).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  // The native table always starts with a `provider model ...` header. Without
+  // it the output is a no-models/empty status message (e.g. "No models
+  // available. Use /login ..."), which must not be mistaken for a catalog row.
+  const headerIndex = lines.findIndex(line => {
+    const parts = line.split(/\s+/);
+    return parts.length >= 2 && parts[0] === 'provider' && parts[1] === 'model';
+  });
+  if (headerIndex === -1) return [];
+  const models = [];
+  for (const line of lines.slice(headerIndex + 1)) {
+    const parts = line.split(/\s+/);
+    if (parts.length < 2) continue;
+    const [provider, id] = parts;
+    if (!provider || !id) continue;
+    models.push({
+      id,
+      route_id: `${provider}/${id}`,
+      provider,
+      kind: 'native_catalog',
+    });
+  }
+  return dedupe(models, item => item.route_id);
 }
 
 export function parseOpenCodeModelList(text, provider) {

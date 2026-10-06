@@ -123,6 +123,7 @@ Codex 使用 uAgents Skill 准备新 Task 时，先调用 `models <target>` 获�
 | workbuddy | backend-default、`deepseek-v4.1-flash` | CLI help 的 supported labels |
 | dsh | `deepseek-official/deepseek-flash`；无内置 default | configured-only |
 | opencode | `opencode-go/deepseek-v4-flash`、`opencode-go/glm-5.3-flash`；保留 `commandcode-goat/deepseek/deepseek-v4-flash`、`commandcode-goat/z-ai/glm-5.3-flash` 兼容旧配置，无内置 default | 原生版本对应的 provider/model catalog |
+| pi | 无内置 selector；无内置 default | 原生 `pi --list-models` catalog，selector 为 `provider/model` |
 | doubao | backend-default | 配置路线 |
 | trae | backend-default | 已存在的受管窗口选择器，或个人配置缓存 |
 
@@ -130,7 +131,7 @@ Codex 的 exec 与 Windows/Astra app-server 能力见 [会话规则](sessions.md
 
 Claude Code 将模型 ID 传给 `--model`，以 stream JSON 的 `init.model` 核对。`[1M]` 规范化为 `[1m]`；模型自报相符只证明原生 CLI 身份，不凭名称推断实际上游 Provider。网关与账号目录不由 uAgents 枚举。
 
-DSH 使用明确的 `provider/model` SDK ID，不根据 Web UI label 自动转换。OpenCode V1 使用 `models --pure`，V2 使用一次 `models`；均列出完整原生目录，不按内置供应商过滤；variant 使用 `provider/model#variant`。
+DSH 使用明确的 `provider/model` SDK ID，不根据 Web UI label 自动转换。OpenCode V1 使用 `models --pure`，V2 使用一次 `models`；均列出完整原生目录，不按内置供应商过滤；variant 使用 `provider/model#variant`。pi 使用 `provider/model` selector，由 `--list-models` 原生 catalog 提供候选，模型自报取自最终 assistant `message_end`。
 
 TRAE 的显式 `model` 是界面选择器显示名，backend-default 保留当前界面模型。`models trae` 不启动新窗口；无受管实例时只读个人配置的 `solo_agent` 缓存，仅返回 `status=true`、`selectable=true` 的候选。此时 `discovery.status=partial`、`source=local_profile_cache`、`usable=null`；敏感配置不返回或保存，账户缓存不唯一时不使用。
 

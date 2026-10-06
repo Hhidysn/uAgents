@@ -18,6 +18,8 @@ const required = [
   'bin/uagents-checkin.mjs',
   'scripts/windows-host.ps1',
   'skills/agent-dispatch/SKILL.md',
+  'src/transports/pi-driver.mjs',
+  'src/transports/pi-session-guard.mjs',
   'mcp/unified/dist/server.mjs',
   'mcp/unified/dist/service.mjs',
   'mcp/unified/dist/bridge.mjs',

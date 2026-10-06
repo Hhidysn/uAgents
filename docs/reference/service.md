@@ -21,7 +21,7 @@ init 支持可重复的 `--workspace ROOT` / `--target TARGET`，以及 `--port`
 | `token_file` | 必填，绝对路径；init 默认配置旁 `service-token` |
 | `registry_config` | `null`；绝对 Core registry 配置路径 |
 | `workspace_roots` | 非空、绝对、现存目录数组；realpath 范围 |
-| `targets` | 非空内置 target 数组；init 默认八个目标 |
+| `targets` | 非空内置 target 数组；init 默认九个目标 |
 | `tools` | 默认 20 个工具；非空已知工具子集 |
 | `poll_interval_ms` | `1000`，100–60000 |
 | `max_workers` | `4`，1–32；调度 worker 容量 |

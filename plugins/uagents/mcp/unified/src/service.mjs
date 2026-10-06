@@ -165,7 +165,7 @@ export async function main(argv = process.argv.slice(2), io = console) {
         state_dir: values['state-dir'] ?? path.join(base, 'v1'),
         token_file: path.join(path.dirname(values.config), 'service-token'),
         workspace_roots: values.workspace ?? [process.cwd()],
-        targets: values.target ?? ['agy', 'codex', 'claudeCode', 'workbuddy', 'dsh', 'opencode', 'doubao', 'trae'],
+        targets: values.target ?? ['agy', 'codex', 'claudeCode', 'workbuddy', 'dsh', 'opencode', 'pi', 'doubao', 'trae'],
         registry_config: values['registry-config'] ?? null,
       });
       const checkin = await bootstrapServiceCheckin(config);

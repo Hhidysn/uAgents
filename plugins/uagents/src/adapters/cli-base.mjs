@@ -58,13 +58,15 @@ export class CliAdapter {
           ? { reported: true, verification: 'unverified_backend_default' }
         : this.target === 'opencode'
           ? { reported: true, verification: 'runtime_self_report_when_session_verified' }
+          : this.target === 'pi'
+            ? { reported: true, verification: 'runtime_self_report' }
           : { reported: false, verification: 'unsupported' },
     };
   }
 
   async discoverModels({ registry = BUILTIN_REGISTRY, verifiedEntry = null } = {}) {
     if (this.target === 'claudeCode') return { models: [], discovery: 'configured', status: 'configured_only' };
-    if (this.target === 'agy' || this.target === 'workbuddy' || this.target === 'opencode') {
+    if (this.target === 'agy' || this.target === 'workbuddy' || this.target === 'opencode' || this.target === 'pi') {
       return discoverCliModelCatalog(this.target, {
         entryOverride: typeof verifiedEntry === 'string' && verifiedEntry ? verifiedEntry : await this.#verifiedEntry(),
         registry,
@@ -289,6 +291,8 @@ export class CliAdapter {
       request_id: request.request_id,
       target: this.target,
       model: this.target === 'opencode' ? request.route_id : this.target === 'workbuddy' ? request.model_resolved ?? 'workbuddy-default' : request.model_resolved,
+      provider: request.provider ?? null,
+      effort: request.execution?.effort ?? null,
       model_resolved: request.model_resolved,
       mode: request.mode,
       permission_policy: request.execution.permission,
@@ -351,7 +355,8 @@ function outcomeEvent(target, request, outcome, modelReported) {
         : outcome.status === 'failed' || outcome.status === 'blocked' ? 'failed' : 'indeterminate';
   const requested = request.model_resolved;
   const reported = modelReported ?? outcome.model_reported ?? null;
-  const verified = (target === 'agy' || target === 'claudeCode' || target === 'opencode') && typeof reported === 'string' && reported === requested;
+  const match = reported && requested ? target === 'pi' ? outcome.model_identity_verified === true : reported === requested : null;
+  const verified = (target === 'agy' || target === 'claudeCode' || target === 'opencode' || target === 'pi') && typeof reported === 'string' && match === true;
   return {
     type,
     same_native_identity: true,
@@ -363,9 +368,9 @@ function outcomeEvent(target, request, outcome, modelReported) {
     model_reported: reported,
     model_verified: verified,
     model_verification: {
-      status: verified ? 'verified' : reported && requested && reported !== requested ? 'mismatch' : 'unverified',
+      status: verified ? 'verified' : match === false ? 'mismatch' : 'unverified',
       assurance: reported ? 'runtime_self_report' : 'none',
-      match: reported && requested ? reported === requested : null,
+      match,
       method: reported ? 'native_event' : null,
       evidence_ref: reported ? `${target}:native-model` : null,
     },

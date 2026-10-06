@@ -32,6 +32,7 @@ const OPEN_CODE_SHIM_NAMES = new Set(["opencode", "opencode.cmd", "opencode.ps1"
 const DSH_SHIM_NAMES = new Set(["dsh", "dsh.cmd", "dsh.ps1"]);
 const CODEX_SHIM_NAMES = new Set(["codex", "codex.cmd", "codex.ps1"]);
 const CLAUDE_SHIM_NAMES = new Set(["claude", "claude.cmd", "claude.ps1"]);
+const PI_SHIM_NAMES = new Set(["pi", "pi.cmd", "pi.ps1"]);
 
 // NOTE: launch_recipe intentionally does NOT live in the manifest; it stays in the
 // per-target launcher modules (Gate 4/5) because it is version-controlled executable
@@ -99,6 +100,21 @@ export const TARGET_MANIFESTS = Object.freeze({
     accepted_executable_names: ["opencode", "opencode.cmd", "opencode.exe"],
     known_install_locations: [], // pending Gate 0.
     path_commands: ["opencode"],
+    version_probe: "cli-version-flag",
+    profile_strategy: "inherit-env",
+    readiness_probe: "process-exit",
+    product_priority: [],
+  }),
+  pi: Object.freeze({
+    target: "pi",
+    artifact_kind: "cli-entry",
+    // npm CLI: no product/publisher metadata; the @earendil-works/pi-coding-agent
+    // bundle is identified by its package layout and hashed on verification.
+    accepted_product_names: [],
+    accepted_publishers: [],
+    accepted_executable_names: ["cli.js"],
+    known_install_locations: ["%APPDATA%\\npm\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js"],
+    path_commands: ["pi"],
     version_probe: "cli-version-flag",
     profile_strategy: "inherit-env",
     readiness_probe: "process-exit",
@@ -258,6 +274,19 @@ function isOpenCodeNativeExecutable(candidatePath) {
     path.basename(candidatePath).toLowerCase() === "opencode.exe";
 }
 
+// Resolve the pi npm package's bin entry from a package.json that declares it.
+// The installed entry is a bundle script; uAgents runs it with the Node host.
+async function piEntryFromPackage(packageJson) {
+  try {
+    const record = JSON.parse(await fs.readFile(packageJson, "utf8"));
+    if (record.name !== "@earendil-works/pi-coding-agent") return null;
+    const relative = typeof record.bin === "string" ? record.bin : record.bin?.pi;
+    if (typeof relative !== "string" || !relative) return null;
+    const entry = path.resolve(path.dirname(packageJson), relative);
+    return path.basename(entry).toLowerCase() === "cli.js" && await statCandidate(entry) ? [entry] : null;
+  } catch { return null; }
+}
+
 // Discovery is allowed to return an npm shim as a hint, but only a directly
 // spawnable .exe can enter the trusted installation cache. Reuse the same
 // native npm-layout candidate generator as the CLI transport and never invoke
@@ -310,6 +339,14 @@ async function resolveNativeExecutableCandidates(target, candidatePath) {
     } catch {
       return [];
     }
+  }
+  if (target === "pi") {
+    const normalized = path.resolve(candidatePath);
+    if (path.basename(normalized).toLowerCase() === "cli.js") {
+      return (await piEntryFromPackage(path.resolve(path.dirname(normalized), "..", "..", "package.json"))) ?? [];
+    }
+    if (!PI_SHIM_NAMES.has(path.basename(normalized).toLowerCase())) return [];
+    return (await piEntryFromPackage(path.join(path.dirname(normalized), "node_modules", "@earendil-works", "pi-coding-agent", "package.json"))) ?? [];
   }
   if (target !== "opencode" || process.platform !== "win32") return [candidatePath];
   if (isOpenCodeNativeExecutable(candidatePath)) return [candidatePath];

@@ -11,6 +11,7 @@ const ADAPTER_LOADERS = {
   doubao: async () => (await import('./doubao/adapter.mjs')).DoubaoAdapter,
   dsh: async () => (await import('./dsh/adapter.mjs')).DshAdapter,
   opencode: async () => (await import('./opencode/adapter.mjs')).OpenCodeAdapter,
+  pi: async () => (await import('./pi/adapter.mjs')).PiAdapter,
   trae: async () => (await import('./trae/adapter.mjs')).TraeAdapter,
   workbuddy: async () => (await import('./workbuddy/adapter.mjs')).WorkBuddyAdapter,
 };

@@ -7,6 +7,7 @@ import { childEnvironment } from '../runtime/child-environment.mjs';
 import { createOpenCodeDriver, createOpenCodeParser, parseOpenCodeVersion } from './opencode-driver.mjs';
 import { buildWorkBuddyArgs, buildWorkBuddyInput } from './workbuddy-driver.mjs';
 import { createClaudeCodeDriver } from './claude-code-driver.mjs';
+import { createPiDriver, createPiParser, parsePiVersion } from './pi-driver.mjs';
 
 export const WORKBUDDY_ENTRY_NAMES = Object.freeze(['codebuddy', 'codebuddy.js']);
 
@@ -17,19 +18,22 @@ export function locateCli(target, env = process.env, entryOverride = null) {
   if (entryOverride) {
     if (!path.isAbsolute(entryOverride) || !fs.existsSync(entryOverride) || !fs.statSync(entryOverride).isFile() ||
         (target === 'opencode' && process.platform === 'win32' && path.basename(entryOverride).toLowerCase() !== 'opencode.exe') ||
+        (target === 'pi' && path.extname(entryOverride).toLowerCase() !== '.js') ||
         (target === 'claudeCode' && path.basename(entryOverride).toLowerCase() !== (process.platform === 'win32' ? 'claude.exe' : 'claude'))) {
       fail('invalid_cli_path', 'Verified CLI entry must be an existing absolute file path.');
     }
     return entryOverride;
   }
   const override = env[target === 'workbuddy' ? 'UAGENTS_WORKBUDDY_CLI'
-    : target === 'claudeCode' ? 'UAGENTS_CLAUDE_CODE_CLI' : 'UAGENTS_OPENCODE_BIN'];
+    : target === 'claudeCode' ? 'UAGENTS_CLAUDE_CODE_CLI'
+      : target === 'pi' ? 'UAGENTS_PI_BIN' : 'UAGENTS_OPENCODE_BIN'];
   if (override) {
     if (!path.isAbsolute(override) || !fs.existsSync(override) || !fs.statSync(override).isFile() ||
         (target === 'workbuddy' ? !WORKBUDDY_ENTRY_NAMES.includes(path.basename(override).toLowerCase())
           : target === 'claudeCode' ? path.basename(override).toLowerCase() !== (process.platform === 'win32' ? 'claude.exe' : 'claude')
-            : process.platform === 'win32' && !override.toLowerCase().endsWith('.exe'))) {
-      fail('invalid_cli_path', 'CLI override must be an existing absolute native executable or installed WorkBuddy CLI entry.');
+            : target === 'pi' ? path.extname(override).toLowerCase() !== '.js'
+              : process.platform === 'win32' && !override.toLowerCase().endsWith('.exe'))) {
+      fail('invalid_cli_path', 'CLI override must be an existing absolute native executable, pi entry script, or installed WorkBuddy CLI entry.');
     }
     return override;
   }
@@ -53,6 +57,9 @@ export function nativeCliCandidates(target, env = process.env) {
       ? [env.APPDATA && path.join(env.APPDATA, 'npm/node_modules/@anthropic-ai/claude-code/bin', process.platform === 'win32' ? 'claude.exe' : 'claude'),
         ...directories.flatMap(dir => [path.join(dir, process.platform === 'win32' ? 'claude.exe' : 'claude'),
           path.join(dir, 'node_modules/@anthropic-ai/claude-code/bin', process.platform === 'win32' ? 'claude.exe' : 'claude')])]
+    : target === 'pi'
+      ? [...new Set([env.APPDATA && path.join(env.APPDATA, 'npm'), ...directories].filter(Boolean))]
+        .map(root => path.join(root, 'node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js'))
     : directories.flatMap(dir => [path.join(dir, process.platform === 'win32' ? 'opencode.exe' : 'opencode'),
       ...(process.platform === 'win32' ? [path.join(dir, 'node_modules/@opencode/cli/bin/opencode.exe'),
         path.join(dir, 'node_modules/opencode-ai/bin/opencode.exe')] : [])]);
@@ -62,6 +69,7 @@ export function nativeDriver(request, workspace, entryOverride = null, inputSnap
   const entry = locateCli(request.target, process.env, entryOverride);
   const advisoryReadOnly = isAdvisoryReadOnly(request);
   if (request.target === 'opencode') return createOpenCodeDriver(request, workspace, entry, { majorVersion });
+  if (request.target === 'pi') return createPiDriver(request, workspace, entry);
   if (request.target === 'claudeCode') return createClaudeCodeDriver(request, workspace, entry, inputSnapshots);
   return { command: process.execPath, args: [entry, ...buildWorkBuddyArgs(request)],
     ...(request.kind === 'probe' ? {} : { stdinPayload: buildWorkBuddyInput(request, workspace, inputSnapshots) }),
@@ -79,6 +87,7 @@ const denied = value => typeof value === 'string' && /permission.*(denied|reques
 // test drivers; target-specific parsing lives in the selected driver.
 export function createParser(request, workspace, publish) {
   if (request.target === 'opencode') return createOpenCodeParser(request, workspace, publish);
+  if (request.target === 'pi') return createPiParser(request, workspace, publish);
   let session, init, final, approval = false, nativeError;
   const active = new Set();
   const expectedSession = request.target === 'workbuddy' && !request.fork_session_id
@@ -196,7 +205,9 @@ export async function invokeCli(directory, workspace, request, publish, testDriv
       buffer += decoder.end(); if (buffer) line(buffer);
       if (outcome) { finish(outcome); return; }
       if (request.kind === 'probe') {
-        const match = request.target === 'opencode' ? [null, parseOpenCodeVersion(version)] : version.trim().match(request.target === 'claudeCode'
+        const match = request.target === 'opencode' ? [null, parseOpenCodeVersion(version)]
+          : request.target === 'pi' ? [null, parsePiVersion(version)]
+          : version.trim().match(request.target === 'claudeCode'
           ? /^(\d+\.\d+\.\d+(?:[-+][\w.-]+)?) \(Claude Code\)$/
           : /^(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)$/);
         finish(code === 0 && match?.[1] ? { status: 'succeeded', scope: 'version_only', version: match[1], submission: 'not_sent' }

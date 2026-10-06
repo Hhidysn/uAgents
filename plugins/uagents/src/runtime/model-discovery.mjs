@@ -7,7 +7,7 @@ import { modelInputSupport } from './model-input-support.mjs';
 
 export const MODEL_DISCOVERY_TTL_MS = 10 * 60 * 1000;
 
-const NATIVE_DISCOVERY_TARGETS = new Set(['agy', 'workbuddy', 'opencode']);
+const NATIVE_DISCOVERY_TARGETS = new Set(['agy', 'workbuddy', 'opencode', 'pi']);
 
 export function managedContextForModelListing(target, supervisor) {
   if (!supervisor) return null;
@@ -225,7 +225,7 @@ function mergeRows({ target, registry, configured, native, evidence, stale }) {
       target,
       model: model.id ?? null,
       route_id: selection?.route_id ?? model.route_id ?? null,
-      selector: target === 'opencode' ? model.route_id : model.selector ?? model.id,
+      selector: target === 'opencode' || target === 'pi' ? model.route_id : model.selector ?? model.id,
       default: false,
       provider: model.provider ?? target,
       kind: 'native_discovered',
@@ -284,7 +284,7 @@ function findNativeModel(models, configured) {
 }
 
 function nativeSelection(registry, target, model) {
-  const selector = target === 'opencode' ? model.route_id : model.selector ?? model.id;
+  const selector = target === 'opencode' || target === 'pi' ? model.route_id : model.selector ?? model.id;
   if (typeof selector !== 'string' || !selector) return null;
   try {
     return resolveModel(registry, target, selector);

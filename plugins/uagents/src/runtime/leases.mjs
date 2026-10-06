@@ -3,7 +3,7 @@ import { fail } from '../protocol/errors.mjs';
 import { canonicalWorkspace, canonicalWorkspacesOverlap } from './workspace-key.mjs';
 import { assertWorkspaceExecutionAdmission } from './workspace-admission.mjs';
 
-const DEFAULT_TARGET_LIMITS = Object.freeze({ agy: 2, opencode: 2, workbuddy: 1, doubao: 1, trae: 1 });
+const DEFAULT_TARGET_LIMITS = Object.freeze({ agy: 2, opencode: 2, pi: 2, workbuddy: 1, doubao: 1, trae: 1 });
 
 export function acquireExecutionLeases(control, { target, workspace, attemptId = null, ownerNonce = randomUUID(), ttlMs = 30_000, now = Date.now(), globalLimit = 4, targetLimits = DEFAULT_TARGET_LIMITS }) {
   return control.transaction(database => {

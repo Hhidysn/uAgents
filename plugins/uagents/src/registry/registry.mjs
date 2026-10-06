@@ -112,11 +112,11 @@ function userRoute(selector, value, targets) {
   if (!selector.startsWith(`${target}/`) || selector === `${target}/` || model === 'default') {
     fail('invalid_model', `Route selector must be target-prefixed and concrete: ${selector}`);
   }
-  if (target === 'opencode' && routeId !== `${provider}/${model}`) {
-    fail('invalid_model', `OpenCode route_id must match provider/model: ${selector}`);
+  if ((target === 'opencode' || target === 'pi') && routeId !== `${provider}/${model}`) {
+    fail('invalid_model', `Route_id must match provider/model for target ${target}: ${selector}`);
   }
   return { target, model, provider, route_id: routeId, kind: 'exact', enabled: true, opt_in: false,
-    ...(['codex', 'claudeCode', 'dsh', 'opencode'].includes(target) ? {} : { inputs: { files: false, images: false } }) };
+    ...(['codex', 'claudeCode', 'dsh', 'opencode', 'pi'].includes(target) ? {} : { inputs: { files: false, images: false } }) };
 }
 
 function deepFreeze(value) {
