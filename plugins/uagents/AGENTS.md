@@ -4,6 +4,8 @@ Use this when a task should run on another agent CLI, or when you need an indepe
 
 Read `skills/agent-dispatch/SKILL.md` for the full workflow and the per-target references under `skills/agent-dispatch/references/`.
 
+The npm CLI and an independently installed `agent-dispatch` Skill are sufficient for shell-based hosts; the legacy Codex plugin is not required. Install or refresh the host Skill with `uagents skills install --dir <absolute-host-skills-directory>` (`--force` replaces an existing copy). Disabling or uninstalling the old plugin does not disable the CLI or its tracked tasks. MCP is an optional separately configured entrypoint.
+
 ## Before dispatching
 
 ```powershell

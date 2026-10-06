@@ -24,6 +24,15 @@ uagents models <target>
 
 包版本见 `plugins/uagents/package.json`。开发仓库中可直接运行 `node plugins/uagents/bin/uagents.mjs <command>`，行为相同。
 
+Codex 可以只使用独立 Skill 与 CLI，无需安装旧 uAgents 插件。安装 Skill：
+
+```powershell
+uagents skills install --dir "$env:USERPROFILE/.codex/skills"
+# 更新已有 Skill 时加 --force
+```
+
+确认独立 `agent-dispatch` Skill 和 CLI 可用后，可在 Codex 中卸载旧 `uagents@personal` 插件；卸载不删除 CLI、原生目标或任务状态。下一轮会话可加载独立 Skill。AGENTS.md 中的外部路由应依赖 Skill 与 CLI 可用性，不应依赖旧插件是否启用。MCP 仍可按需单独配置。
+
 选择实际可用的 target、mode 和 model。发现到模型不代表登录、额度或 Provider 在线状态已经确认；目标差异见 [能力矩阵](agents.md)，默认模型与单次覆盖见 [模型与路由](models.md)。
 
 ## 提交与查询
