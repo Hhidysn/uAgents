@@ -6,6 +6,17 @@ import { createRegistry } from '../plugins/uagents/src/registry/registry.mjs';
 import { evaluateRequest } from '../plugins/uagents/src/policy/evaluate.mjs';
 
 const route = 'commandcode-goat/deepseek/deepseek-v4-flash';
+
+test('OpenCode Go built-ins retain exact provider identity and legacy compatibility', () => {
+  const registry = createRegistry();
+  for (const model of ['deepseek-v4-flash', 'glm-5.3-flash']) {
+    const selector = `opencode-go/${model}`;
+    assert.equal(registry.models[selector].provider, 'opencode-go');
+    assert.equal(registry.models[selector].model, model);
+    assert.equal(evaluateRequest(request({ model: selector })).request.route_id, selector);
+  }
+  assert.equal(registry.models[route].enabled, true);
+});
 const request = patch => ({
   schema_version: '1.0', request_id: randomUUID(), target: 'opencode', model: route,
   mode: 'analysis', prompt: 'bounded',

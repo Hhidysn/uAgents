@@ -40,19 +40,10 @@ export async function discoverCliModelCatalog(target, {
     };
   }
   if (target === 'opencode') {
-    const providers = openCodeProviders(registry);
-    const models = [];
-    if (await openCodeMajorVersion(entry, { runner, env }) >= 2) {
-      // V2 lists all providers and no longer accepts a provider argument or --pure.
-      const result = await run(runner, entry, ['models'], env);
-      for (const provider of providers) models.push(...parseOpenCodeModelList(result.stdout, provider));
-      return { status: 'ok', discovery: 'native_cli_catalog', models: dedupe(models, item => item.route_id) };
-    }
-    for (const provider of providers) {
-      const result = await run(runner, entry, ['models', provider, '--pure'], env);
-      models.push(...parseOpenCodeModelList(result.stdout, provider));
-    }
-    return { status: 'ok', discovery: 'native_cli_catalog', models: dedupe(models, item => item.route_id) };
+    const major = await openCodeMajorVersion(entry, { runner, env });
+    // Ask the native CLI for its complete catalog; built-ins do not limit providers.
+    const result = await run(runner, entry, major >= 2 ? ['models'] : ['models', '--pure'], env);
+    return { status: 'ok', discovery: 'native_cli_catalog', models: parseOpenCodeModelList(result.stdout) };
   }
   return { status: 'unsupported', discovery: 'unsupported', models: [] };
 }
@@ -61,7 +52,7 @@ export function modelDiscoveryScope(target, registry = BUILTIN_REGISTRY) {
   if (target === 'agy') return { version: 1, method: 'native_cli_catalog', argv: ['models'] };
   if (target === 'workbuddy') return { version: 1, method: 'native_cli_help', argv: ['--help'] };
   if (target === 'opencode') {
-    return { version: 1, method: 'native_cli_catalog', providers: openCodeProviders(registry) };
+    return { version: 2, method: 'native_cli_catalog', providers: 'all' };
   }
   return null;
 }
@@ -97,8 +88,8 @@ export function parseWorkBuddyModelHelp(text) {
 }
 
 export function parseOpenCodeModelList(text, provider) {
-  const prefix = `${provider}/`;
-  return dedupe(String(text).split(/\r?\n/).map(line => line.trim()).filter(line => line.startsWith(prefix)).map(routeId => ({
+  const prefix = provider ? `${provider}/` : '';
+  return dedupe(stripAnsi(String(text)).split(/\r?\n/).map(line => line.trim()).filter(line => line.startsWith(prefix) && /^[A-Za-z0-9][A-Za-z0-9._:-]*(?:\/[A-Za-z0-9][A-Za-z0-9._:-]*)+$/.test(line)).map(routeId => ({
     id: routeId.split('/').at(-1),
     route_id: routeId,
     provider: routeId.split('/').slice(0, -1).join('/'),
@@ -120,13 +111,6 @@ async function run(runner, command, args, env, timeout = DISCOVERY_TIMEOUT_MS) {
     throw error;
   }
   return result;
-}
-
-function openCodeProviders(registry) {
-  return [...new Set(Object.values(registry.models)
-    .filter(model => model.target === 'opencode' && model.enabled && typeof model.route_id === 'string')
-    .map(model => model.route_id.split('/')[0])
-    .filter(Boolean))].sort();
 }
 
 function stripAnsi(value) {

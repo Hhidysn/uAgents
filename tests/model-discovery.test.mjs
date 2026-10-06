@@ -53,7 +53,7 @@ test('agy native discovery uses its own 30-second catalog budget without sending
   assert.deepEqual(catalog.models.map(model => model.id), ['gemini-3.8-flash-medium']);
 });
 
-test('OpenCode v2 discovery lists once and filters the configured providers without v1 flags', async () => {
+test('OpenCode v2 discovery lists every native provider without v1 flags', async () => {
   const calls = [];
   const entry = path.join(mkdtempSync(path.join(tmpdir(), 'uagents-opencode-v2-')), 'opencode.exe');
   writeFileSync(entry, 'fixture only');
@@ -63,14 +63,14 @@ test('OpenCode v2 discovery lists once and filters the configured providers with
       calls.push(args);
       if (args[0] === '--version') return { status: 0, stdout: 'opencode v2.0.21\n' };
       assert.deepEqual(args, ['models']);
-      return { status: 0, stdout: 'commandcode-goat/deepseek/deepseek-v4.1-flash\nother/model\n' };
+      return { status: 0, stdout: 'commandcode-goat/deepseek/deepseek-v4.1-flash\nopencode-go/deepseek-v4-flash\nopencode-go/glm-5.3-flash\nother/model\n' };
     },
   });
   assert.deepEqual(calls, [['--version'], ['models']]);
-  assert.deepEqual(catalog.models.map(model => model.route_id), ['commandcode-goat/deepseek/deepseek-v4.1-flash']);
+  assert.deepEqual(catalog.models.map(model => model.route_id), ['commandcode-goat/deepseek/deepseek-v4.1-flash', 'opencode-go/deepseek-v4-flash', 'opencode-go/glm-5.3-flash', 'other/model']);
 });
 
-test('OpenCode v1 discovery retains provider-specific catalog arguments', async () => {
+test('OpenCode v1 discovery lists all providers with its native pure flag', async () => {
   const calls = [];
   const entry = path.join(mkdtempSync(path.join(tmpdir(), 'uagents-opencode-v1-')), 'opencode.exe');
   writeFileSync(entry, 'fixture only');
@@ -81,11 +81,12 @@ test('OpenCode v1 discovery retains provider-specific catalog arguments', async 
       if (args[0] === '--version') return { status: 0, stdout: '1.18.34\n' };
       assert.equal(args[0], 'models');
       assert.equal(args.at(-1), '--pure');
-      return { status: 0, stdout: `${args[1]}/fixture\n` };
+      assert.deepEqual(args, ['models', '--pure']);
+      return { status: 0, stdout: 'new-provider/fixture\n' };
     },
   });
   assert.equal(calls[0][0], '--version');
-  assert.ok(catalog.models.length > 0);
+  assert.deepEqual(catalog.models.map(model => model.route_id), ['new-provider/fixture']);
 });
 
 test('model discovery awaits injected runners and propagates runner errors', async () => {
@@ -272,7 +273,7 @@ test('discovery failure preserves configured routes without claiming availabilit
     registry: createRegistry(),
     adapterFactory: () => ({ discoverModels: async () => { const error = new Error('no cli'); error.code = 'cli_not_found'; throw error; } }),
   });
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 4);
   assert.equal(rows.every(row => row.configured === true), true);
   assert.equal(rows.every(row => row.discovered === null && row.usable === null), true);
   assert.equal(rows.every(row => row.discovery.error_code === 'cli_not_found'), true);
