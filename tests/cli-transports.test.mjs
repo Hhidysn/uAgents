@@ -30,6 +30,23 @@ function wbParser() {
   return { parser, input };
 }
 
+test('WorkBuddy discovers the current wrapper and preserves the legacy entry', () => {
+  const programFiles = path.join(root, 'workbuddy-layout');
+  const wrapper = path.join(programFiles, 'WorkBuddy/resources/app.asar.unpacked/cli/bin/codebuddy');
+  const legacy = path.join(programFiles, 'WorkBuddy/resources/app.asar.unpacked/cli/dist/codebuddy.js');
+  fs.mkdirSync(path.dirname(wrapper), { recursive: true });
+  fs.mkdirSync(path.dirname(legacy), { recursive: true });
+  fs.writeFileSync(wrapper, 'wrapper fixture');
+  fs.writeFileSync(legacy, 'legacy fixture');
+  assert.equal(locateCli('workbuddy', { ProgramFiles: programFiles }), wrapper);
+  assert.equal(locateCli('workbuddy', { UAGENTS_WORKBUDDY_CLI: wrapper }), wrapper);
+  fs.unlinkSync(wrapper);
+  assert.equal(locateCli('workbuddy', { ProgramFiles: programFiles }), legacy);
+  const unrelated = path.join(path.dirname(legacy), 'unrelated.js');
+  fs.writeFileSync(unrelated, 'fixture');
+  assert.throws(() => locateCli('workbuddy', { UAGENTS_WORKBUDDY_CLI: unrelated }), { code: 'invalid_cli_path' });
+});
+
 test('Windows discovery finds native npm executable without invoking a shell', { skip: process.platform !== 'win32' }, () => {
   const shim = path.join(root, 'npm path/opencode');
   const binary = path.join(root, 'npm path/node_modules/opencode-ai/bin/opencode.exe');

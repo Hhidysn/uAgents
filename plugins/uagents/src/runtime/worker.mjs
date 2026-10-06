@@ -272,7 +272,19 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
     });
     const cancelledBeforePrepare = service.cancelUnsent(taskId, attemptId);
     if (cancelledBeforePrepare.cancelled) return cancelledBeforePrepare.status;
-    const prepared = await adapter.prepare(request, adapterContext);
+    let prepared;
+    try { prepared = await adapter.prepare(request, adapterContext); }
+    catch (error) {
+      const current = service.status(taskId);
+      if (request.target === 'doubao' && error?.code === 'native_dialog_required' &&
+          current.attempt.submission === 'not_sent' && !current.native && !getNativeProcess(service.control, attemptId)) {
+        service.transition(taskId, 'waiting_user', { attemptId, lease: fencingLease,
+          event: { interaction: { phase: 'native_dialog_required', action: 'Handle the native dialog, then resume this task.' },
+            lifecycle: { ...(managedLifecycle ?? {}), state: 'waiting_user', interaction_phase: 'native_dialog_required' } } });
+        return service.status(taskId);
+      }
+      throw error;
+    }
     const cancelledBeforeDispatch = service.cancelUnsent(taskId, attemptId);
     if (cancelledBeforeDispatch.cancelled) return cancelledBeforeDispatch.status;
     if (request.target === 'codex' && request.session) {

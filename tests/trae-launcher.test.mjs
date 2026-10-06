@@ -196,6 +196,8 @@ describe('trae launcher', () => {
       assert.ok(desktopSpawn, 'desktop spawned');
       assert.equal(desktopSpawn.options.detached, process.platform === 'win32');
       const gatewaySpawn = host.spawned.find(call => call.options.env?.TRAECN_GATEWAY_INSTANCE_NONCE);
+      assert.equal(gatewaySpawn.options.env.TRAECN_BIN, TRAE_EXE);
+      assert.equal(gatewaySpawn.options.env.TRAECN_USER_DATA_DIR, 'C:\\host\\profiles\\trae\\1');
       assert.equal(gatewaySpawn.options.detached, process.platform === 'win32');
       assert.equal(host.unrefed.length, 2, 'managed processes release CLI handles after launch');
       assert.equal(desktopSpawn.options.env.OPENAI_API_KEY, undefined, 'desktop env must be minimal');
@@ -393,6 +395,70 @@ describe('supervisor with the trae launcher', () => {
     const cleanup = () => cleanupEnv(root, hostStore);
     return { supervisor, hostStore, gateway, host, env, cleanup };
   }
+
+  test('a login restart reuses the same isolated profile and gateway', async () => {
+    const ctx = setup();
+    try {
+      ctx.gateway.state.surface = SETUP_SURFACE;
+      const first = await ctx.supervisor.ensure('trae');
+      ctx.supervisor.releaseInstanceLease(first.lease);
+      const old = first.instance, pid = old.process_id + 100, started = old.process_started_at_ms + 10_000;
+      delete ctx.host.processByPid[old.process_id];
+      ctx.host.processByPid[pid] = { started_at_ms: started, executable_path: TRAE_EXE,
+        command_line: `"${TRAE_EXE}" "--user-data-dir=${old.profile_path}" --remote-debugging-port=${old.port}` };
+      ctx.host.listenerByPort[old.port] = { listening: true, listener_pid: pid, started_at_ms: started, executable_path: TRAE_EXE };
+      ctx.hostStore.markManagedInstanceStale(old.instance_id);
+      ctx.gateway.state.surface = WORKBENCH_SURFACE;
+      const spawnCount = ctx.host.spawned.length;
+      const second = await ctx.supervisor.ensure('trae');
+      assert.equal(second.mode, 'reuse');
+      assert.equal(second.lifecycle.state, 'ready');
+      assert.equal(second.instance.instance_id, old.instance_id);
+      assert.equal(second.instance.generation, old.generation);
+      assert.equal(second.instance.process_id, pid);
+      assert.equal(second.instance.profile_path, old.profile_path);
+      assert.equal(second.instance.gateway_pid, old.gateway_pid);
+      assert.equal(second.instance.gateway_port, old.gateway_port);
+      assert.equal(second.instance.instance_nonce, old.instance_nonce);
+      assert.equal(second.managed.capability_token, first.managed.capability_token);
+      assert.equal(ctx.host.spawned.length, spawnCount);
+      assert.deepEqual(ctx.host.killed, []);
+      ctx.supervisor.releaseInstanceLease(second.lease);
+    } finally { ctx.cleanup(); }
+  });
+
+  test('restarted desktop recovery refuses ambiguous or foreign ownership', async () => {
+    const { root, env } = makeEnv();
+    const launcher = createTraeLauncher({ fetchImpl: () => { throw new Error('must not contact gateway'); }, spawnImpl: () => { throw new Error('must not spawn'); } });
+    const instance = { target: 'trae', started_by_uagents: true, installation_id: 'inst-trae', generation: 9,
+      process_id: 100, process_started_at_ms: 1000, port: CDP_PORT, state: 'stale',
+      profile_path: join(resolveHostRoot(env), 'profiles', 'trae', '9') };
+    const good = { ok: true, exists: true, pid: 200, started_at_ms: 2000, executable_path: TRAE_EXE,
+      command_line: `"${TRAE_EXE}" --user-data-dir="${instance.profile_path}" --remote-debugging-port=${CDP_PORT}` };
+    const listener = { ok: true, listening: true, listener_pid: 200, started_at_ms: 2000, executable_path: TRAE_EXE };
+    async function recover(patch = {}, processPatch = {}, listenerPatch = {}, old = { ok: true, exists: false }, changing = false) {
+      let samples = 0;
+      return launcher.recoverDesktopIdentity({ instance: { ...instance, ...patch }, installation: traeInstallation(), env,
+        runPowerShell: async (action, payload) => {
+          if (action === 'inspect-listener') return { ...listener, ...listenerPatch, ...(changing && ++samples > 1 ? { listener_pid: 201 } : {}) };
+          return payload.pid === 100 ? old : { ...good, ...processPatch, pid: payload.pid };
+        } });
+    }
+    try {
+      assert.deepEqual(await recover(), { process: { pid: 200, started_at_ms: 2000 } });
+      assert.equal(await recover({ state: 'stopped' }), null);
+      assert.equal(await recover({ profile_path: join(root, 'personal') }), null);
+      assert.equal(await recover({}, {}, {}, { ok: true, exists: true }), null);
+      assert.equal(await recover({}, {}, {}, { exists: false }), null);
+      assert.equal(await recover({}, { executable_path: 'C:\\foreign\\Trae CN.exe' }), null);
+      assert.equal(await recover({}, { started_at_ms: 1000 }), null);
+      assert.equal(await recover({}, { command_line: good.command_line + ' --remote-debugging-port=1' }), null);
+      assert.equal(await recover({}, { command_line: good.command_line.replace(instance.profile_path, instance.profile_path + '-other') }), null);
+      assert.equal(await recover({}, { command_line: '"unclosed' }), null);
+      assert.equal(await recover({}, {}, { executable_path: 'C:\\foreign\\Trae CN.exe' }), null);
+      assert.equal(await recover({}, {}, {}, { ok: true, exists: false }, true), null);
+    } finally { cleanupEnv(root, null); }
+  });
 
   test('explicit personal profile launches under the existing TRAE user data and is reused', async () => {
     const ctx = setup({ personal: true });

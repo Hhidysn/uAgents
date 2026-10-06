@@ -48,6 +48,10 @@ Codex 的 Windows/Astra 显式 app-server 路线保存原生 Thread/Turn 与进�
 
 Doubao/TRAE 使用受管隔离 profile。uAgents 不自动登录、不接管用户日常窗口，也不会把未知进程当作自己的受管实例停止。
 
+豆包发送前遇到阻挡输入的原生弹窗时记录 `waiting_user/native_dialog_required`。用户处理后可 `resume` 同一未发送 Attempt。已经可能发送的任务只对账，不重放。
+
+TRAE 登录导致桌面进程重启时，只有旧 PID 明确消失、新进程更晚启动、安装路径及同一隔离 profile/CDP 参数一致，并通过两次稳定进程与监听身份核对，才更新原实例身份并保留网关。非阻塞性能通知不会触发审批等待；真实审批仍由用户处理，不能仅凭可变会话索引或相同提示自动覆盖旧审批状态。
+
 TRAE 的受管桌面退出后，下一次 `ensure trae` 会在旧网关身份可验证、原生队列为空且本次使用的 Task 状态库中没有关联未决任务时清理伴随网关，再启动新一代实例。证据不足时保留旧网关，并把 `gateway_cleanup` 的跳过原因写入旧实例记录；如果旧网关仍可能运行，返回 `gateway_cleanup_deferred`，不启动新网关覆盖其共享 token。不会根据单独的 PID 杀进程。使用多个独立 `--state-dir` 时，未传入本次调用的其它 Task 状态库不在此检查范围内。
 
 ## 共享服务与并发

@@ -225,7 +225,7 @@ export function createTargetSupervisor({
     const lease = leaseFor(target);
     try {
       const instances = listInstances(target);
-      const latest = instances.length > 0 ? instances[instances.length - 1] : null;
+      let latest = instances.length > 0 ? instances[instances.length - 1] : null;
 
       const requestedProfileMatches = !safe.profileMode || target !== "trae" || (
         safe.profileMode === "personal"
@@ -233,7 +233,23 @@ export function createTargetSupervisor({
           : typeof latest?.profile_path === "string" && latest.profile_path.toLowerCase().startsWith(
               path.join(resolveHostRoot(env), "profiles", target).toLowerCase() + path.sep)
       );
-      if (latest && requestedProfileMatches && (await verifyOwnership(latest, installation))) {
+      let owned = Boolean(latest && requestedProfileMatches && await verifyOwnership(latest, installation));
+      const recoverDesktopIdentity = launcherTable[target]?.recoverDesktopIdentity;
+      if (latest && requestedProfileMatches && !owned && typeof recoverDesktopIdentity === "function") {
+        const recovered = await recoverDesktopIdentity({ instance: latest, installation, env, runPowerShell: runner });
+        if (Number.isSafeInteger(recovered?.process?.pid) && Number.isSafeInteger(recovered?.process?.started_at_ms)) {
+          const candidate = { ...latest, process_id: recovered.process.pid,
+            process_started_at_ms: recovered.process.started_at_ms, desktop_pid: recovered.process.pid };
+          if (await verifyOwnership(candidate, installation)) {
+            hostStore.transaction(() => {
+              hostStore.assertLease(lease, now());
+              hostStore.upsertManagedInstance(candidate.instance_id, candidate);
+            });
+            latest = candidate; owned = true;
+          }
+        }
+      }
+      if (owned) {
         // Surface classification is target knowledge: delegated to the
         // launcher's optional classify hook (doubao/trae launchers provide it;
         // plain launch functions and Gate 3.1 fakes keep ready semantics).
@@ -253,7 +269,7 @@ export function createTargetSupervisor({
           // persistence directory and nonce. If repair fails, converge by
           // marking the record stale and launching a fresh generation.
           try {
-            repairedGateway = await launcherEntry.repair({ instance: latest, env, runPowerShell: runner });
+            repairedGateway = await launcherEntry.repair({ instance: latest, installation, env, runPowerShell: runner });
             classification = await launcherEntry.classify({ port: latest.port, instance: latest, env, runPowerShell: runner });
           } catch {
             classification = { state: "stale" };

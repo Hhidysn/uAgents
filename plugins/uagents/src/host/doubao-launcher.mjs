@@ -29,7 +29,7 @@ const CDP_READY_TIMEOUT_MS = 45_000;
 const CHAT_SURFACE_TIMEOUT_MS = 20_000;
 export const CDP_POLL_MS = 400;
 export const CHAT_BASE = "doubaowork://doubaowork-chat/chat";
-const CHAT_URL = /^doubaowork:\/\/doubaowork-chat\/chat(?:\/(\d+))?$/;
+const CHAT_URL = /^doubaowork:\/\/doubaowork-chat\/chat(?:\/(\d+))?\/?$/;
 
 // Minimal environment for the managed desktop instance (design §14): no
 // unrelated provider variables are inherited. Chromium needs the Windows

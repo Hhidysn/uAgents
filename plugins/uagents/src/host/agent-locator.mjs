@@ -23,7 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { HostStoreError } from "./host-store.mjs";
 import { fail } from "../protocol/errors.mjs";
-import { nativeCliCandidates } from "../transports/cli-process.mjs";
+import { nativeCliCandidates, WORKBUDDY_ENTRY_NAMES } from "../transports/cli-process.mjs";
 
 export const VERIFIER_VERSION = "windows-host-v1";
 const DEFAULT_RUNNER_TIMEOUT_MS = 20_000;
@@ -111,9 +111,12 @@ export const TARGET_MANIFESTS = Object.freeze({
     // install tree under resources/app.asar.unpacked/cli/dist/.
     accepted_product_names: [],
     accepted_publishers: [],
-    accepted_executable_names: ["codebuddy.js"],
+    accepted_executable_names: WORKBUDDY_ENTRY_NAMES,
     known_install_locations: [
+      "%ProgramFiles%\\WorkBuddy\\resources\\app.asar.unpacked\\cli\\bin\\codebuddy",
       "%ProgramFiles%\\WorkBuddy\\resources\\app.asar.unpacked\\cli\\dist\\codebuddy.js",
+      "%LOCALAPPDATA%\\Programs\\WorkBuddy\\resources\\app.asar.unpacked\\cli\\bin\\codebuddy",
+      "%LOCALAPPDATA%\\Programs\\WorkBuddy\\resources\\app.asar.unpacked\\cli\\dist\\codebuddy.js",
     ],
     path_commands: [],
     version_probe: "cli-version-flag",

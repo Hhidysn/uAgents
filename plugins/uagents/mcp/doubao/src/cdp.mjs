@@ -1,7 +1,50 @@
 const CHAT_BASE = 'doubaowork://doubaowork-chat/chat';
-const CHAT_URL = /^doubaowork:\/\/doubaowork-chat\/chat(?:\/(\d+))?$/;
+const CHAT_URL = /^doubaowork:\/\/doubaowork-chat\/chat(?:\/(\d+))?\/?$/;
 
 function delay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+// ProseMirror renders paragraphs with extra visual blank lines. Reconstruct
+// the logical text, preserving real hard breaks and ignoring its caret sentinel.
+export function readComposerText(element) {
+  const read = node => {
+    if (node.nodeType === 3) return node.nodeValue ?? '';
+    if (node.nodeType !== 1) return '';
+    if (node.nodeName === 'BR') return node.classList?.contains('ProseMirror-trailingBreak') ? '' : '\n';
+    return [...node.childNodes].map(read).join('');
+  };
+  const nodes = [...element.childNodes];
+  if (nodes.length && nodes.every(node => node.nodeType === 1 && node.nodeName === 'P')) {
+    return nodes.map(read).join('\n');
+  }
+  return element.innerText ?? '';
+}
+
+export function readUserMessageText(element) {
+  const root = element.classList?.contains('md-box-root') ? element : element.querySelector?.('.md-box-root');
+  if (root) {
+    const nodes = [...root.childNodes];
+    const blocks = nodes.filter(node => node.nodeType === 1 && node.nodeName === 'DIV');
+    const separators = nodes.filter(node => !blocks.includes(node));
+    if (blocks.length && separators.every(node => node.nodeType === 1 && node.nodeName === 'SPAN' && node.childNodes.length === 0)) {
+      return blocks.map(node => node.textContent ?? '').join('\n\n');
+    }
+  }
+  return element.innerText || element.textContent || '';
+}
+
+export function composerBlockedByModal() {
+  const visible = element => {
+    const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+  };
+  const dialogs = [...document.querySelectorAll('[role="dialog"],[aria-modal="true"]')].filter(visible);
+  if (!dialogs.length) return false;
+  const editor = document.querySelector('[contenteditable="true"]');
+  if (!editor || !visible(editor)) return true;
+  const rect = editor.getBoundingClientRect();
+  const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  return !hit || !editor.contains(hit) || dialogs.some(dialog => dialog.contains(editor));
+}
 
 export class CdpConnection {
   constructor(socket, timeoutMs = 5000) {
@@ -83,7 +126,12 @@ export class DoubaoDesktopBridge {
   async probe() {
     const found = await this.discover();
     const match = found.page.url.match(CHAT_URL);
-    return { status: 'available', scope: 'connection_only', browser: found.version, protocol: found.protocol, target_id: found.page.id,
+    const connection = await this.connect(found.page);
+    let blocked;
+    try { blocked = await connection.evaluate(`(${composerBlockedByModal.toString()})()`); }
+    finally { connection.close(); }
+    if (typeof blocked !== 'boolean') throw Object.assign(new Error('Native dialog readiness could not be confirmed.'), { code: 'native_readiness_unconfirmed' });
+    return { status: blocked ? 'waiting_user' : 'available', ...(blocked ? { phase: 'native_dialog_required' } : {}), scope: 'connection_only', browser: found.version, protocol: found.protocol, target_id: found.page.id,
       page_state: match?.[1] ? 'conversation' : 'blank', native_conversation_id: match?.[1] ?? null, submission: 'not_sent' };
   }
 
@@ -99,10 +147,20 @@ export class DoubaoDesktopBridge {
         if (state.ready === 'complete' && state.messages === 0 && state.inputs === 1 && state.guidance) break;
       }
       if (!state || state.messages !== 0 || state.inputs !== 1 || !state.guidance) throw Object.assign(new Error('Could not establish a blank Doubao Work task page.'), { code: 'blank_task_unconfirmed' });
+      if (await connection.evaluate(`(${composerBlockedByModal.toString()})()`)) throw Object.assign(new Error('Handle the visible native dialog in the managed Doubao window.'), { code: 'native_dialog_required' });
       await publish({ status: 'running', submission: 'may_have_been_sent', target_id: found.page.id });
       const value = JSON.stringify(prompt);
-      const inserted = await connection.evaluate(`(()=>{const e=document.querySelector('[contenteditable="true"]');if(!e)return false;e.focus();document.execCommand('selectAll');document.execCommand('insertText',false,${value});e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:null}));return e.innerText===${value}})()`);
+      const focused = await connection.evaluate(`(()=>{const e=document.querySelector('[contenteditable="true"]');if(!e)return false;e.focus();const r=document.createRange();r.selectNodeContents(e);const s=window.getSelection();s.removeAllRanges();s.addRange(r);return document.activeElement===e})()`);
+      if (!focused) throw Object.assign(new Error('Prompt input focus could not be confirmed.'), { code: 'prompt_insertion_unconfirmed' });
+      await connection.call('Input.insertText', { text: prompt });
+      let inserted = false;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        inserted = await connection.evaluate(`(()=>{const e=document.querySelector('[contenteditable="true"]');return !!e&&(${readComposerText.toString()})(e)===${value}})()`);
+        if (inserted) break;
+        await delay(100);
+      }
       if (!inserted) throw Object.assign(new Error('Prompt insertion could not be confirmed.'), { code: 'prompt_insertion_unconfirmed' });
+      if (await connection.evaluate(`(${composerBlockedByModal.toString()})()`)) throw Object.assign(new Error('A native dialog blocks submission.'), { code: 'native_dialog_required' });
       await connection.call('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
       await connection.call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
       let submitted;
@@ -112,7 +170,7 @@ export class DoubaoDesktopBridge {
         const page = targets.find(item => item.id === found.page.id);
         const conversation = page?.url?.match(CHAT_URL)?.[1];
         if (!conversation) continue;
-        submitted = await connection.evaluate(`(()=>{const nodes=[...document.querySelectorAll('[data-testid="message_text_content"]')];const input=document.querySelector('[contenteditable="true"]');return {messages:nodes.length,userText:(nodes[0]?.innerText||nodes[0]?.textContent||'').trim(),inputLength:(input?.innerText||'').trim().length}})()`);
+        submitted = await connection.evaluate(`(()=>{const nodes=[...document.querySelectorAll('[data-testid="message_text_content"]')];const input=document.querySelector('[contenteditable="true"]');return {messages:nodes.length,userText:nodes[0]?(${readUserMessageText.toString()})(nodes[0]).trim():'',inputLength:(input?.innerText||'').trim().length}})()`);
         if (submitted.messages >= 1 && submitted.userText === prompt && submitted.inputLength === 0) return { target_id: found.page.id, native_conversation_id: conversation, user_message_index: 0 };
       }
       throw Object.assign(new Error('Prompt may have been sent, but native conversation identity is unconfirmed.'), { code: 'submission_identity_unconfirmed' });

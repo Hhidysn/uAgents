@@ -42,6 +42,51 @@ const WORKBENCH_SURFACE_TIMEOUT_MS = 30_000;
 export const POLL_MS = 500;
 const CAPABILITY_FILE_NAME = "trae-gateway-token";
 
+function windowsArguments(commandLine) {
+  if (typeof commandLine !== "string" || commandLine.length > 32768 || /[\0\r\n]/.test(commandLine)) return null;
+  const args = [];
+  let i = 0;
+  while (i < commandLine.length) {
+    while (i < commandLine.length && /[ \t]/.test(commandLine[i])) i++;
+    if (i === commandLine.length) break;
+    let value = "", quoted = false;
+    while (i < commandLine.length && (quoted || !/[ \t]/.test(commandLine[i]))) {
+      let slashes = 0;
+      while (commandLine[i] === "\\") { slashes++; i++; }
+      if (commandLine[i] !== '"') {
+        value += "\\".repeat(slashes);
+        if (i < commandLine.length && (quoted || !/[ \t]/.test(commandLine[i]))) value += commandLine[i++];
+        continue;
+      }
+      value += "\\".repeat(Math.floor(slashes / 2));
+      if (slashes % 2) { value += '"'; i++; continue; }
+      if (quoted && commandLine[i + 1] === '"') { value += '"'; i += 2; continue; }
+      quoted = !quoted; i++;
+    }
+    if (quoted) return null;
+    args.push(value);
+  }
+  return args;
+}
+
+function singleSwitch(args, name) {
+  const values = [];
+  for (let i = 1; i < args.length; i++) {
+    const lower = args[i].toLowerCase();
+    if (lower === name) {
+      if (!args[i + 1] || args[i + 1].startsWith("--")) return null;
+      values.push(args[++i]);
+    } else if (lower.startsWith(name + "=")) values.push(args[i].slice(name.length + 1));
+  }
+  return values.length === 1 ? values[0] : null;
+}
+
+function sameWindowsPath(left, right) {
+  return typeof left === "string" && typeof right === "string" &&
+    path.win32.isAbsolute(left) && path.win32.isAbsolute(right) &&
+    path.win32.normalize(left).toLowerCase() === path.win32.normalize(right).toLowerCase();
+}
+
 const GATEWAY_ENTRY = fileURLToPath(new URL("../../mcp/trae/dist/gateway.cjs", import.meta.url));
 
 const MINIMAL_ENV_KEYS = Object.freeze([
@@ -153,7 +198,7 @@ export function createTraeLauncher({
     }
   }
 
-  function spawnGateway({ env, gatewayPort, cdpPort, token, nonce }) {
+  function spawnGateway({ env, gatewayPort, cdpPort, token, nonce, installation, profilePath }) {
     const stateDir = gatewayStateDir(env);
     fs.mkdirSync(stateDir, { recursive: true });
     const child = spawnImpl(nodePath, [gatewayEntry], {
@@ -178,6 +223,8 @@ export function createTraeLauncher({
         TRAECN_AUTO_START_TRAE: "0",
         TRAECN_ENABLE_MOCK_BRIDGE: "0",
         TRAECN_BACKGROUND_MAX_RETRIES: "0",
+        ...(installation?.canonical_path ? { TRAECN_BIN: installation.canonical_path } : {}),
+        ...(profilePath ? { TRAECN_USER_DATA_DIR: profilePath } : {}),
       },
     });
     return child;
@@ -240,7 +287,7 @@ export function createTraeLauncher({
     let desktopChild = null;
     try {
       // 1. Gateway first (design §11 order): token file, minimal env, strict CDP.
-      gatewayChild = spawnGateway({ env, gatewayPort, cdpPort, token, nonce });
+      gatewayChild = spawnGateway({ env, gatewayPort, cdpPort, token, nonce, installation, profilePath });
       if (typeof gatewayChild?.pid !== "number") {
         fail("gateway_launch_failed", "the TRAE gateway could not be started", {
           category: "target", retryable: true, submission: "not_sent",
@@ -359,6 +406,42 @@ export function createTraeLauncher({
     }
   }
 
+  // Login can restart the owned desktop. Recover only the same isolated
+  // profile and port, after proving the old PID gone and a stable newer owner.
+  async function recoverDesktopIdentity({ instance, installation, env, runPowerShell }) {
+    try {
+      if (instance?.target !== "trae" || instance.started_by_uagents !== true ||
+          instance.installation_id !== installation?.installation_id ||
+          instance.state === "stopped" || instance.status === "stopped" || Number.isFinite(instance.stopped_at_ms) ||
+          !Number.isSafeInteger(instance.generation) || instance.generation < 1 ||
+          !Number.isSafeInteger(instance.process_id) || instance.process_id <= 0 ||
+          !Number.isSafeInteger(instance.process_started_at_ms) ||
+          !TRAE_CDP_PORT_CANDIDATES.includes(instance.port)) return null;
+      const profile = path.join(resolveHostRoot(env), "profiles", "trae", String(instance.generation));
+      if (!sameWindowsPath(instance.profile_path, profile)) return null;
+      const old = await runPowerShell("inspect-process", { pid: instance.process_id });
+      if (old?.ok !== true || old.exists !== false) return null;
+      async function sample() {
+        const listener = await runPowerShell("inspect-listener", { port: instance.port });
+        if (listener?.ok !== true || listener.listening !== true ||
+            !Number.isSafeInteger(listener.listener_pid) || listener.listener_pid <= 0 || listener.listener_pid === instance.process_id) return null;
+        const proc = await runPowerShell("inspect-process", { pid: listener.listener_pid, include_command_line: true });
+        if (proc?.ok !== true || proc.exists !== true || proc.pid !== listener.listener_pid ||
+            !Number.isSafeInteger(proc.started_at_ms) || proc.started_at_ms <= instance.process_started_at_ms ||
+            listener.started_at_ms !== proc.started_at_ms ||
+            !sameWindowsPath(proc.executable_path, installation.canonical_path) ||
+            !sameWindowsPath(listener.executable_path, installation.canonical_path)) return null;
+        const args = windowsArguments(proc.command_line);
+        if (!args || !sameWindowsPath(singleSwitch(args, "--user-data-dir"), profile) ||
+            singleSwitch(args, "--remote-debugging-port") !== String(instance.port)) return null;
+        return { pid: proc.pid, started_at_ms: proc.started_at_ms };
+      }
+      const first = await sample(), second = first ? await sample() : null;
+      if (!second || second.pid !== first.pid || second.started_at_ms !== first.started_at_ms) return null;
+      return { process: second };
+    } catch { return null; }
+  }
+
   // Reuse-path surface classification. Ownership of the desktop listener is
   // already verified by the supervisor; this hook classifies the gateway and
   // its surface.
@@ -378,7 +461,7 @@ export function createTraeLauncher({
   // ownership-verified, only the gateway died. Restart the gateway with the
   // same persistence directory, capability file and instance nonce. Never
   // touches the desktop process; never re-sends anything.
-  async function repair({ instance, env, runPowerShell }) {
+  async function repair({ instance, installation, env, runPowerShell }) {
     const token = readCapabilityToken(env ?? process.env);
     if (!token) {
       fail("gateway_launch_failed", "the TRAE gateway capability file is missing", {
@@ -398,6 +481,8 @@ export function createTraeLauncher({
     }
     const child = spawnGateway({
       env,
+      installation,
+      profilePath: instance.profile_path,
       gatewayPort,
       cdpPort: instance.port,
       token,
@@ -487,6 +572,7 @@ export function createTraeLauncher({
     return launch(args);
   }
   launcher.classify = classify;
+  launcher.recoverDesktopIdentity = recoverDesktopIdentity;
   launcher.repair = repair;
   launcher.readCapability = readCapability;
   launcher.verifyGatewayOwnership = verifyGatewayOwnership;

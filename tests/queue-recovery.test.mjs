@@ -327,6 +327,29 @@ test('lost initialization ownership cannot dispatch or release a replacement lea
   }
 });
 
+test('an unsent Doubao native dialog resumes the same attempt without approving it', async () => {
+  await fixture('native-dialog-wait', async ({ service }) => {
+    const registered = service.submit(request({ target: 'doubao', model: 'default' }));
+    const adapter = new FakeAdapter();
+    const prepare = adapter.prepare.bind(adapter);
+    adapter.prepare = async () => { throw Object.assign(new Error('native dialog'), { code: 'native_dialog_required' }); };
+    const waiting = await runTask({ service, taskId: registered.task_id, adapter });
+    assert.equal(waiting.status, 'waiting_user');
+    assert.equal(waiting.attempt.submission, 'not_sent');
+    assert.equal(waiting.native, null);
+    assert.equal(waiting.lifecycle.interaction_phase, 'native_dialog_required');
+    assert.equal(adapter.sendCount, 0);
+    assert.equal(service.events(registered.task_id).at(-1).payload.interaction.phase, 'native_dialog_required');
+    const resumed = service.resume(registered.task_id);
+    assert.equal(resumed.mode, 'preflight');
+    assert.equal(resumed.attempt.attempt_id, registered.attempt.attempt_id);
+    adapter.prepare = prepare;
+    const completed = await runTask({ service, taskId: registered.task_id, adapter });
+    assert.equal(completed.status, 'succeeded');
+    assert.equal(adapter.sendCount, 1);
+  });
+});
+
 test('possibly-sent attempts are never eligible for recovery', async () => {
   await fixture('possibly-sent', async ({ service }) => {
     const registered = service.submit(request());

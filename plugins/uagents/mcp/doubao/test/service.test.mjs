@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DoubaoTaskService } from '../src/service.mjs';
-import { DoubaoDesktopBridge } from '../src/cdp.mjs';
+import { DoubaoDesktopBridge, readComposerText, readUserMessageText } from '../src/cdp.mjs';
 import { TaskStore } from '../src/store.mjs';
 
 const base=path.resolve('../../../../.local/test-runs');
@@ -43,8 +43,9 @@ class FakeCdpPage{
     this.events=[];
     this.url='doubaowork://doubaowork-chat/chat';
     this.socket=new FakeCdpSocket();
-    this.evaluateResponses=new Map();
+    this.evaluateResponses=new Map([['blocked',false]]);
     this.socket.repliers.push(message=>{
+      if(message.method==='Input.insertText')this.record('insert',{});
       if(message.method==='Input.dispatchKeyEvent'&&message.params?.type==='rawKeyDown'){this.record('enter',{});this.url='doubaowork://doubaowork-chat/chat/12345';}
       if(message.method==='Runtime.evaluate'){
         const key=this.matchEvaluate(String(message.params?.expression??''));
@@ -55,7 +56,9 @@ class FakeCdpPage{
     });
   }
   matchEvaluate(expression){
-    if(expression.includes('insertText'))return 'insert';
+    if(expression.includes('composerBlockedByModal'))return 'blocked';
+    if(expression.includes('createRange'))return 'focus';
+    if(expression.includes('readComposerText'))return 'confirm';
     if(expression.includes('userText'))return 'submitted';
     if(expression.includes('readyState'))return 'state';
     return 'unknown';
@@ -81,7 +84,8 @@ function newBridge(page){
 test('bridge publishes may_have_been_sent before the first prompt-bearing DOM mutation',async()=>{
   const page=new FakeCdpPage();
   page.emitEvaluate('state',{ready:'complete',messages:0,inputs:1,guidance:true});
-  page.emitEvaluate('insert',true);
+  page.emitEvaluate('focus',true);
+  page.emitEvaluate('confirm',true);
   page.emitEvaluate('submitted',{messages:1,userText:'bounded prompt',inputLength:0});
   const publishCalls=[];
   const publish=async patch=>{publishCalls.push(patch);page.record('publish',{});};
@@ -102,7 +106,8 @@ test('bridge publishes may_have_been_sent before the first prompt-bearing DOM mu
 test('bridge skips prompt insertion and Enter when the checkpoint publish rejects',async()=>{
   const page=new FakeCdpPage();
   page.emitEvaluate('state',{ready:'complete',messages:0,inputs:1,guidance:true});
-  page.emitEvaluate('insert',true);
+  page.emitEvaluate('focus',true);
+  page.emitEvaluate('confirm',true);
   let publishCalls=0;
   const publish=async patch=>{publishCalls++;throw new Error('checkpoint rejected');};
   const bridge=newBridge(page);
@@ -112,4 +117,56 @@ test('bridge skips prompt insertion and Enter when the checkpoint publish reject
   assert.equal(kinds.includes('insert'),false,'prompt-bearing DOM mutation must not run after checkpoint failure');
   const enterCalls=page.socket.sent.filter(message=>message.method==='Input.dispatchKeyEvent');
   assert.equal(enterCalls.length,0,'Enter must not be dispatched after checkpoint failure');
+});
+
+test('bridge discovers a logged-in blank chat with a trailing slash',async()=>{
+  const page=new FakeCdpPage();page.url+='/' ;
+  const found=await newBridge(page).probe();
+  assert.equal(found.page_state,'blank');
+  assert.equal(found.target_id,'page-1');
+});
+
+test('composer text preserves paragraph boundaries and hard breaks without caret sentinels',()=>{
+  const text=value=>({nodeType:3,nodeValue:value});
+  const element=(name,children=[],sentinel=false)=>({nodeType:1,nodeName:name,childNodes:children,classList:{contains:()=>sentinel}});
+  const composer={childNodes:[element('P',[text(' leading 中文 ')]),element('P',[element('BR',[],true)]),element('P',[text('x'),element('BR'),text('y ')]),element('P',[element('BR',[],true)])]};
+  assert.equal(readComposerText(composer),' leading 中文 \n\nx\ny \n');
+});
+
+test('user messages restore native markdown paragraph spacing without collapsing text',()=>{
+  const root={classList:{contains:()=>true},childNodes:[{nodeType:1,nodeName:'DIV',textContent:'中文 first '},{nodeType:1,nodeName:'SPAN',childNodes:[]},{nodeType:1,nodeName:'DIV',textContent:'policy\nsecond'}]};
+  assert.equal(readUserMessageText(root),'中文 first \n\npolicy\nsecond');
+});
+
+test('a native modal waits for the user before any prompt-bearing mutation',async()=>{
+  const page=new FakeCdpPage();page.emitEvaluate('blocked',true);
+  page.emitEvaluate('state',{ready:'complete',messages:0,inputs:1,guidance:true});
+  const bridge=newBridge(page);
+  assert.equal((await bridge.probe()).status,'waiting_user');
+  let published=false;
+  await assert.rejects(()=>bridge.prepareAndSubmit('bounded',async()=>{published=true;}),{code:'native_dialog_required'});
+  assert.equal(published,false);
+  assert.equal(page.socket.sent.some(message=>message.method==='Input.insertText'||message.method==='Input.dispatchKeyEvent'),false);
+});
+
+test('bridge sends exact multiline text through native input after focus',async()=>{
+  const page=new FakeCdpPage();const prompt='中文\nsecond line';
+  page.emitEvaluate('state',{ready:'complete',messages:0,inputs:1,guidance:true});
+  page.emitEvaluate('focus',true);page.emitEvaluate('confirm',true);
+  page.emitEvaluate('submitted',{messages:1,userText:prompt,inputLength:0});
+  await newBridge(page).prepareAndSubmit(prompt,async()=>{});
+  const inserts=page.socket.sent.filter(message=>message.method==='Input.insertText');
+  assert.equal(inserts.length,1);assert.equal(inserts[0].params.text,prompt);
+  const expressions=page.socket.sent.filter(message=>message.method==='Runtime.evaluate').map(message=>message.params.expression);
+  assert.equal(expressions.some(expression=>expression.includes('execCommand')),false);
+  assert.ok(page.events.findIndex(event=>event.kind==='focus')<page.events.findIndex(event=>event.kind==='insert'));
+});
+
+test('bridge never presses Enter when the native input cannot be confirmed',async()=>{
+  const page=new FakeCdpPage();
+  page.emitEvaluate('state',{ready:'complete',messages:0,inputs:1,guidance:true});
+  page.emitEvaluate('focus',true);page.emitEvaluate('confirm',false);
+  await assert.rejects(()=>newBridge(page).prepareAndSubmit('bounded',async()=>{}),{code:'prompt_insertion_unconfirmed'});
+  assert.equal(page.socket.sent.filter(message=>message.method==='Input.insertText').length,1);
+  assert.equal(page.socket.sent.some(message=>message.method==='Input.dispatchKeyEvent'),false);
 });

@@ -65,7 +65,10 @@ export class DoubaoAdapter {
   }
 
   async prepare(request, context = {}) {
-    try { await this.#bridgeFor(context).probe(); }
+    try {
+      const readiness = await this.#bridgeFor(context).probe();
+      if (readiness?.status === 'waiting_user') fail('native_dialog_required', 'Handle the visible native dialog in the managed Doubao window.', { category: 'user', submission: 'not_sent' });
+    }
     catch (error) { throw normalizeError(error); }
     return { request };
   }

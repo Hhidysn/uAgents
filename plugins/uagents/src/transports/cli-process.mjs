@@ -8,6 +8,8 @@ import { createOpenCodeDriver, createOpenCodeParser, parseOpenCodeVersion } from
 import { buildWorkBuddyArgs, buildWorkBuddyInput } from './workbuddy-driver.mjs';
 import { createClaudeCodeDriver } from './claude-code-driver.mjs';
 
+export const WORKBUDDY_ENTRY_NAMES = Object.freeze(['codebuddy', 'codebuddy.js']);
+
 // Only launch installed native entrypoints. No shell, installation, auth reads or config edits.
 // `entryOverride` is a supervisor-verified absolute entry (host cache); when
 // absent, legacy PATH discovery remains for environments without a host store.
@@ -24,10 +26,10 @@ export function locateCli(target, env = process.env, entryOverride = null) {
     : target === 'claudeCode' ? 'UAGENTS_CLAUDE_CODE_CLI' : 'UAGENTS_OPENCODE_BIN'];
   if (override) {
     if (!path.isAbsolute(override) || !fs.existsSync(override) || !fs.statSync(override).isFile() ||
-        (target === 'workbuddy' ? !override.endsWith('codebuddy.js')
+        (target === 'workbuddy' ? !WORKBUDDY_ENTRY_NAMES.includes(path.basename(override).toLowerCase())
           : target === 'claudeCode' ? path.basename(override).toLowerCase() !== (process.platform === 'win32' ? 'claude.exe' : 'claude')
             : process.platform === 'win32' && !override.toLowerCase().endsWith('.exe'))) {
-      fail('invalid_cli_path', 'CLI override must be an existing absolute native executable or codebuddy.js path.');
+      fail('invalid_cli_path', 'CLI override must be an existing absolute native executable or installed WorkBuddy CLI entry.');
     }
     return override;
   }
@@ -43,7 +45,9 @@ export function locateCli(target, env = process.env, entryOverride = null) {
 export function nativeCliCandidates(target, env = process.env) {
   const directories = (env.PATH ?? env.Path ?? '').split(path.delimiter).map(p => p.replace(/^"|"$/g, '')).filter(Boolean);
   return target === 'workbuddy'
-    ? [env.ProgramFiles && path.join(env.ProgramFiles, 'WorkBuddy/resources/app.asar.unpacked/cli/dist/codebuddy.js'),
+    ? [env.ProgramFiles && path.join(env.ProgramFiles, 'WorkBuddy/resources/app.asar.unpacked/cli/bin/codebuddy'),
+       env.ProgramFiles && path.join(env.ProgramFiles, 'WorkBuddy/resources/app.asar.unpacked/cli/dist/codebuddy.js'),
+       env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, 'Programs/WorkBuddy/resources/app.asar.unpacked/cli/bin/codebuddy'),
        env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, 'Programs/WorkBuddy/resources/app.asar.unpacked/cli/dist/codebuddy.js')]
     : target === 'claudeCode'
       ? [env.APPDATA && path.join(env.APPDATA, 'npm/node_modules/@anthropic-ai/claude-code/bin', process.platform === 'win32' ? 'claude.exe' : 'claude'),

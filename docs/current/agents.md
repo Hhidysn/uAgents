@@ -40,6 +40,7 @@ uAgents 提供 8 个 target。以下是 uAgents 开放的映射与模式；具�
 
 ## WorkBuddy
 
+- 自动发现已安装的 `cli/bin/codebuddy`，兼容旧 `cli/dist/codebuddy.js`，无需把 GUI exe 加入 PATH 或另行下载。2.156.0 的独立 CLI 未恢复桌面加密凭据时仍可能认证失败；安装发现不代表登录可用。
 - backend-default 为文本路线；`deepseek-v4.1-flash` 是开放图片输入的显式路线。
 - `models workbuddy` 解析 CLI help 的 supported labels，其它模型可显式提交文本 Task。
 - generic file 关闭；default/auto 与其它模型不自动获得图片能力。
@@ -63,11 +64,13 @@ uAgents 提供 8 个 target。以下是 uAgents 开放的映射与模式；具�
 
 ## 豆包工作
 
+- 使用原生输入事件，并按编辑器逻辑段落核对完整提示后发送；可见模态弹窗先等待用户处理。
 - 仅开放 analysis text task，使用专用受管桌面 profile。
 - 无 file/image、continuation/fork 或可靠 model report mapping。
 
 ## TRAE CN
 
+- 工作区打开绑定受管 profile；原生任务先持久化回执，再准备工作区。结果只采集匹配提示的当前轮最终摘要，非阻塞性能通知不会作为命令审批。
 - 支持 analysis / implementation text task，使用受管桌面与 gateway。
 - 网关读取当前模型选择器；显式模型随 Task 提交，由网关在发送前切换。backend-default 沿用界面当前模型。
 - `models trae` 不启动窗口；没有身份可验证的受管实例时，只读个人配置缓存候选并标记执行可用性未确认。

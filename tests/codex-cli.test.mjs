@@ -67,6 +67,16 @@ function fakeCli({ fail = false, noTerminal = false, changedThread = false, noTh
   };
 }
 
+test('Codex exposes unsupported ChatGPT model failures without the raw native message', () => {
+  const parser = createCodexParser();
+  parser.event({ type: 'turn.failed', error: { message: "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account. api_key=secret-fixture" } });
+  const result = parser.finish(1);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.error.code, 'model_unavailable');
+  assert.equal(result.error.details.reason, 'model_unsupported_for_chatgpt_account');
+  assert.equal(JSON.stringify(result).includes('secret-fixture'), false);
+});
+
 test('Codex adapter exposes text/workspace and explicit route only', () => {
   const descriptor = validateAdapter(new CodexAdapter());
   assert.equal(descriptor.transport, 'cli-jsonl');

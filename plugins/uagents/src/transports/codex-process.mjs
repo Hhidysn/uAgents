@@ -142,7 +142,15 @@ export function createCodexParser(onAccepted = () => {}, session = null) {
     },
     finish(code, processError = null) {
       const data = { native_session_id: threadId, response, usage };
-      if (turnFailed) return { status: 'failed', error: 'native_turn_failed', native_status: 'failed', data };
+      if (turnFailed) {
+        const unsupported = typeof nativeError === 'string' && /model.*not supported.*ChatGPT|ChatGPT.*not supported.*model/i.test(nativeError);
+        const error = unsupported ? {
+          code: 'model_unavailable', category: 'policy', retryable: false,
+          message: 'The requested Codex model is not supported with the current ChatGPT account.',
+          details: { reason: 'model_unsupported_for_chatgpt_account' },
+        } : 'native_turn_failed';
+        return { status: 'failed', error, native_status: 'failed', data };
+      }
       if (threadId && turnCompleted && code === 0 && response.trim()) {
         return { status: 'succeeded', native_status: 'completed', data };
       }

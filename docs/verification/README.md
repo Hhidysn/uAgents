@@ -4,6 +4,7 @@
 
 ## 主要入口
 
+- [目标修复与登录后实机核对](2026-10-06-target-repair.md)：Claude 重试成功、Codex 账号模型限制、WorkBuddy 新入口与认证边界、豆包及 TRAE 原任务对账成功。
 - [全 Target 与默认观察期限](2026-10-06-all-targets-timeout.md)：八项连接尝试、OpenCode/agy 四项真实任务、默认改为 10 分钟及本机安装验证。
 - [Worker 初始化与 OpenCode Go](2026-10-06-worker-initialization-opencode-go.md)：初始化并发窗口修复、取消与失去所有权回归、移除本机旧服务商配置、两项真实文件修改/讨论验收。
 - [npm 包分发](2026-10-06-npm-package-distribution.md)：包入口与 `files` 白名单、适配器按需加载、`npm pack` 内容核对与基线既有失败。

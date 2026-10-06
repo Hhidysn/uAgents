@@ -120,15 +120,17 @@ replaceOnce('src/http/gateway.js', `    if ((currentPath && currentPath !== norm
 // prior answer or broad page text cannot be reported as the new Task result.
 replaceOnce('src/cdp/dom-handlers/panel-capture.js', `async function _queryTaskSource(driver, skipText, options = {}) {
   const modeInfo = await driver.detectMode();`, `async function _queryTaskSource(driver, skipText, options = {}) {
-  const pendingTask = String(driver._pendingUserTask || '').trim();
+  const pendingTask = String(driver._pendingUserTask || '').replace(/\\s+/g, ' ').trim();
   if (pendingTask) {
     const currentTurn = await driver.client.send('Runtime.evaluate', {
       expression: \`(() => {
         const turns = Array.from(document.querySelectorAll('.turn')).filter(el => el.offsetParent !== null);
         const last = turns[turns.length - 1];
-        const userText = last && last.querySelector('.turn__user-message .user-message-query-text');
+        const userLines = last ? Array.from(last.querySelectorAll('.turn__user-message .user-message-query-line')) : [];
+        const legacyUser = last && last.querySelector('.turn__user-message .user-message-query-text');
+        const userText = userLines.length ? userLines.map(el => el.textContent || '').join('\\\\n') : legacyUser && legacyUser.textContent;
         const normalize = value => String(value || '').replace(/\\\\s+/g, ' ').trim();
-        if (!userText || normalize(userText.textContent) !== normalize(\${safeJsValue(pendingTask)})) return null;
+        if (!userText || normalize(userText) !== normalize(\${safeJsValue(pendingTask)})) return null;
         const summary = last.querySelector('.turn__agent-message .core-finish-card__summary .markdown-renderer');
         return { matching: true, finalText: summary ? String(summary.innerText || summary.textContent || '').trim() : '' };
       })()\`,
@@ -139,6 +141,8 @@ replaceOnce('src/cdp/dom-handlers/panel-capture.js', `async function _queryTaskS
       if (current.finalText) return { text: current.finalText, inProgress: false, isComplete: true, hasResponse: true };
       return { text: '', awaitingAssistant: true, latestUserText: pendingTask };
     }
+    // Missing ownership is a wait, never permission to scan page/menu text.
+    return { text: '', awaitingAssistant: true, latestUserText: pendingTask };
   }
   const modeInfo = await driver.detectMode();`);
 
@@ -175,6 +179,23 @@ replaceExactCount(
     autoApproveDialog: false`,
   2,
 );
+// Opening a workspace can take longer than the HTTP admission deadline.
+// Persist/return the task first; _prepareQueuedTask already does this work.
+replaceOnce('src/http/handlers/unified-agent.js',
+  `  if (projectPath) await ctx._ensureRequestedWorkspace(projectPath);`,
+  `  // Workspace preparation runs only after durable task admission.`);
+// Reuse-window commands must target the same managed profile as the CDP
+// connection, never the user's unrelated default-profile window.
+replaceOnce('src/config/quickstart.js',
+  `function buildReuseWindowCommand(binPath, projectPath, options = {}) {\n  const platform = options.platform || process.platform;`,
+  `function buildReuseWindowCommand(binPath, projectPath, options = {}) {\n  const platform = options.platform || process.platform;\n  const profile = process.env.TRAECN_USER_DATA_DIR;\n  const profileArgs = profile ? ['--user-data-dir=' + profile] : [];`);
+replaceExactCount('src/config/quickstart.js',
+  `commandArgs: ['--reuse-window', projectPath]`,
+  `commandArgs: [...profileArgs, '--reuse-window', projectPath]`, 2);
+// Nonmodal performance toasts are not Agent command approval dialogs.
+replaceOnce('src/cdp/dom-handlers/dialogs.js',
+  `          for (var i = 0; i < indicators.length; i++) {\n            var el = indicators[i];\n            if (el && el.offsetParent !== null`,
+  `          ['[role="dialog"]', '[role="alertdialog"]', '.modal', '.modal-overlay', '.monaco-dialog'].forEach(function(selector) {\n            document.querySelectorAll(selector).forEach(function(candidate) {\n              if (!indicators.includes(candidate)) indicators.push(candidate);\n            });\n          });\n          for (var i = 0; i < indicators.length; i++) {\n            var el = indicators[i];\n            if (el && el.matches('.monaco-list-row') && el.closest('.notifications-list-container,.notification-toast') && el.getAttribute('aria-modal') !== 'true') {\n              var explicitApproval = Array.from(el.querySelectorAll('button,[role="button"],a.action-label')).some(function(button) {\n                return /允许|拒绝|授权|确认|批准|同意|执行|运行|继续|approve|allow|deny|confirm|execute|run|continue/i.test(button.innerText || button.textContent || button.getAttribute('aria-label') || '');\n              });\n              if (!explicitApproval && !el.querySelector('pre,code,[data-command],[class*="command-preview"]')) continue;\n            }\n            if (el && el.offsetParent !== null`);
 replaceExactCount(
   'src/http/gateway.js',
   `: Number(process.env.TRAECN_BACKGROUND_MAX_RETRIES || 3);`,

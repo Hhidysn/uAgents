@@ -25,6 +25,7 @@ const TASK_NATIVE_CTE = `WITH task_native AS (
       ORDER BY a.ordinal DESC, ns.id DESC LIMIT 1) AS native_session_id
   FROM tasks t
 )`;
+const PRE_DISPATCH_WAIT_PHASES = new Set(['preflight_login', 'native_dialog_required']);
 
 export class TaskService {
   constructor(control, { registry, health = null, coreVersion = '0.2.0-alpha.1', clock = () => Date.now() } = {}) {
@@ -586,7 +587,7 @@ export class TaskService {
           LIMIT 1`).get(taskId, attempt.attempt_id);
         if (checkpoint) return { ...status, mode: 'reconcile', native_identity: null };
       }
-      if (status.status === 'waiting_user' && attempt?.submission === 'not_sent' && !status.native && !nativeProcess && this.#waitingPhase(database, taskId) === 'preflight_login') {
+      if (status.status === 'waiting_user' && attempt?.submission === 'not_sent' && !status.native && !nativeProcess && PRE_DISPATCH_WAIT_PHASES.has(this.#waitingPhase(database, taskId))) {
         this.#requeueWaitingAttempt(database, taskId, attempt.attempt_id, now);
         return { ...this.#statusWith(database, taskId), mode: 'preflight' };
       }
@@ -731,12 +732,13 @@ export class TaskService {
     if (task.status !== 'waiting_user' || attempt?.submission !== 'not_sent') return null;
     const native = database.prepare('SELECT 1 FROM native_sessions WHERE attempt_id = ? LIMIT 1').get(attempt.attempt_id);
     if (native || hasNativeProcess(database, attempt.attempt_id)) return null;
-    if (this.#waitingPhase(database, taskId) !== 'preflight_login') return null;
+    if (!PRE_DISPATCH_WAIT_PHASES.has(this.#waitingPhase(database, taskId))) return null;
     this.#requeueWaitingAttempt(database, taskId, attempt.attempt_id, now);
     return true;
   }
 
   #requeueWaitingAttempt(database, taskId, attemptId, now) {
+    const phase = this.#waitingPhase(database, taskId) ?? 'preflight_login';
     const currentEvidence = Number(database.prepare("SELECT coalesce(max(json_extract(payload_json, '$.evidence_strength')), 0) AS strength FROM events WHERE task_id = ?").get(taskId).strength);
     const state = transitionState({ status: 'waiting_user', evidence_strength: currentEvidence }, 'queued', {});
     database.prepare('UPDATE tasks SET status = ?, updated_at_ms = ? WHERE task_id = ?').run(state.status, now, taskId);
@@ -747,7 +749,7 @@ export class TaskService {
       type: `task.${state.status}`,
       payload: {
         resumed: true,
-        lifecycle: { resumed_from: 'waiting_user', interaction_phase: 'preflight_login' },
+        lifecycle: { resumed_from: 'waiting_user', interaction_phase: phase },
         evidence_strength: state.evidence_strength,
       },
       now,
