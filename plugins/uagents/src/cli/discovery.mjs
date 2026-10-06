@@ -1,5 +1,5 @@
 import { fail } from '../protocol/errors.mjs';
-import { SCHEMA_VERSION } from '../protocol/schema.mjs';
+import { DEFAULT_OBSERVATION_TIMEOUT_MS, REQUEST_LIMITS, SCHEMA_VERSION } from '../protocol/schema.mjs';
 
 export const CLI_PARSE_OPTIONS = Object.freeze({
   request: Object.freeze({ type: 'string' }),
@@ -13,6 +13,8 @@ export const CLI_PARSE_OPTIONS = Object.freeze({
   format: Object.freeze({ type: 'string' }),
   member: Object.freeze({ type: 'string' }),
   workspace: Object.freeze({ type: 'string' }),
+  'observation-timeout-ms': Object.freeze({ type: 'string' }),
+  'execution-timeout-ms': Object.freeze({ type: 'string' }),
   all: Object.freeze({ type: 'boolean' }),
   force: Object.freeze({ type: 'boolean' }),
   validation: Object.freeze({ type: 'string' }),
@@ -20,6 +22,15 @@ export const CLI_PARSE_OPTIONS = Object.freeze({
   target: Object.freeze({ type: 'string', multiple: true }),
   'check-only': Object.freeze({ type: 'boolean' }),
   time: Object.freeze({ type: 'string' }),
+  prompt: Object.freeze({ type: 'string', short: 'p' }),
+  'prompt-file': Object.freeze({ type: 'string' }),
+  'prompt-stdin': Object.freeze({ type: 'boolean' }),
+  mode: Object.freeze({ type: 'string' }),
+  'no-wait': Object.freeze({ type: 'boolean' }),
+  'timeout-ms': Object.freeze({ type: 'string' }),
+  dir: Object.freeze({ type: 'string' }),
+  'dry-run': Object.freeze({ type: 'boolean' }),
+  'has-response': Object.freeze({ type: 'boolean' }),
 });
 
 const stateDir = option('--state-dir', 'absolute_path', 'Use one explicit task-state directory for this command.');
@@ -54,6 +65,29 @@ export const CLI_COMMANDS = Object.freeze({
     constraints: [{ type: 'exactly_one', options: ['--request', '--request-stdin'] }],
     request_schema: { command: 'schema request', id: `uagents://schema/request/${SCHEMA_VERSION}` },
   },
+  run: {
+    ...command('run', 'run <target> [--model <model>] [--mode <mode>] [--workspace <dir>] (-p <prompt> | --prompt-file <file> | --prompt-stdin) [--no-wait] [--timeout-ms <ms>] [--observation-timeout-ms <ms>] [--execution-timeout-ms <ms>] [--state-dir <dir>]', 'Register one task, wait for it, and return the same payload as result.', [target], [
+      option('--model', 'string', 'Explicit model selector; omit to use the target default route.'),
+      option('--mode', 'string', 'Task intent: analysis or implementation.'),
+      option('--workspace', 'absolute_path', 'Task workspace; defaults to the current directory.'),
+      option('--prompt', 'string', 'Prompt text in the command line; it is visible in process arguments.', { exclusive_group: 'prompt_source' }),
+      option('--prompt-file', 'file', 'Read the prompt from a UTF-8 file.', { exclusive_group: 'prompt_source' }),
+      option('--prompt-stdin', 'boolean', 'Read the prompt from stdin.', { exclusive_group: 'prompt_source' }),
+      option('--no-wait', 'boolean', 'Return right after registration with the task status.'),
+      option('--timeout-ms', 'integer', 'Maximum wait for a terminal state; default 900000.', { minimum: 1 }),
+      option('--observation-timeout-ms', 'integer', `How long the run observes the target before giving up. Default ${DEFAULT_OBSERVATION_TIMEOUT_MS}; longer tasks may raise it. Process-per-task targets are stopped at this deadline; a durable target (OpenCode V2) is only left unobserved and keeps running.`, { minimum: REQUEST_LIMITS.observation_timeout_min_ms, maximum: REQUEST_LIMITS.observation_timeout_max_ms, default: DEFAULT_OBSERVATION_TIMEOUT_MS }),
+      option('--execution-timeout-ms', 'integer', 'Native execution deadline forwarded in the request: the owned process tree is terminated when it elapses. Only targets that can enforce it accept it.', { minimum: REQUEST_LIMITS.execution_timeout_min_ms, maximum: REQUEST_LIMITS.execution_timeout_max_ms }),
+      stateDir,
+      configFile,
+    ], 'may_send_prompt'),
+    constraints: [{ type: 'exactly_one', options: ['--prompt', '--prompt-file', '--prompt-stdin'] }],
+    request_schema: { command: 'schema request', id: `uagents://schema/request/${SCHEMA_VERSION}` },
+  },
+  skills: command('skills', 'skills (install --dir <dir> | path) [--force] [--dry-run]', 'Show or install the bundled agent-dispatch skill for host Agents.', [positional('action', 'enum', false, ['install', 'path'])], [
+    option('--dir', 'absolute_path', 'Skills directory to install into; the skill lands in <dir>/agent-dispatch.'),
+    option('--force', 'boolean', 'Replace an existing agent-dispatch directory.'),
+    option('--dry-run', 'boolean', 'List what would be copied without writing anything.'),
+  ], 'local_state_change'),
   'council-submit': {
     ...command('council-submit', 'council-submit (--request <file> | --request-stdin) [--config <file>] [--state-dir <dir>]', 'Register a fan-out Council; implementation members can use isolated Git worktrees.', [], [
       option('--request', 'file', 'Read the council request JSON from a file.', { exclusive_group: 'request_source' }),
@@ -98,7 +132,15 @@ export const CLI_COMMANDS = Object.freeze({
   status: command('status', 'status <task-id> [--state-dir <dir>]', 'Read persisted task status only.', [taskId], [stateDir], 'local_only'),
   result: command('result', 'result <task-id> [--state-dir <dir>]', 'Read persisted task result, usage and artifacts.', [taskId], [stateDir], 'local_only'),
   cancel: command('cancel', 'cancel <task-id> [--state-dir <dir>]', 'Persist cancellation intent for a task.', [taskId], [stateDir], 'local_state_change'),
-  list: command('list', 'list [--cursor <cursor>] [--limit <n>] [--state-dir <dir>]', 'List persisted tasks.', [], [
+  list: command('list', 'list [--target <target> ...] [--has-response] [--cursor <cursor>] [--limit <n>] [--state-dir <dir>]', 'List persisted tasks, optionally filtered by target or by having a persisted response.', [], [
+    option('--target', 'string', 'Filter to one or more targets; repeat to select several.'),
+    option('--has-response', 'boolean', 'Only tasks with a persisted non-empty response.'),
+    option('--cursor', 'string', 'Opaque pagination cursor.'),
+    option('--limit', 'integer', 'Page size.', { minimum: 1, maximum: 200, default: 50 }),
+    stateDir,
+  ], 'local_only'),
+  sessions: command('sessions', 'sessions [--target <target> ...] [--cursor <cursor>] [--limit <n>] [--state-dir <dir>]', 'Group persisted tasks by native session ID to list the registered conversations of each target.', [], [
+    option('--target', 'string', 'Filter to one or more targets; repeat to select several.'),
     option('--cursor', 'string', 'Opaque pagination cursor.'),
     option('--limit', 'integer', 'Page size.', { minimum: 1, maximum: 200, default: 50 }),
     stateDir,
@@ -114,7 +156,7 @@ export function describeCli(commandName = null) {
     return {
       interface: 'uagents-cli',
       schema_version: SCHEMA_VERSION,
-      executable: 'node <plugin-root>/bin/uagents.mjs',
+      executable: 'uagents',
       default_format: 'json',
       commands: Object.values(CLI_COMMANDS).map(summary),
     };

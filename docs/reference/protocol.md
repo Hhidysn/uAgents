@@ -62,7 +62,7 @@ File/image input 可以使用 workspace `path`、绝对 `source` 或 inline `blo
 
 `analysis` 与 `execution.permission="advisory-read-only"` 是任务意图和提示指导，不提供强制只读权限。原生配置及启动策略见 [当前权限边界](../current/agents.md#权限边界)。agy 使用原生工具自动批准；uAgents 不为其它 target 推断同样的授权。
 
-`execution.native_args` 当前仅对 OpenCode 开放，并保持顺序透传非冲突选项。调用方不能覆盖 dispatcher 管理的模型、格式、workspace、title 或结构化 session 参数。原生选项是否存在由已安装 CLI 判定；V2 的 run 不添加 `--dir`，使用进程 cwd，并用 `provider/model#variant` 表示 variant。完整参数规则见随插件发布的 [协议参考](../../plugins/uagents/skills/agent-dispatch/references/protocol.md)。
+`execution.native_args` 当前仅对 OpenCode 开放，并保持顺序透传非冲突选项。调用方不能覆盖 dispatcher 管理的模型、格式、workspace、title 或结构化 session 参数。原生选项是否存在由已安装 CLI 判定；V2 的 run 不添加 `--dir`，使用进程 cwd，并用 `provider/model#variant` 表示 variant。完整参数规则见随包发布的 [协议参考](../../plugins/uagents/skills/agent-dispatch/references/protocol.md)。
 
 V2 设置 `execution_timeout_ms` 时自动添加 `--standalone`，此时 `--server` 在发送前拒绝。uAgents 不设置 Provider 请求次数或 token 额度；当前 `policy.max_cost_usd` 仅接受 `null`，不能执行费用限额。不同 target/provider 的登录、订阅与 API 额度分别由原生入口决定。
 
@@ -70,4 +70,4 @@ V2 设置 `execution_timeout_ms` 时自动添加 `--standalone`，此时 `--serv
 
 Task result 包含终态、native outcome、model evidence、response、usage、artifacts 和结构化 error。精确字段以 Core schema/CLI 输出为准。
 
-Agent/operator 的详细操作见随插件发布的 [协议参考](../../plugins/uagents/skills/agent-dispatch/references/protocol.md)。
+Agent/operator 的详细操作见随包发布的 [协议参考](../../plugins/uagents/skills/agent-dispatch/references/protocol.md)。

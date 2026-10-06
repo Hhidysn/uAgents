@@ -1,4 +1,5 @@
 import {
+  DEFAULT_OBSERVATION_TIMEOUT_MS,
   EXECUTION_EFFORTS,
   EXECUTION_PERMISSIONS,
   INPUT_TYPES,
@@ -69,7 +70,7 @@ export function requestJsonSchema() {
       execution: {
         type: 'object', additionalProperties: false, default: {},
         properties: {
-          observation_timeout_ms: { type: 'integer', minimum: REQUEST_LIMITS.observation_timeout_min_ms, maximum: REQUEST_LIMITS.observation_timeout_max_ms, default: 120_000 },
+          observation_timeout_ms: { type: 'integer', minimum: REQUEST_LIMITS.observation_timeout_min_ms, maximum: REQUEST_LIMITS.observation_timeout_max_ms, default: DEFAULT_OBSERVATION_TIMEOUT_MS },
           execution_timeout_ms: nullable({ type: 'integer', minimum: REQUEST_LIMITS.execution_timeout_min_ms, maximum: REQUEST_LIMITS.execution_timeout_max_ms }),
           effort: { type: 'string', enum: [...EXECUTION_EFFORTS], default: 'medium' },
           permission: { type: 'string', enum: [...EXECUTION_PERMISSIONS], default: 'native' },

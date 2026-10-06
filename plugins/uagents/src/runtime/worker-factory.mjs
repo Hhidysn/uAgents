@@ -14,7 +14,7 @@ async function createSupervisor(stateRoot) {
 }
 
 export async function runRegisteredTask(root, taskId,
-  { adapterFactory = adapterFor, supervisorFactory = createSupervisor } = {}) {
+  { adapterFactory = adapterFor, supervisorFactory = createSupervisor, leaseOptions = {} } = {}) {
   const control = new ControlDatabase(root);
   try {
     const service = new TaskService(control);
@@ -33,10 +33,35 @@ export async function runRegisteredTask(root, taskId,
         category: 'runtime', submission: status.attempt?.submission ?? 'not_sent',
       });
     }
-    const adapter = adapterFactory(status.target, transport ? { transport } : undefined);
-    const supervisor = await supervisorFactory(root);
-    return await runTask({ service, taskId, adapter, supervisor });
+    // Initialization is part of the owned execution, so a duplicate worker
+    // cannot report a load failure while the owner is still initializing.
+    return await runTask({ service, taskId, leaseOptions, initialize: async () => {
+      try {
+        const adapter = await adapterFactory(status.target, transport ? { transport } : undefined);
+        const supervisor = await supervisorFactory(root);
+        return { adapter, supervisor };
+      } catch (error) {
+        const failure = workerStartFailure(error);
+        fail(failure.code, failure.message, { category: failure.category, retryable: true, submission: 'not_sent' });
+      }
+    } });
   } finally { control.close(); }
+}
+
+// The task stays locally recoverable (`queued`, unsent) and `resume` can retry
+// it once the local installation is fixed.
+
+// Our own coded errors carry a safe, human-readable cause; raw system errors
+// keep only their code so no local path is persisted.
+function workerStartFailure(error) {
+  const coded = error && typeof error === 'object' && typeof error.code === 'string' && typeof error.category === 'string';
+  const cause = coded ? `${error.code}: ${error.message}` : (typeof error?.code === 'string' ? error.code : 'unknown_error');
+  return {
+    code: 'worker_start_failed',
+    category: 'runtime',
+    retryable: true,
+    message: `The local worker could not start this task (${cause}); nothing was sent. Fix the local installation, then resume the same task.`,
+  };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

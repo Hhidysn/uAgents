@@ -4,16 +4,16 @@
 
 Local Codex should normally use the CLI. `uagents_submit` is the MCP fallback and takes the same request fields directly. CLI file input is:
 
-For machine-readable discovery, use `node "<plugin-root>/bin/uagents.mjs" describe submit` / `describe council-submit` for CLI contracts and `schema request` / `schema council` / `schema council-validation` for the current Task, Council, and local candidate-validation JSON Schemas. This document explains semantics and examples; the Core parsers remain authoritative.
+For machine-readable discovery, use `uagents describe submit` / `describe council-submit` for CLI contracts and `schema request` / `schema council` / `schema council-validation` for the current Task, Council, and local candidate-validation JSON Schemas. This document explains semantics and examples; the Core parsers remain authoritative.
 
 ```powershell
-node "<plugin-root>/bin/uagents.mjs" submit --request "<request-json>" --state-dir "<absolute-state-dir>"
+uagents submit --request "<request-json>" --state-dir "<absolute-state-dir>"
 ```
 
 Callers that can write stdin separately from the process command may use:
 
 ```powershell
-node "<plugin-root>/bin/uagents.mjs" submit --request-stdin --state-dir "<absolute-state-dir>"
+uagents submit --request-stdin --state-dir "<absolute-state-dir>"
 ```
 
 Exactly one of `--request FILE` and `--request-stdin` is required. Do not inline the JSON or prompt in a shell command. The stdin request is capped at 1 MiB and is still validated by Schema 1.0.
@@ -39,7 +39,7 @@ Council is the thin multi-Agent fan-out/fan-in layer over ordinary Tasks. Its li
   ],
   "expected_outputs": [{ "type": "file", "path": "result.md", "required": true, "max_bytes": 10485760 }],
   "execution": {
-    "observation_timeout_ms": 120000,
+    "observation_timeout_ms": 600000,
     "execution_timeout_ms": null,
     "effort": "medium",
     "permission": "native",

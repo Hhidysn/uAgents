@@ -1,16 +1,16 @@
 # 自动签到
 
-uAgents 在 Windows 插件启动时检查本机 TRAE CN / TRAE SOLO CN、WorkBuddy 的有效登录态。任一允许的目标已登录时，注册或复用 `uAgents.AutoCheckin`，默认每天本机时间 **00:30** 签到，错过时间后补跑。插件关闭后，计划任务仍独立运行。
+uAgents 在 Windows 启动时检查本机 TRAE CN / TRAE SOLO CN、WorkBuddy 的有效登录态。任一允许的目标已登录时，注册或复用 `uAgents.AutoCheckin`，默认每天本机时间 **00:30** 签到，错过时间后补跑。uAgents 退出后，计划任务仍独立运行。
 
 初始化只读取本地登录态、部署运行文件和注册任务。计划任务执行时才访问签到接口；每个账号独立处理，先查今日状态，已签跳过。未登录或 token 过期则跳过。登录和刷新仍由原客户端负责。
 
 ## 启用与查看
 
 ```powershell
-node "<plugin-root>\bin\uagents.mjs" init
-node "<plugin-root>\bin\uagents.mjs" checkin status
-node "<plugin-root>\bin\uagents.mjs" checkin --check-only
-node "<plugin-root>\bin\uagents.mjs" checkin
+uagents init
+uagents checkin status
+uagents checkin --check-only
+uagents checkin
 ```
 
 - `init` 按本机登录态自动注册；尊重已保存的停用状态。
@@ -22,17 +22,17 @@ node "<plugin-root>\bin\uagents.mjs" checkin
 更改每日时间、显式重新启用或停用：
 
 ```powershell
-node "<plugin-root>\bin\uagents.mjs" checkin enable --time 01:00
-node "<plugin-root>\bin\uagents.mjs" checkin disable
+uagents checkin enable --time 01:00
+uagents checkin disable
 ```
 
-停用会保存偏好并停用 uAgents 自己的计划任务，后续插件启动不会重新启用。设置 `UAGENTS_AUTO_CHECKIN=0` 可禁止本进程自动注册；它不停止已经注册的任务，停止应使用 `checkin disable`。
+停用会保存偏好并停用 uAgents 自己的计划任务，后续启动不会重新启用。设置 `UAGENTS_AUTO_CHECKIN=0` 可禁止本进程自动注册；它不停止已经注册的任务，停止应使用 `checkin disable`。
 
 自动注册入口包括统一 stdio MCP 启动、共享服务的 `init` / `serve`，以及 CLI 的 `submit` / `council-submit` / `ensure`。CLI 的 discovery、probe、status、result 等命令保持原有观察行为。共享服务和 registry 禁用的目标不参与该入口的注册。已有任务的范围由最近一次有效注册决定。
 
 ## 独立执行与迁移
 
-脚本、偏好和报告默认保存到 `%USERPROFILE%\.uagents\checkin-v1`；没有 USERPROFILE 时回落到 `%LOCALAPPDATA%\uAgents\checkin-v1`。运行目录按源码、目标、Node 路径与物理状态路径的 SHA256 标识部署，计划任务不依赖插件缓存或源码仓库的生命周期。状态命令返回实际报告路径。
+脚本、偏好和报告默认保存到 `%USERPROFILE%\.uagents\checkin-v1`；没有 USERPROFILE 时回落到 `%LOCALAPPDATA%\uAgents\checkin-v1`。运行目录按源码、目标、Node 路径与物理状态路径的 SHA256 标识部署，计划任务不依赖安装包路径或源码仓库的生命周期。状态命令返回实际报告路径。
 
 部署使用物理绝对路径，兼容 MSIX 宿主对 AppData 的目录重定向。不同宿主使用同一用户目录中的停用偏好。新构建下一次初始化时更新计划任务指向；旧运行文件保留，不覆盖运行中的构建。
 

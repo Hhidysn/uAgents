@@ -45,7 +45,8 @@ function replaceExactCount(relative, before, after, expected) {
 const integrity = `sha512-${createHash('sha512').update(fs.readFileSync(archive)).digest('base64')}`;
 if (integrity !== expectedIntegrity) throw new Error('TRAECNclaw archive integrity mismatch.');
 resetDirectory(buildRoot);
-const extracted = spawnSync('tar', ['-xf', archive, '-C', buildRoot], { stdio: 'inherit', windowsHide: true });
+const relativeToPackage = (target) => path.relative(packageRoot, target).split(path.sep).join('/');
+const extracted = spawnSync('tar', ['-xf', relativeToPackage(archive), '-C', relativeToPackage(buildRoot)], { cwd: packageRoot, stdio: 'inherit', windowsHide: true });
 if (extracted.status !== 0) throw new Error(`tar extraction failed with status ${extracted.status}`);
 
 replaceOnce('src/cdp/browser-dom.js', `  await client.send('Input.dispatchKeyEvent', {
@@ -202,6 +203,7 @@ fs.mkdirSync(dist, { recursive: true });
 await build({
   entryPoints: [path.join(packageRoot, 'src', 'server.mjs')],
   outfile: path.join(dist, 'server.mjs'),
+  absWorkingDir: packageRoot,
   bundle: true,
   platform: 'node',
   format: 'esm',
@@ -212,6 +214,7 @@ await build({
 await build({
   entryPoints: [path.join(upstreamRoot, 'scripts', 'start-gateway.js')],
   outfile: path.join(dist, 'gateway.cjs'),
+  absWorkingDir: packageRoot,
   bundle: true,
   platform: 'node',
   format: 'cjs',

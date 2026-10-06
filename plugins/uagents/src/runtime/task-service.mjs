@@ -12,6 +12,19 @@ import { assertFencing } from './leases.mjs';
 import { transitionState } from './state-machine.mjs';
 import { ingestAttachmentInputs } from '../artifacts/attachments.mjs';
 import { canonicalWorkspace } from './workspace-key.mjs';
+import { targetDescriptor } from '../registry/registry.mjs';
+
+// One row per task with the native session identity that `status()` also reports:
+// the latest attempt's latest native session row. Used by session grouping so the
+// local aggregation can never disagree with a single task's own status.
+const TASK_NATIVE_CTE = `WITH task_native AS (
+  SELECT t.task_id, t.target, t.status, t.created_at_ms, t.updated_at_ms, t.model_resolved,
+    (SELECT ns.native_session_id FROM native_sessions ns
+       JOIN attempts a ON a.attempt_id = ns.attempt_id
+      WHERE a.task_id = t.task_id
+      ORDER BY a.ordinal DESC, ns.id DESC LIMIT 1) AS native_session_id
+  FROM tasks t
+)`;
 
 export class TaskService {
   constructor(control, { registry, health = null, coreVersion = '0.2.0-alpha.1', clock = () => Date.now() } = {}) {
@@ -257,6 +270,54 @@ export class TaskService {
     });
   }
 
+  // A worker that could not start the target records a recoverable local
+  // failure. A live task lease means another worker already owns this task, so
+  // this worker's own load failure must not be written onto it: callers read the
+  // latest queued error as "the worker never started", which would be wrong for
+  // a task that is about to be dispatched. The lease check and the write share
+  // one transaction so a worker starting concurrently cannot slip between them.
+  recordWorkerStartFailure(taskId, { error = null, reason = 'worker_start_failed', lease = null, attemptLease = null, now = this.clock() } = {}) {
+    return this.control.transaction(database => {
+      if (lease) {
+        if (lease.resource_key !== `task:${taskId}`) fail('lease_conflict', 'Worker startup requires the task lease.', { category: 'conflict', submission: 'not_sent' });
+        assertFencing(database, lease, now);
+        if (!attemptLease) fail('lease_conflict', 'Worker startup requires the attempt execution lease.', { category: 'conflict', submission: 'not_sent' });
+        assertFencing(database, attemptLease, now);
+      }
+      const task = database.prepare('SELECT status FROM tasks WHERE task_id = ?').get(taskId);
+      if (!task) fail('task_not_found', `Unknown task: ${taskId}`);
+      const attempt = database.prepare('SELECT attempt_id, submission, owner_nonce, fencing_token FROM attempts WHERE task_id = ? ORDER BY ordinal DESC LIMIT 1').get(taskId);
+      if (!attempt) fail('task_not_found', 'Attempt does not belong to the task.');
+      if (attemptLease && (attempt.owner_nonce !== attemptLease.owner_nonce || attempt.fencing_token !== attemptLease.fencing_token)) {
+        fail('lease_conflict', 'Worker startup no longer owns the attempt.', { category: 'conflict', submission: 'not_sent' });
+      }
+      const owned = database.prepare('SELECT 1 FROM leases WHERE resource_key = ? AND expires_at_ms > ?').get(`task:${taskId}`, now);
+      const claimed = hasActiveLease(database, attempt.owner_nonce, attempt.fencing_token, now);
+      if (((owned || claimed) && !lease) || !['registered', 'queued'].includes(task.status) || attempt.submission !== 'not_sent') {
+        return this.#statusWith(database, taskId);
+      }
+      appendEvent(database, {
+        taskId,
+        attemptId: attempt.attempt_id,
+        type: 'task.queued',
+        payload: {
+          error: {
+            code: error?.code ?? 'worker_start_failed',
+            category: error?.category ?? 'runtime',
+            message: error?.message ?? 'The local worker could not start this task; nothing was sent.',
+            retryable: true,
+            submission: 'not_sent',
+          },
+          queue: { reason, wait_ms: 0, recoverable: true },
+        },
+        now,
+      });
+      database.prepare('UPDATE tasks SET status = ?, updated_at_ms = ? WHERE task_id = ?').run('queued', now, taskId);
+      database.prepare("UPDATE attempts SET status = 'queued', owner_nonce = NULL, fencing_token = NULL, heartbeat_at_ms = NULL WHERE attempt_id = ? AND submission = 'not_sent'").run(attempt.attempt_id);
+      return this.#statusWith(database, taskId);
+    });
+  }
+
   payload(taskId) {
     const directory = taskDirectory(this.control.root, taskId);
     return { request: readTaskJson(directory, 'request.json'), payload: readTaskJson(directory, 'payload.json'), decision: readTaskJson(directory, 'decision.json') };
@@ -282,8 +343,9 @@ export class TaskService {
     };
   }
 
-  list({ cursor = null, limit = 50 } = {}) {
+  list({ cursor = null, limit = 50, targets = null, hasResponse = false } = {}) {
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) fail('invalid_request', 'Task list limit must be 1–200.');
+    const filter = this.#targetFilter(targets);
     let beforeCreated = Number.MAX_SAFE_INTEGER;
     let beforeTask = '\uffff';
     if (cursor) {
@@ -295,14 +357,118 @@ export class TaskService {
       } catch { fail('invalid_request', 'Task list cursor is invalid.'); }
     }
     const rows = this.control.raw.prepare(`SELECT task_id, created_at_ms FROM tasks
-      WHERE created_at_ms < ? OR (created_at_ms = ? AND task_id < ?)
-      ORDER BY created_at_ms DESC, task_id DESC LIMIT ?`).all(beforeCreated, beforeCreated, beforeTask, limit + 1);
-    const page = rows.slice(0, limit).map(row => this.status(row.task_id));
-    const last = page.at(-1);
+      WHERE (created_at_ms < ? OR (created_at_ms = ? AND task_id < ?))${filter.sql}
+      ORDER BY created_at_ms DESC, task_id DESC LIMIT ?`)
+      .all(beforeCreated, beforeCreated, beforeTask, ...filter.params, limit + 1);
+    const scanned = rows.slice(0, limit);
+    const selected = hasResponse ? scanned.filter(row => this.#hasResponse(row.task_id)) : scanned;
+    const page = selected.map(row => this.status(row.task_id));
+    const lastScanned = scanned.at(-1);
     return {
       tasks: page,
-      next_cursor: rows.length > limit && last ? Buffer.from(JSON.stringify({ created_at_ms: last.created_at_ms, task_id: last.task_id })).toString('base64url') : null,
+      // The cursor follows the last scanned row, not the last returned one, so a
+      // filtered page can be shorter than the limit without skipping any task.
+      next_cursor: rows.length > limit && lastScanned
+        ? Buffer.from(JSON.stringify({ created_at_ms: lastScanned.created_at_ms, task_id: lastScanned.task_id })).toString('base64url')
+        : null,
     };
+  }
+
+  // Groups persisted tasks by native session so a caller can list the
+  // conversations it registered on a target. Local state only: no provider is
+  // contacted and no task status is reinterpreted.
+  sessions({ cursor = null, limit = 50, targets = null, memberLimit = 20 } = {}) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) fail('invalid_request', 'Session list limit must be 1–200.');
+    if (!Number.isInteger(memberLimit) || memberLimit < 1 || memberLimit > 200) fail('invalid_request', 'Session member limit must be 1–200.');
+    const filter = this.#targetFilter(targets);
+    let beforeUpdated = Number.MAX_SAFE_INTEGER;
+    let beforeSession = '\uffff';
+    let beforeTarget = '\uffff';
+    if (cursor) {
+      try {
+        const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+        beforeUpdated = Number(decoded.updated_at_ms);
+        beforeSession = String(decoded.native_session_id);
+        beforeTarget = String(decoded.target);
+        if (!Number.isSafeInteger(beforeUpdated) || !beforeSession || !beforeTarget) throw new Error('invalid');
+      } catch { fail('invalid_request', 'Session list cursor is invalid.'); }
+    }
+    // `updated_at_ms` is the last activity of any member, so a session that just
+    // finished sorts above older ones. The group key is (target, session), so
+    // the page boundary must compare all three columns: ordering by time and
+    // session ID alone would drop one of two same-named sessions on different
+    // targets at the same instant.
+    const groups = this.control.raw.prepare(`${TASK_NATIVE_CTE}
+      SELECT target, native_session_id, count(*) AS task_count,
+        min(created_at_ms) AS started_at_ms, max(updated_at_ms) AS updated_at_ms
+      FROM task_native
+      WHERE native_session_id IS NOT NULL${filter.sql}
+      GROUP BY target, native_session_id
+      HAVING max(updated_at_ms) < ?
+        OR (max(updated_at_ms) = ? AND native_session_id < ?)
+        OR (max(updated_at_ms) = ? AND native_session_id = ? AND target < ?)
+      ORDER BY max(updated_at_ms) DESC, native_session_id DESC, target DESC
+      LIMIT ?`)
+      .all(...filter.params, beforeUpdated, beforeUpdated, beforeSession, beforeUpdated, beforeSession, beforeTarget, limit + 1);
+    const window = groups.slice(0, limit);
+    const sessions = window.map(row => {
+      const members = this.control.raw.prepare(`${TASK_NATIVE_CTE}
+        SELECT task_id, status, model_resolved, created_at_ms, updated_at_ms FROM task_native
+        WHERE target = ? AND native_session_id = ?
+        ORDER BY created_at_ms DESC, task_id DESC LIMIT ?`)
+        .all(row.target, row.native_session_id, memberLimit + 1);
+      const first = this.control.raw.prepare(`${TASK_NATIVE_CTE}
+        SELECT task_id FROM task_native
+        WHERE target = ? AND native_session_id = ?
+        ORDER BY created_at_ms ASC, task_id ASC LIMIT 1`)
+        .get(row.target, row.native_session_id);
+      const latest = members[0] ?? null;
+      return {
+        target: row.target,
+        native_session_id: row.native_session_id,
+        task_count: Number(row.task_count),
+        first_task_id: first?.task_id ?? null,
+        latest_task_id: latest?.task_id ?? null,
+        latest_status: latest?.status ?? null,
+        started_at_ms: Number(row.started_at_ms),
+        updated_at_ms: Number(row.updated_at_ms),
+        lineage: parseLineage(this.#sessionOf(first?.task_id)),
+        // Newest-first window, returned oldest-to-newest so the common case reads
+        // as a conversation. `tasks_truncated` marks older members left out.
+        tasks: members.slice(0, memberLimit).reverse().map(member => ({
+          task_id: member.task_id, status: member.status, model_resolved: member.model_resolved,
+          created_at_ms: Number(member.created_at_ms), updated_at_ms: Number(member.updated_at_ms),
+        })),
+        tasks_truncated: members.length > memberLimit,
+      };
+    });
+    const lastGroup = window.at(-1);
+    return {
+      sessions,
+      next_cursor: groups.length > limit && lastGroup
+        ? Buffer.from(JSON.stringify({ updated_at_ms: Number(lastGroup.updated_at_ms), native_session_id: lastGroup.native_session_id, target: lastGroup.target })).toString('base64url')
+        : null,
+    };
+  }
+
+  #hasResponse(taskId) {
+    try { return fs.statSync(path.join(taskDirectory(this.control.root, taskId), 'response.txt')).size > 0; }
+    catch { return false; }
+  }
+
+  // The resolved session binding is persisted with the payload, not in the task
+  // row, so lineage is read from the first member's own task directory.
+  #sessionOf(taskId) {
+    if (!taskId) return null;
+    try { return readTaskJson(taskDirectory(this.control.root, taskId), 'payload.json').session ?? null; }
+    catch { return null; }
+  }
+
+  #targetFilter(targets) {
+    if (!targets || targets.length === 0) return { sql: '', params: [] };
+    const selected = [...new Set(targets)];
+    if (this.registry) for (const target of selected) targetDescriptor(this.registry, target);
+    return { sql: ` AND target IN (${selected.map(() => '?').join(', ')})`, params: selected };
   }
 
   recordResponse(taskId, text, usage = null, lease = null) {
@@ -552,8 +718,7 @@ export class TaskService {
     return null;
   }
 
-  #waitingPhase(database, taskId) {
-    const row = database.prepare(`SELECT payload_json FROM events WHERE task_id = ? AND type = 'task.waiting_user' ORDER BY sequence DESC LIMIT 1`).get(taskId);
+  #waitingPhase(database, taskId) {    const row = database.prepare(`SELECT payload_json FROM events WHERE task_id = ? AND type = 'task.waiting_user' ORDER BY sequence DESC LIMIT 1`).get(taskId);
     if (!row) return null;
     const phase = JSON.parse(row.payload_json)?.interaction?.phase;
     return typeof phase === 'string' && phase ? phase : null;
@@ -588,6 +753,13 @@ export class TaskService {
       now,
     });
   }
+}
+
+// The only session fields a history reader needs: which session a task was
+// attached to and how it branched. Native binding details stay in task status.
+function parseLineage(session) {
+  if (!session || typeof session !== 'object' || !session.action) return null;
+  return { action: session.action, from_task_id: session.from_task_id ?? null };
 }
 
 function sanitizeWaitingEvent(event) {

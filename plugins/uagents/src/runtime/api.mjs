@@ -65,7 +65,8 @@ export class UnifiedRuntime {
       execution: { observation_timeout_ms: 30_000, effort: 'low', permission: 'native' },
       policy: { fallback: 'none', max_cost_usd: null },
     }, { registry: this.registry });
-    const result = await this.adapterFactory(target).probe(evaluated.request, { workspace });
+    const adapter = await this.adapterFactory(target);
+    const result = await adapter.probe(evaluated.request, { workspace });
     if (this.supervisor) {
       // Read-only managed-lifecycle snapshot merged into probe output;
       // never starts, never mutates host state.
@@ -140,6 +141,7 @@ export class UnifiedRuntime {
   result(taskId) { return this.service.result(taskId); }
   cancel(taskId) { return this.service.requestCancel(taskId); }
   listTasks(options = {}) { return this.service.list(options); }
+  listSessions(options = {}) { return this.service.sessions(options); }
   submitCouncil(input) { return this.councils.submit(input); }
   councilStatus(councilId) { return this.councils.status(councilId); }
   councilResult(councilId) { return this.councils.result(councilId); }
@@ -167,7 +169,7 @@ export class UnifiedRuntime {
         LIMIT 1`).get(taskId, status.attempt.attempt_id));
     const appServer = status.target === 'codex' &&
       (status.native?.evidence_ref === 'codex:app-server-thread-turn' || possibleAppServer);
-    const adapter = this.adapterFactory(status.target, appServer ? { transport: 'app-server' } : undefined);
+    const adapter = await this.adapterFactory(status.target, appServer ? { transport: 'app-server' } : undefined);
     return reconcileTask({ service: this.service, taskId, adapter, supervisor: this.supervisor });
   }
 }

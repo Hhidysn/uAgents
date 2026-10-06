@@ -154,7 +154,14 @@ export function createToolHandlers(runtime) {
     uagents_status: async input => runtime.status(input.task_id),
     uagents_result: async input => runtime.result(input.task_id),
     uagents_cancel: async input => runtime.cancel(input.task_id),
-    uagents_list_tasks: async input => runtime.listTasks({ cursor: input.cursor ?? null, limit: input.limit ?? 50 }),
+    uagents_list_tasks: async input => runtime.listTasks({
+      cursor: input.cursor ?? null, limit: input.limit ?? 50,
+      targets: input.target ? [input.target] : null, hasResponse: input.has_response === true,
+    }),
+    uagents_list_sessions: async input => runtime.listSessions({
+      cursor: input.cursor ?? null, limit: input.limit ?? 50,
+      targets: input.target ? [input.target] : null,
+    }),
     uagents_reconcile: async input => runtime.reconcile(input.task_id),
     uagents_ensure: async input => runtime.ensure(input.target, { refresh: input.refresh === true }),
     uagents_resume: async input => runtime.resume(input.task_id),
@@ -190,7 +197,8 @@ export function createServer({ runtime = null, supervisor = null, handlers = nul
   register('uagents_status', 'Read the persisted task status only. This tool never contacts the native Agent.', taskIdSchema);
   register('uagents_result', 'Read the persisted result, model identity, usage and captured artifact summary.', taskIdSchema);
   register('uagents_cancel', 'Persist a cancellation request. Remote cancellation is confirmed only when the target can prove it.', taskIdSchema);
-  register('uagents_list_tasks', 'List persisted tasks using cursor pagination. The hard maximum page size is 200.', z.object({ cursor: z.string().optional(), limit: z.number().int().min(1).max(200).optional() }).strict());
+  register('uagents_list_tasks', 'List persisted tasks using cursor pagination. The hard maximum page size is 200.', z.object({ cursor: z.string().optional(), limit: z.number().int().min(1).max(200).optional(), target: z.string().min(1).max(64).optional(), has_response: z.boolean().optional() }).strict());
+  register('uagents_list_sessions', 'Group persisted tasks by native session ID to list the registered conversations of a target. Local state only; never contacts a provider and never reinterprets a task status.', z.object({ cursor: z.string().optional(), limit: z.number().int().min(1).max(200).optional(), target: z.string().min(1).max(64).optional() }).strict());
   register('uagents_reconcile', 'Explicitly contact the native target for the stored native identity and refine an indeterminate or waiting task. Never resubmits.', taskIdSchema);
   register('uagents_ensure', 'Discover, verify and cache the target installation; for desktop targets start or reuse the dedicated managed instance. Never sends a prompt.', z.object({ target: z.string().min(1).max(64), refresh: z.boolean().optional() }).strict());
   register('uagents_resume', 'Resume an abandoned unsent task or first-login wait on the same attempt, or reconcile a waiting native task. Never creates a new attempt.', taskIdSchema);

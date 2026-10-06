@@ -37,7 +37,7 @@ export async function discoverModelsForTarget(target, {
 } = {}) {
   targetDescriptor(registry, target);
   const configured = Object.entries(registry.models).filter(([, model]) => model.target === target && model.enabled);
-  const adapter = adapterFactory(target);
+  const adapter = await adapterFactory(target);
   const nowMs = clock();
 
   if (!NATIVE_DISCOVERY_TARGETS.has(target)) {

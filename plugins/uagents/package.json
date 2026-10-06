@@ -1,0 +1,53 @@
+{
+  "name": "uagents",
+  "version": "0.2.0-alpha.1",
+  "description": "Unified local dispatch for agy, Codex CLI, Claude Code CLI, WorkBuddy, DeepSeek Harness, OpenCode, Doubao Work and TRAE CN through one tracked task protocol.",
+  "type": "module",
+  "license": "MIT",
+  "author": {
+    "name": "uAgents contributors"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hhidysn/uAgents.git"
+  },
+  "keywords": [
+    "agent",
+    "cli",
+    "dispatch",
+    "codex",
+    "claude-code",
+    "opencode"
+  ],
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "bin": {
+    "uagents": "./bin/uagents.mjs",
+    "uagents-service": "./bin/uagents-service.mjs",
+    "uagents-mcp-bridge": "./bin/uagents-mcp-bridge.mjs",
+    "uagents-checkin": "./bin/uagents-checkin.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "scripts/",
+    "skills/",
+    "mcp/unified/dist/",
+    "mcp/unified/THIRD_PARTY_NOTICES.md",
+    "mcp/unified/third-party-licenses/",
+    "mcp/doubao/dist/",
+    "mcp/doubao/src/",
+    "mcp/doubao/THIRD_PARTY_NOTICES.md",
+    "mcp/doubao/third-party-licenses/",
+    "mcp/trae/dist/",
+    "mcp/trae/src/",
+    "mcp/trae/vendor/",
+    "mcp/trae/UPSTREAM.json",
+    "mcp/trae/THIRD_PARTY_NOTICES.md",
+    "mcp/trae/third-party-licenses/",
+    "AGENTS.md",
+    "README.md",
+    "LICENSE"
+  ]
+}

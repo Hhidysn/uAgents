@@ -5,12 +5,12 @@ import { captureArtifacts } from '../artifacts/capture.mjs';
 import { taskDirectory } from '../store/task-files.mjs';
 import { persistCheckpoint } from './checkpoints.mjs';
 import { verifyInputSnapshots } from './effective-request.mjs';
-import { acquireExecutionLeases, acquireTaskLease, releaseLeases, renewLeases } from './leases.mjs';
+import { acquireExecutionLeases, acquireTaskLease, assertFencing, releaseLeases, renewLeases } from './leases.mjs';
 import { refreshOverlappingWorkspaceGuards } from './workspace-execution-guard.mjs';
 import { getNativeProcess } from './native-processes.mjs';
 import { statusFromNativeEvent, TERMINAL_STATES } from './state-machine.mjs';
 
-export async function runTask({ service, taskId, adapter, leaseOptions = {}, supervisor = null }) {
+export async function runTask({ service, taskId, adapter, leaseOptions = {}, supervisor = null, initialize = null }) {
   let status = service.status(taskId);
   if (status.status !== 'registered' && status.status !== 'queued') {
     // A duplicate worker may observe the owner after it has moved the task to
@@ -26,7 +26,6 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
       category: 'conflict', submission: status.attempt.submission ?? 'not_sent',
     });
   }
-  if (status.status === 'registered') status = service.transition(taskId, 'queued', { attemptId });
   const stored = service.payload(taskId);
   const originalRequest = { ...stored.request, prompt: stored.payload.prompt };
   const request = { ...originalRequest, prompt: advisoryPrompt(originalRequest) };
@@ -88,10 +87,16 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
         ttlMs: taskLeaseTtlMs,
         now: service.clock(),
       });
+      if (service.status(taskId).status === 'registered') {
+        status = service.transition(taskId, 'queued', { attemptId, lease: taskLease });
+      }
       const acquired = acquireSharedLeases();
       leases.push(...acquired);
       break;
     } catch (error) {
+      // A duplicate has no work to do while another worker owns the task,
+      // including its initialization. It must not write a wait or start error.
+      if (!taskLease && error?.code === 'lease_conflict') return service.status(taskId);
       if (!isUnsentResourceConflict(error)) {
         releaseAcquiredLeases();
         throw error;
@@ -183,6 +188,22 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
       } catch (error) { heartbeatError = error; }
     }, heartbeatIntervalMs);
     heartbeat.unref?.();
+
+    if (initialize) {
+      try {
+        ({ adapter, supervisor } = await initialize());
+      } catch (error) {
+        if (heartbeatError) throw heartbeatError;
+        service.control.transaction(database => assertFencing(database, taskLease, service.clock()));
+        const cancelled = service.cancelUnsent(taskId, attemptId);
+        if (cancelled.cancelled) return cancelled.status;
+        return service.recordWorkerStartFailure(taskId, { lease: taskLease, attemptLease: leases[0], error });
+      }
+      if (heartbeatError) throw heartbeatError;
+      service.control.transaction(database => assertFencing(database, taskLease, service.clock()));
+      const cancelled = service.cancelUnsent(taskId, attemptId);
+      if (cancelled.cancelled) return cancelled.status;
+    }
 
     service.transition(taskId, 'starting', { attemptId, lease: fencingLease });
     verifyInputSnapshots(request.workspace, stored.payload.input_snapshots);
@@ -316,7 +337,12 @@ export async function runTask({ service, taskId, adapter, leaseOptions = {}, sup
     const latest = service.status(taskId);
     if (!TERMINAL_STATES.has(latest.status)) {
       const next = latest.attempt.submission === 'not_sent' ? 'failed' : 'indeterminate';
-      try { service.transition(taskId, next, { attemptId, lease: fencingLease, event: { error: error.code ?? 'worker_failed' } }); } catch {}
+      try {
+        service.control.transaction(database => {
+          assertFencing(database, taskLease, service.clock());
+          service.transition(taskId, next, { attemptId, lease: fencingLease, event: { error: error.code ?? 'worker_failed' } });
+        });
+      } catch {}
     }
     throw error;
   } finally {

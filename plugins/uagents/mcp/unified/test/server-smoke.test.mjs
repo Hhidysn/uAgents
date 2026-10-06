@@ -43,7 +43,7 @@ test('bundled stdio server initializes and lists the unified tool surface', asyn
     send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const listed = await wait(2);
     assert.deepEqual(listed.result.tools.map(tool => tool.name).sort(), [
-      'uagents_cancel', 'uagents_council_adopt', 'uagents_council_cleanup', 'uagents_council_diff', 'uagents_council_result', 'uagents_council_status', 'uagents_council_submit', 'uagents_council_validate', 'uagents_ensure', 'uagents_get_capabilities', 'uagents_list_models', 'uagents_list_targets', 'uagents_list_tasks',
+      'uagents_cancel', 'uagents_council_adopt', 'uagents_council_cleanup', 'uagents_council_diff', 'uagents_council_result', 'uagents_council_status', 'uagents_council_submit', 'uagents_council_validate', 'uagents_ensure', 'uagents_get_capabilities', 'uagents_list_models', 'uagents_list_sessions', 'uagents_list_targets', 'uagents_list_tasks',
       'uagents_probe', 'uagents_reconcile', 'uagents_result', 'uagents_resume', 'uagents_status', 'uagents_stop', 'uagents_submit',
     ]);
     const submitTool = listed.result.tools.find(tool => tool.name === 'uagents_submit');
@@ -120,6 +120,20 @@ test('MCP model listing forwards explicit refresh to the shared runtime', async 
   });
   assert.deepEqual(await handlers.uagents_list_models({ target: 'agy', refresh: true }), []);
   assert.deepEqual(observed, { target: 'agy', options: { refresh: true } });
+});
+
+test('MCP history tools forward the target filter to the shared runtime', async () => {
+  const observed = [];
+  const handlers = createToolHandlers({
+    async listTasks(options) { observed.push(['tasks', options]); return { tasks: [], next_cursor: null }; },
+    async listSessions(options) { observed.push(['sessions', options]); return { sessions: [], next_cursor: null }; },
+  });
+  assert.deepEqual(await handlers.uagents_list_tasks({ target: 'opencode', has_response: true, limit: 5 }), { tasks: [], next_cursor: null });
+  assert.deepEqual(await handlers.uagents_list_sessions({ target: 'opencode' }), { sessions: [], next_cursor: null });
+  assert.deepEqual(observed, [
+    ['tasks', { cursor: null, limit: 5, targets: ['opencode'], hasResponse: true }],
+    ['sessions', { cursor: null, limit: 50, targets: ['opencode'] }],
+  ]);
 });
 
 test('MCP submit accepts host-materialized file and image sources and normalizes them before storage', async () => {

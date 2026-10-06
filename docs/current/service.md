@@ -18,14 +18,14 @@ flowchart LR
 
 ## 初始化与启动
 
-需要 Node.js `>=22.13.0`，以及执行目标自身的安装、登录和配置。分发插件包含 MCP bundles；开发仓库先按 [开发说明](../development.md#构建) 构建。
+需要 Node.js `>=22.14.0`，以及执行目标自身的安装、登录和配置。分发包包含 MCP bundles；开发仓库先按 [开发说明](../development.md#构建) 构建。
 
 ```powershell
 $taskPlugin = 'C:\path\to\uagents'
 $taskConfig = Join-Path $env:LOCALAPPDATA 'uAgents\service-v1\config.json'
-node "$taskPlugin\bin\uagents-service.mjs" init --config "$taskConfig" `
+uagents-service init --config "$taskConfig" `
   --workspace 'F:\project' --target opencode --target agy
-node "$taskPlugin\bin\uagents-service.mjs" serve --config "$taskConfig"
+uagents-service serve --config "$taskConfig"
 ```
 
 `--workspace` / `--target` 可重复。workspace root 是允许调用方提交任务的目录范围；init 未指定 target 时允许八个内置目标。默认端口 `4319`，默认 state directory `%LOCALAPPDATA%\uAgents\v1`。可通过 `--port` / `--state-dir` 修改；用 `--registry-config <绝对路径>` 固定模型路线与默认值。
@@ -36,10 +36,10 @@ Windows 的 init / serve 会检查允许的 TRAE、WorkBuddy 登录态，注册�
 
 ```powershell
 $taskNode = (Get-Command node).Source
-$taskArguments = '"{0}" serve --config "{1}"' -f "$taskPlugin\bin\uagents-service.mjs", $taskConfig
-$taskService = Start-Process -FilePath $taskNode -ArgumentList $taskArguments `
+$taskArguments = 'serve --config "{0}"' -f $taskConfig
+$taskService = Start-Process -FilePath (Get-Command uagents-service).Source -ArgumentList $taskArguments `
   -WindowStyle Hidden -PassThru
-node "$taskPlugin\bin\uagents-service.mjs" health --config "$taskConfig"
+uagents-service health --config "$taskConfig"
 ```
 
 前台服务用 Ctrl+C 停止；后台服务由启动管理器停止。停止会关闭 HTTP 接口和调度器，已启动的 Task worker 保持自己的生命周期。重新启动会扫描可安全恢复的未发送队列。服务不自动添加开机启动项。
@@ -50,15 +50,14 @@ init 生成随机 Bearer token，仅输出文件路径。配置、token 和其�
 
 支持 Streamable HTTP MCP 的宿主连接 `http://127.0.0.1:4319/mcp`，并在宿主的私密认证设置中配置 `Authorization: Bearer <token文件中的值>`。应用的配置格式各异，uAgents 不读取供应商专有配置。
 
-只支持 stdio MCP 的宿主可使用以下模板，修改为自己的插件和配置路径：
+只支持 stdio MCP 的宿主可使用以下模板，修改为自己的配置路径：
 
 ```json
 {
   "mcpServers": {
     "uagents-service": {
-      "command": "node",
+      "command": "uagents-mcp-bridge",
       "args": [
-        "C:\\path\\to\\uagents\\bin\\uagents-mcp-bridge.mjs",
         "--config",
         "C:\\Users\\<user>\\AppData\\Local\\uAgents\\service-v1\\config.json"
       ]
@@ -98,4 +97,4 @@ Council 由调用方判断、验证与采用候选，不自动选择 winner 或 
 - 清理 worktree 或删除 workspace 后，任务历史仍可查询；新执行仍要求存在的 workspace。
 - 原生任务不会直接继承服务 token 环境、Authorization 或 token 内容。这是同一 OS 用户的调度 API 边界；拥有该用户文件权限的 Agent 仍能访问该用户文件，scope 不构成执行沙箱。不同用户与远程调用需要额外身份和隔离设计。
 
-配置修改后重启生效。机器可读入口为 `uagents-service.mjs describe` / `schema config`。字段见 [Service Reference](../reference/service.md)，验证记录见 [共享服务验证](../verification/2026-10-03-shared-local-service.md)。
+配置修改后重启生效。机器可读入口为 `uagents-service describe` / `schema config`。字段见 [Service Reference](../reference/service.md)，验证记录见 [共享服务验证](../verification/2026-10-03-shared-local-service.md)。

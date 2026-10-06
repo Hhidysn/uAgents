@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { fail } from './errors.mjs';
 
 export const SCHEMA_VERSION = '1.0';
+export const DEFAULT_OBSERVATION_TIMEOUT_MS = 600_000;
 export const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const REQUEST_FIELD_NAMES = Object.freeze(['schema_version', 'request_id', 'target', 'model', 'mode', 'prompt', 'workspace', 'inputs', 'expected_outputs', 'execution', 'policy', 'session']);
@@ -113,7 +114,7 @@ export function modelIdentity(fields = {}) {
 function parseExecution(input) {
   const value = plainObject(input, 'execution');
   exactFields(value, EXECUTION_FIELDS, 'execution');
-  const observation = value.observation_timeout_ms ?? 120_000;
+  const observation = value.observation_timeout_ms ?? DEFAULT_OBSERVATION_TIMEOUT_MS;
   integerRange(observation, 'observation_timeout_ms', REQUEST_LIMITS.observation_timeout_min_ms, REQUEST_LIMITS.observation_timeout_max_ms);
   if (value.execution_timeout_ms !== undefined && value.execution_timeout_ms !== null) integerRange(value.execution_timeout_ms, 'execution_timeout_ms', REQUEST_LIMITS.execution_timeout_min_ms, REQUEST_LIMITS.execution_timeout_max_ms);
   const effort = value.effort ?? 'medium';

@@ -4,7 +4,7 @@
 
 | 主题 | 阅读内容 |
 | --- | --- |
-| [快速开始](quick-start.md) | 插件入口、提交请求、查询结果与配置 |
+| [快速开始](quick-start.md) | 安装与入口、提交请求、查询结果与配置 |
 | [当前架构](architecture.md) | Core、入口、执行进程、持久化与可靠性边界 |
 | [Agent 与能力矩阵](agents.md) | 八个 target 的模式、输入、会话和权限 |
 | [附件](attachments.md) | path/source/blob、宿主附件与原生映射 |

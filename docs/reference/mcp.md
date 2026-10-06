@@ -1,6 +1,6 @@
 # Unified MCP Reference
 
-插件提供一个统一 stdio MCP Server：`uagents-unified`。独立服务还提供 loopback HTTP MCP 与 stdio 桥接。三者和 CLI 使用同一 Node.js Core，接入与范围约束见 [Local Service](service.md)。
+包内提供一个统一 stdio MCP Server：`uagents-unified`。独立服务还提供 loopback HTTP MCP 与 stdio 桥接。三者和 CLI 使用同一 Node.js Core，接入与范围约束见 [Local Service](service.md)。
 
 当前工具包括：
 
@@ -14,6 +14,7 @@ uagents_status
 uagents_result
 uagents_cancel
 uagents_list_tasks
+uagents_list_sessions
 uagents_reconcile
 uagents_ensure
 uagents_resume
@@ -35,6 +36,8 @@ uagents_council_cleanup
 ```json
 { "target": "agy", "refresh": true }
 ```
+
+`uagents_list_tasks` 接受可选的 `target`、`has_response`、`cursor`、`limit`；`uagents_list_sessions` 接受可选的 `target`、`cursor`、`limit`，按原生会话聚合已登记任务。两者都是只读的本地查询：不联系 Provider、不重发 Prompt，也不改写任何任务状态（CLI 对应命令为 `list` 与 `sessions`）。
 
 `refresh=true` 与 CLI `models <target> --refresh` 语义相同：仅刷新本机 native model catalog cache，不创建 Provider task。
 MCP Server 在启动时从绝对路径环境变量 `UAGENTS_CONFIG` 载入用户路线与默认值；Task 的 `model` 可省略以使用 target 默认值。

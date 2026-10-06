@@ -1,21 +1,34 @@
-import { AgyAdapter } from './agy/adapter.mjs';
-import { ClaudeCodeAdapter } from './claude-code/adapter.mjs';
-import { CodexAdapter } from './codex/adapter.mjs';
-import { DoubaoAdapter } from './doubao/adapter.mjs';
-import { DshAdapter } from './dsh/adapter.mjs';
-import { OpenCodeAdapter } from './opencode/adapter.mjs';
-import { TraeAdapter } from './trae/adapter.mjs';
-import { WorkBuddyAdapter } from './workbuddy/adapter.mjs';
 import { fail } from '../protocol/errors.mjs';
 
-export function adapterFor(target, options) {
-  if (target === 'agy') return new AgyAdapter(options);
-  if (target === 'claudeCode') return new ClaudeCodeAdapter(options);
-  if (target === 'codex') return new CodexAdapter(options);
-  if (target === 'doubao') return new DoubaoAdapter(options);
-  if (target === 'dsh') return new DshAdapter(options);
-  if (target === 'workbuddy') return new WorkBuddyAdapter(options);
-  if (target === 'opencode') return new OpenCodeAdapter(options);
-  if (target === 'trae') return new TraeAdapter(options);
-  fail('unsupported_capability', `Target adapter is not migrated yet: ${target}`, { submission: 'not_sent' });
+// Target adapters load on demand. The two desktop targets pull in the bundled
+// CDP client and TRAE gateway client, so a machine that never dispatches to
+// them must not load that code at all. Keep this the only place that maps a
+// target to its adapter module.
+const ADAPTER_LOADERS = {
+  agy: async () => (await import('./agy/adapter.mjs')).AgyAdapter,
+  claudeCode: async () => (await import('./claude-code/adapter.mjs')).ClaudeCodeAdapter,
+  codex: async () => (await import('./codex/adapter.mjs')).CodexAdapter,
+  doubao: async () => (await import('./doubao/adapter.mjs')).DoubaoAdapter,
+  dsh: async () => (await import('./dsh/adapter.mjs')).DshAdapter,
+  opencode: async () => (await import('./opencode/adapter.mjs')).OpenCodeAdapter,
+  trae: async () => (await import('./trae/adapter.mjs')).TraeAdapter,
+  workbuddy: async () => (await import('./workbuddy/adapter.mjs')).WorkBuddyAdapter,
+};
+
+export async function adapterFor(target, options) {
+  const load = Object.hasOwn(ADAPTER_LOADERS, target) ? ADAPTER_LOADERS[target] : null;
+  if (!load) fail('unsupported_capability', `Target adapter is not migrated yet: ${target}`, { submission: 'not_sent' });
+  let Adapter;
+  try {
+    Adapter = await load();
+  } catch (error) {
+    // A partial installation must name the unavailable target instead of
+    // surfacing a bare internal error.
+    fail('unsupported_capability', `Target adapter is unavailable in this installation: ${target}`, {
+      submission: 'not_sent',
+      cause: error,
+      details: { target, cause_code: error?.code ?? null },
+    });
+  }
+  return new Adapter(options);
 }

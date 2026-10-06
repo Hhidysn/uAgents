@@ -4,6 +4,10 @@
 
 ## 主要入口
 
+- [全 Target 与默认观察期限](2026-10-06-all-targets-timeout.md)：八项连接尝试、OpenCode/agy 四项真实任务、默认改为 10 分钟及本机安装验证。
+- [Worker 初始化与 OpenCode Go](2026-10-06-worker-initialization-opencode-go.md)：初始化并发窗口修复、取消与失去所有权回归、移除本机旧服务商配置、两项真实文件修改/讨论验收。
+- [npm 包分发](2026-10-06-npm-package-distribution.md)：包入口与 `files` 白名单、适配器按需加载、`npm pack` 内容核对与基线既有失败。
+- [本地 CLI 与完整回归复核](2026-10-06-local-cli.md)：既有全局安装与工作树一致性、完整回归相对基线的额外失败、codex app-server 基线失败的真实原因（测试等待预算 vs 进程检查耗时）、负载 flakiness、trae 构建的 tar/cwd 环境问题与修复。
 - [OpenCode V2 回执与时限修复](2026-10-04-opencode-v2-completion.md)：三条实际模型路由、原 Attempt 对账恢复、私有服务执行超时及定向回归。
 - [L1 实际分发失败调查](2026-10-04-l1-dispatch-errors.md)：DeepSeek 原生 HTTP400、GLM 流恢复后误报失败、原日志回放与修复边界。
 - [自动签到](2026-10-04-auto-checkin.md)：原生登录兼容、独立每日任务、实际安装与签到结果。

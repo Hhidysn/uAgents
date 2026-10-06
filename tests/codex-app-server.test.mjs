@@ -22,9 +22,18 @@ const entry = fileURLToPath(new URL('./fixtures/fake-codex-app-server.mjs', impo
 const execEntry = fileURLToPath(new URL('./fixtures/fake-codex-session-cli.mjs', import.meta.url));
 const crashWorkerEntry = fileURLToPath(new URL('./fixtures/codex-app-server-crash-worker.mjs', import.meta.url));
 const root = path.resolve('.local', 'test-runs', randomUUID(), 'codex-app-server');
+// The fake app-server completes in tens of milliseconds, but the native launch plus a
+// Windows process-tree inspection can take 1.5-1.8 s on a loaded machine. Success-path
+// observation budgets must outlast that work; they are a safety cap, not the behavior
+// under test.
+const FIXTURE_OBSERVATION_TIMEOUT_MS = 30_000;
+// Cancellation tests need the window to stay open through launch+inspection and then
+// close, so they use a smaller budget than the success-path cap.
+const CANCELLATION_OBSERVATION_TIMEOUT_MS = 10_000;
+
 const request = (prompt, workspace) => ({
   prompt, workspace, mode: 'analysis', model_resolved: 'gpt-5.6-luna', expected_outputs: [],
-  execution: { observation_timeout_ms: 2_000 },
+  execution: { observation_timeout_ms: FIXTURE_OBSERVATION_TIMEOUT_MS },
 });
 function directory() {
   const workspace = path.join(root, randomUUID());
@@ -240,7 +249,7 @@ test('Codex app-server prototype persists native Thread and Turn through TaskSer
     const service = new TaskService(control);
     const input = { schema_version: '1.0', request_id: randomUUID(), target: 'codex',
       model: 'gpt-5.6-luna', mode: 'analysis', prompt: 'fixture-runtime', workspace,
-      execution: { observation_timeout_ms: 2_000, effort: 'low', permission: 'native' },
+      execution: { observation_timeout_ms: FIXTURE_OBSERVATION_TIMEOUT_MS, effort: 'low', permission: 'native' },
       policy: { fallback: 'none', max_cost_usd: null } };
     const registered = service.submit(input, { adapterVersion: 'codex-app-server-prototype' });
     const adapter = new CodexAdapter({ transport: 'app-server', entryResolver: async () => ({ canonical_path: entry }) });
@@ -282,7 +291,7 @@ test('public Codex app-server opt-in retains transport through standard Worker c
     const turn = async (prompt, session = null) => {
       const input = { schema_version: '1.0', request_id: randomUUID(), target: 'codex',
         model: 'gpt-6-astra', mode: 'analysis', prompt, workspace,
-        execution: { observation_timeout_ms: 2_000, effort: 'low', permission: 'native', codex_transport: 'app-server' },
+        execution: { observation_timeout_ms: FIXTURE_OBSERVATION_TIMEOUT_MS, effort: 'low', permission: 'native', codex_transport: 'app-server' },
         policy: { fallback: 'none', max_cost_usd: null }, ...(session ? { session } : {}) };
       service.submit(input);
       assert.equal(service.payload(input.request_id).payload.dispatch_transport, 'app-server');
@@ -314,7 +323,7 @@ test('standard Worker defaults to Codex exec and rejects a changed transport pay
     const service = new TaskService(control);
     const base = { schema_version: '1.0', target: 'codex', model: 'gpt-5.6-luna',
       mode: 'analysis', workspace,
-      execution: { observation_timeout_ms: 2_000, effort: 'low', permission: 'native' },
+      execution: { observation_timeout_ms: FIXTURE_OBSERVATION_TIMEOUT_MS, effort: 'low', permission: 'native' },
       policy: { fallback: 'none', max_cost_usd: null } };
     const input = { ...base, request_id: randomUUID(), prompt: 'fixture-turn-default' };
     service.submit(input);
@@ -448,6 +457,9 @@ test('Codex app-server TaskService cancellation follows the observed native term
   }
 });
 
+// These two were baseline red because the fixed 1 s wait and the 1 s observation window are
+// shorter than one native process inspection (~1.5-1.8 s) on this machine, so the cancel
+// landed before dispatch.accepted. The budgets below are the fix, not an assertion change.
 test('Codex app-server TaskService preserves cancellation failure reason when no terminal arrives', async () => {
   const workspace = directory();
   const control = new ControlDatabase(path.join(root, randomUUID(), 'state'));
@@ -455,12 +467,12 @@ test('Codex app-server TaskService preserves cancellation failure reason when no
     const service = new TaskService(control);
     const input = { schema_version: '1.0', request_id: randomUUID(), target: 'codex',
       model: 'gpt-5.6-luna', mode: 'analysis', prompt: 'fixture-interrupt-no-terminal', workspace,
-      execution: { observation_timeout_ms: 1_000, effort: 'low', permission: 'native' },
+      execution: { observation_timeout_ms: CANCELLATION_OBSERVATION_TIMEOUT_MS, effort: 'low', permission: 'native' },
       policy: { fallback: 'none', max_cost_usd: null } };
     service.submit(input, { adapterVersion: 'codex-app-server-prototype' });
     const adapter = new CodexAdapter({ transport: 'app-server', entryResolver: async () => ({ canonical_path: entry }) });
     const running = runTask({ service, taskId: input.request_id, adapter });
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 1_000; i++) {
       if (service.events(input.request_id).some(event => event.type === 'dispatch.accepted')) break;
       await new Promise(resolve => setTimeout(resolve, 10));
     }
@@ -480,12 +492,12 @@ test('Codex app-server recovers a cancelled Turn when the terminal notification 
     const service = new TaskService(control);
     const input = { schema_version: '1.0', request_id: randomUUID(), target: 'codex',
       model: 'gpt-5.6-luna', mode: 'analysis', prompt: 'fixture-interrupt-missing-terminal-saved', workspace,
-      execution: { observation_timeout_ms: 2_000, effort: 'low', permission: 'native' },
+      execution: { observation_timeout_ms: CANCELLATION_OBSERVATION_TIMEOUT_MS, effort: 'low', permission: 'native' },
       policy: { fallback: 'none', max_cost_usd: null } };
     service.submit(input, { adapterVersion: 'codex-app-server-prototype' });
     const adapter = new CodexAdapter({ transport: 'app-server', entryResolver: async () => ({ canonical_path: entry }) });
     const running = runTask({ service, taskId: input.request_id, adapter });
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 1_000; i++) {
       if (service.events(input.request_id).some(event => event.type === 'dispatch.accepted')) break;
       await new Promise(resolve => setTimeout(resolve, 10));
     }
@@ -650,7 +662,7 @@ test('Codex app-server reconciles a lost completion notification using the accep
     const service = new TaskService(control);
     const input = { schema_version: '1.0', request_id: randomUUID(), target: 'codex',
       model: 'gpt-5.6-luna', mode: 'analysis', prompt: 'fixture-missing-terminal-saved', workspace,
-      execution: { observation_timeout_ms: 2_000, effort: 'low', permission: 'native' },
+      execution: { observation_timeout_ms: FIXTURE_OBSERVATION_TIMEOUT_MS, effort: 'low', permission: 'native' },
       policy: { fallback: 'none', max_cost_usd: null } };
     service.submit(input, { adapterVersion: 'codex-app-server-prototype' });
     const adapter = new CodexAdapter({ transport: 'app-server', entryResolver: async () => ({ canonical_path: entry }) });
@@ -700,7 +712,7 @@ test('Codex app-server locates a lost turn/start acknowledgement by persisted cl
     const service = new TaskService(control);
     const input = { schema_version: '1.0', request_id: randomUUID(), target: 'codex',
       model: 'gpt-5.6-luna', mode: 'analysis', prompt: 'fixture-no-turn-ack-saved', workspace,
-      execution: { observation_timeout_ms: 2_000, effort: 'low', permission: 'native' },
+      execution: { observation_timeout_ms: FIXTURE_OBSERVATION_TIMEOUT_MS, effort: 'low', permission: 'native' },
       policy: { fallback: 'none', max_cost_usd: null } };
     service.submit(input, { adapterVersion: 'codex-app-server-prototype' });
     const adapter = new CodexAdapter({ transport: 'app-server', entryResolver: async () => ({ canonical_path: entry }) });
@@ -734,7 +746,7 @@ test('Codex app-server falls back to full Turn history when item pagination is u
     const service = new TaskService(control);
     const input = { schema_version: '1.0', request_id: randomUUID(), target: 'codex',
       model: 'gpt-5.6-luna', mode: 'analysis', prompt: 'fixture-no-turn-ack-saved', workspace,
-      execution: { observation_timeout_ms: 2_000, effort: 'low', permission: 'native' },
+      execution: { observation_timeout_ms: FIXTURE_OBSERVATION_TIMEOUT_MS, effort: 'low', permission: 'native' },
       policy: { fallback: 'none', max_cost_usd: null } };
     service.submit(input, { adapterVersion: 'codex-app-server-prototype' });
     const adapter = new CodexAdapter({ transport: 'app-server', entryResolver: async () => ({ canonical_path: entry }) });
@@ -834,7 +846,7 @@ test('Codex app-server prototype continues and forks at a persisted source Turn 
     const turn = async (prompt, session = null) => {
       const input = { schema_version: '1.0', request_id: randomUUID(), target: 'codex',
         model: 'gpt-5.6-luna', mode: 'analysis', prompt, workspace,
-        execution: { observation_timeout_ms: 2_000, effort: 'low', permission: 'native' },
+        execution: { observation_timeout_ms: FIXTURE_OBSERVATION_TIMEOUT_MS, effort: 'low', permission: 'native' },
         policy: { fallback: 'none', max_cost_usd: null }, ...(session ? { session } : {}) };
       service.submit(input, { adapterVersion: 'codex-app-server-prototype' });
       const result = await runTask({ service, taskId: input.request_id, adapter });
@@ -880,7 +892,7 @@ test('Codex app-server refuses continuation after its CLI installation identity 
     const service = new TaskService(control, { registry });
     const base = { schema_version: '1.0', target: 'codex', model: 'gpt-5.6-luna',
       mode: 'analysis', workspace,
-      execution: { observation_timeout_ms: 2_000, effort: 'low', permission: 'native' },
+      execution: { observation_timeout_ms: FIXTURE_OBSERVATION_TIMEOUT_MS, effort: 'low', permission: 'native' },
       policy: { fallback: 'none', max_cost_usd: null } };
     const firstId = randomUUID();
     service.submit({ ...base, request_id: firstId, prompt: 'fixture-start' },
@@ -941,7 +953,7 @@ test('Codex app-server refuses a continued thread advanced outside uAgents and f
     const submit = (prompt, session = null) => {
       const input = { schema_version: '1.0', request_id: randomUUID(), target: 'codex',
         model: 'gpt-5.6-luna', mode: 'analysis', prompt, workspace,
-        execution: { observation_timeout_ms: 2_000, effort: 'low', permission: 'native' },
+        execution: { observation_timeout_ms: FIXTURE_OBSERVATION_TIMEOUT_MS, effort: 'low', permission: 'native' },
         policy: { fallback: 'none', max_cost_usd: null }, ...(session ? { session } : {}) };
       service.submit(input, { adapterVersion: 'codex-app-server-prototype' });
       return input.request_id;
@@ -1016,7 +1028,7 @@ test('Codex app-server rechecks the resumed thread before sending a continued Tu
     const adapter = new CodexAdapter({ transport: 'app-server', entryResolver: async () => ({ canonical_path: entry }) });
     const base = { schema_version: '1.0', target: 'codex', model: 'gpt-5.6-luna',
       mode: 'analysis', workspace,
-      execution: { observation_timeout_ms: 2_000, effort: 'low', permission: 'native' },
+      execution: { observation_timeout_ms: FIXTURE_OBSERVATION_TIMEOUT_MS, effort: 'low', permission: 'native' },
       policy: { fallback: 'none', max_cost_usd: null } };
     const firstId = randomUUID();
     service.submit({ ...base, request_id: firstId, prompt: 'fixture-start' });

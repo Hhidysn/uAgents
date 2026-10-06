@@ -6,6 +6,7 @@ import { canonicalHash, canonicalJson } from '../plugins/uagents/src/protocol/ca
 import { notOk, ok } from '../plugins/uagents/src/protocol/envelope.mjs';
 import { UAgentsError, redactText } from '../plugins/uagents/src/protocol/errors.mjs';
 import { modelIdentity, parseRequest } from '../plugins/uagents/src/protocol/schema.mjs';
+import { requestJsonSchema } from '../plugins/uagents/src/protocol/request-json-schema.mjs';
 
 const request = patch => ({
   schema_version: '1.0',
@@ -31,6 +32,16 @@ test('request schema is strict and normalizes optional collections', () => {
   assert.throws(() => parseRequest(request({ surprise: true })), { code: 'unsupported_field' });
   assert.throws(() => parseRequest(request({ schema_version: '2.0' })), { code: 'unsupported_schema_version' });
   assert.throws(() => parseRequest(request({ prompt: '   ' })), { code: 'invalid_request' });
+});
+
+test('ordinary task observation defaults to ten minutes and keeps explicit limits', () => {
+  assert.equal(parseRequest(request({ execution: {} })).execution.observation_timeout_ms, 600_000);
+  const { execution: omitted, ...withoutExecution } = request();
+  assert.equal(parseRequest(withoutExecution).execution.observation_timeout_ms, 600_000);
+  assert.equal(requestJsonSchema().properties.execution.properties.observation_timeout_ms.default, 600_000);
+  assert.equal(parseRequest(request()).execution.observation_timeout_ms, 30_000);
+  assert.equal(parseRequest(request({ execution: {} })).execution.execution_timeout_ms, null);
+  assert.equal(parseRequest(request({ execution: { observation_timeout_ms: 1_200_000 } })).execution.observation_timeout_ms, 1_200_000);
 });
 
 test('execution native args preserve caller order and validate bounds', () => {

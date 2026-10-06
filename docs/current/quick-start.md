@@ -1,24 +1,28 @@
 # 快速开始
 
-需要 Node.js `>=22.13.0`，并先完成执行目标的安装、登录和原生权限配置。uAgents 插件包含 MCP bundles；安装后的运行目录不需要 `node_modules`。从开发仓库运行时，先按 [开发说明](../development.md) 安装构建依赖并构建。
+需要 Node.js `>=22.14.0`，并先完成执行目标的安装、登录和原生权限配置。uAgents 包含已构建的 MCP bundles；安装后的运行目录不需要 `node_modules`。从开发仓库运行时，先按 [开发说明](../development.md) 安装构建依赖并构建。
 
-Windows 下插件启动会检查已登录的 TRAE / WorkBuddy，并注册或复用每日自动签到任务；手动 `init`、只查状态和停用方法见 [自动签到](checkin.md)。
+Windows 下 uAgents 启动会检查已登录的 TRAE / WorkBuddy，并注册或复用每日自动签到任务；手动 `init`、只查状态和停用方法见 [自动签到](checkin.md)。
 
-## 插件与入口
+## 安装与入口
 
-已配置 `personal` marketplace 且其插件源对应待安装构建时，可以安装：
-
-```powershell
-codex plugin add uagents@personal --json
-```
-
-使用命令返回的 `installedPath` 作为插件根目录，版本见该目录的 `.codex-plugin/plugin.json`。CLI 入口为：
+包尚未发布到公开 npm。从仓库打包安装：
 
 ```powershell
-node "<plugin-root>\bin\uagents.mjs" targets
-node "<plugin-root>\bin\uagents.mjs" capabilities <target>
-node "<plugin-root>\bin\uagents.mjs" models <target>
+cd plugins/uagents
+npm pack
+npm install -g ./uagents-0.2.0-alpha.1.tgz
 ```
+
+CLI 入口为：
+
+```powershell
+uagents targets
+uagents capabilities <target>
+uagents models <target>
+```
+
+包版本见 `plugins/uagents/package.json`。开发仓库中可直接运行 `node plugins/uagents/bin/uagents.mjs <command>`，行为相同。
 
 选择实际可用的 target、mode 和 model。发现到模型不代表登录、额度或 Provider 在线状态已经确认；目标差异见 [能力矩阵](agents.md)，默认模型与单次覆盖见 [模型与路由](models.md)。
 
@@ -41,10 +45,28 @@ node "<plugin-root>\bin\uagents.mjs" models <target>
 保存为 `request.json`：
 
 ```powershell
-node "<plugin-root>\bin\uagents.mjs" submit --request request.json
-node "<plugin-root>\bin\uagents.mjs" status <task-id>
-node "<plugin-root>\bin\uagents.mjs" result <task-id>
+uagents submit --request request.json
+uagents status <task-id>
+uagents result <task-id>
 ```
+
+只想要一句话结果时，用 `run` 直接完成登记、等待与取回：
+
+```powershell
+uagents run codex --model gpt-5.6-luna --workspace F:\project --prompt-file prompt.txt
+```
+
+它默认 `--mode analysis`，省略 `--workspace` 时使用当前目录，返回与 `result` 相同的载荷；最后状态不是 `succeeded` 时退出码为 1。`--prompt-file` / `--prompt-stdin` 不把 Prompt 放进 argv，`-p` 会。等待超时或停在 `waiting_user` 时返回最后状态并带 warning，不会重发 Prompt。
+
+查历史只读本地状态目录，不联系 Provider、不重发 Prompt：
+
+```powershell
+uagents list --target opencode --has-response --limit 20   # 某目标下已产出回答的任务
+uagents sessions --target opencode                        # 按原生会话聚合的已登记对话
+uagents result <task-id>                                  # 单次对话的正文、usage 与 artifacts
+```
+
+原生 CLI 自己的历史不在其中——uAgents 只列出自己登记过的任务，且只有同一状态目录的入口互相可见；续接旧会话要用新 UUID 加请求里的 `session.continue_from_task_id` / `fork_from_task_id`，不是查询动作。
 
 也可把 UTF-8 请求 JSON 传给 `submit --request-stdin`。两种请求入口严格二选一，避免将 Prompt 或完整 JSON 放入 argv。stdin 上限为 1 MiB，大附件使用请求文件或 MCP 附件入口。
 
@@ -60,7 +82,7 @@ CLI 可用 `--config <绝对路径>` 读取用户路线与默认值；CLI/MCP �
 
 ## MCP 与更多工作流
 
-- 插件自带统一 stdio MCP，工具 schema 通过 `tools/list` 读取，见 [MCP Reference](../reference/mcp.md)。
+- 包内自带统一 stdio MCP（入口 `mcp/unified/dist/server.mjs`，也可用命令 `uagents-mcp-bridge`），工具 schema 通过 `tools/list` 读取，见 [MCP Reference](../reference/mcp.md)。
 - 多个宿主共用独立调度进程时，使用 [共享本地服务](service.md) 的 HTTP MCP 或 stdio 桥接。
 - 文件和图片见 [附件](attachments.md)，多轮任务见 [会话](sessions.md)，并行候选见 [Council](council.md)。
 - 命令与请求 schema 可通过 `describe`、`describe <command>` 和 `schema request` 查询。

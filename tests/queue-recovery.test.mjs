@@ -9,6 +9,7 @@ import { ControlDatabase } from '../plugins/uagents/src/store/database.mjs';
 import { acquireExecutionLeases, acquireTaskLease, releaseLeases } from '../plugins/uagents/src/runtime/leases.mjs';
 import { TaskService } from '../plugins/uagents/src/runtime/task-service.mjs';
 import { runTask } from '../plugins/uagents/src/runtime/worker.mjs';
+import { runRegisteredTask } from '../plugins/uagents/src/runtime/worker-factory.mjs';
 import { bindProcessIdentity, createProvisionalProcess, getNativeProcess } from '../plugins/uagents/src/runtime/native-processes.mjs';
 import { canonicalWorkspace } from '../plugins/uagents/src/runtime/workspace-key.mjs';
 
@@ -171,6 +172,159 @@ test('live task claim blocks recovery, then stale unsent claim recovers in place
     assert.equal(recovered.attempt_id, registered.attempt.attempt_id);
     assert.equal(service.status(registered.task_id).attempt.submission, 'not_sent');
   });
+});
+
+test('a duplicate worker start failure never overwrites a live task claim', async () => {
+  await fixture('worker-start-owned', async ({ control, service }) => {
+    const registered = service.submit(request());
+    const taskLease = acquireTaskLease(control, { taskId: registered.task_id, ownerNonce: 'worker-a', ttlMs: 5_000 });
+    const failure = { code: 'worker_start_failed', category: 'runtime', message: 'The local worker could not start this task; nothing was sent.' };
+
+    // worker-a still owns the task, so a duplicate worker's own load failure must
+    // not be persisted: callers read the latest queued error as "never started".
+    const untouched = service.recordWorkerStartFailure(registered.task_id, { error: failure });
+    assert.equal(untouched.status, 'registered');
+    assert.equal(untouched.attempt.submission, 'not_sent');
+    assert.equal(untouched.error, null);
+    assert.equal(service.events(registered.task_id).some(event => event.payload?.error), false);
+
+    // Once the owner is gone the same failure is recorded and stays recoverable.
+    releaseLeases(control, [taskLease]);
+    const recorded = service.recordWorkerStartFailure(registered.task_id, { error: failure });
+    assert.equal(recorded.status, 'queued');
+    assert.equal(recorded.error.code, 'worker_start_failed');
+    assert.equal(recorded.error.submission, 'not_sent');
+    assert.equal(service.events(registered.task_id).at(-1).payload.queue.reason, 'worker_start_failed');
+    assert.equal(service.recoverUnsent(registered.task_id).recoverable, true);
+  });
+});
+
+test('a worker that cannot load its adapter leaves an owned task alone', async () => {
+  await fixture('duplicate-load-failure', async ({ control, service }) => {
+    const registered = service.submit(request());
+    const taskLease = acquireTaskLease(control, { taskId: registered.task_id, ownerNonce: 'worker-a', ttlMs: 5_000 });
+    const result = await runRegisteredTask(control.root, registered.task_id, {
+      adapterFactory: async () => { throw Object.assign(new Error('Target adapter is unavailable in this installation: opencode'), { code: 'unsupported_capability', category: 'runtime' }); },
+      supervisorFactory: async () => null,
+    });
+    assert.equal(result.status, 'registered');
+    assert.equal(result.error, null);
+    assert.equal(service.events(registered.task_id).some(event => event.payload?.error), false);
+    releaseLeases(control, [taskLease]);
+  });
+});
+
+test('initialization holds a renewed task claim and a duplicate never initializes', async () => {
+  await fixture('initialization-race', async ({ control, service }) => {
+    const registered = service.submit(request());
+    const adapter = new FakeAdapter();
+    let enter, release;
+    const entered = new Promise(resolve => { enter = resolve; });
+    const gate = new Promise(resolve => { release = resolve; });
+    const running = runRegisteredTask(control.root, registered.task_id, {
+      adapterFactory: async () => { enter(); await gate; return adapter; },
+      supervisorFactory: async () => null,
+      leaseOptions: { ttlMs: 100, taskLeaseTtlMs: 100, heartbeatIntervalMs: 10 },
+    });
+    try {
+      await withTimeout(entered, 2_000, 'initializer did not start');
+      await new Promise(resolve => setTimeout(resolve, 180));
+      assert.equal(service.recoverUnsent(registered.task_id).recoverable, false);
+      let duplicateInitializations = 0;
+      const duplicate = await runRegisteredTask(control.root, registered.task_id, {
+        adapterFactory: async () => { duplicateInitializations++; throw new Error('duplicate failed'); },
+        supervisorFactory: async () => null,
+      });
+      assert.equal(duplicateInitializations, 0);
+      assert.equal(duplicate.status, 'queued');
+      assert.equal(duplicate.error, null);
+      assert.equal(adapter.sendCount, 0);
+    } finally { release(); }
+    const completed = await running;
+    assert.equal(completed.status, 'succeeded');
+    assert.equal(adapter.sendCount, 1);
+    assert.equal(control.raw.prepare('SELECT count(*) AS count FROM leases').get().count, 0);
+  });
+});
+
+test('initialization failure clears its own claim and can recover the same attempt', async () => {
+  await fixture('initialization-failure', async ({ control, service }) => {
+    const registered = service.submit(request());
+    const failed = await runRegisteredTask(control.root, registered.task_id, {
+      adapterFactory: async () => { throw Object.assign(new Error('load failed'), { code: 'ERR_MODULE_NOT_FOUND' }); },
+      supervisorFactory: async () => null,
+    });
+    assert.equal(failed.status, 'queued');
+    assert.equal(failed.error.code, 'worker_start_failed');
+    assert.equal(failed.attempt.submission, 'not_sent');
+    assert.equal(failed.attempt.fencing_token, null);
+    assert.equal(failed.attempt.heartbeat_at_ms, null);
+    assert.equal(control.raw.prepare('SELECT count(*) AS count FROM leases').get().count, 0);
+    const recovered = service.recoverUnsent(registered.task_id);
+    assert.equal(recovered.recoverable, true);
+    const adapter = new FakeAdapter();
+    const completed = await runRegisteredTask(control.root, registered.task_id, {
+      adapterFactory: async () => adapter, supervisorFactory: async () => null,
+    });
+    assert.equal(completed.status, 'succeeded');
+    assert.equal(completed.attempt.attempt_id, registered.attempt.attempt_id);
+    assert.equal(adapter.sendCount, 1);
+  });
+});
+
+test('cancellation during successful or failed initialization never sends', async () => {
+  for (const reject of [false, true]) {
+    await fixture(`initialization-cancel-${reject}`, async ({ control, service }) => {
+      const registered = service.submit(request());
+      const adapter = new FakeAdapter();
+      let enter, release;
+      const entered = new Promise(resolve => { enter = resolve; });
+      const gate = new Promise(resolve => { release = resolve; });
+      const running = runRegisteredTask(control.root, registered.task_id, {
+        adapterFactory: async () => { enter(); await gate; if (reject) throw new Error('load failed'); return adapter; },
+        supervisorFactory: async () => null,
+      });
+      try {
+        await withTimeout(entered, 2_000, 'initializer did not start');
+        service.requestCancel(registered.task_id);
+      } finally { release(); }
+      assert.equal((await running).status, 'cancelled');
+      assert.equal(adapter.sendCount, 0);
+      assert.equal(control.raw.prepare('SELECT count(*) AS count FROM leases').get().count, 0);
+    });
+  }
+});
+
+test('lost initialization ownership cannot dispatch or release a replacement lease', async () => {
+  for (const [reject, taskOnly] of [[false, false], [true, false], [false, true], [true, true]]) {
+    await fixture(`initialization-stale-${reject}-${taskOnly}`, async ({ control, service }) => {
+      const registered = service.submit(request());
+      const adapter = new FakeAdapter();
+      let enter, release;
+      const entered = new Promise(resolve => { enter = resolve; });
+      const gate = new Promise(resolve => { release = resolve; });
+      const running = runRegisteredTask(control.root, registered.task_id, {
+        adapterFactory: async () => { enter(); await gate; if (reject) throw new Error('load failed'); return adapter; },
+        supervisorFactory: async () => null,
+        leaseOptions: { heartbeatIntervalMs: 10_000 },
+      });
+      // Attach the rejection handler before releasing the initializer.
+      const rejected = assert.rejects(running, { code: 'lease_conflict' });
+      let replacement;
+      try {
+        await withTimeout(entered, 2_000, 'initializer did not start');
+        if (taskOnly) control.raw.prepare("UPDATE leases SET expires_at_ms = 0 WHERE resource_type = 'task'").run();
+        else control.raw.prepare('UPDATE leases SET expires_at_ms = 0').run();
+        replacement = acquireTaskLease(control, { taskId: registered.task_id, ownerNonce: 'replacement', ttlMs: 5_000 });
+      } finally { release(); }
+      await rejected;
+      assert.equal(adapter.sendCount, 0);
+      assert.equal(service.status(registered.task_id).status, 'queued');
+      assert.equal(service.status(registered.task_id).error, null);
+      assert.equal(control.raw.prepare('SELECT owner_nonce FROM leases WHERE resource_key = ?').get(`task:${registered.task_id}`).owner_nonce, 'replacement');
+      releaseLeases(control, [replacement]);
+    });
+  }
 });
 
 test('possibly-sent attempts are never eligible for recovery', async () => {

@@ -51,8 +51,8 @@ function fakeSpawn({ reportedModel = model, denied = false, hang = false } = {})
   } };
 }
 
-test('Claude Code route is explicit and native continuation/fork stay closed', () => {
-  assert.ok(adapterFor('claudeCode') instanceof ClaudeCodeAdapter);
+test('Claude Code route is explicit and native continuation/fork stay closed', async () => {
+  assert.ok((await adapterFor('claudeCode')) instanceof ClaudeCodeAdapter);
   const evaluated = evaluateRequest(request());
   assert.equal(evaluated.request.model_resolved, model);
   assert.equal(evaluated.request.route_id, `claudeCode/${model}`);

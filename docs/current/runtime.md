@@ -21,6 +21,8 @@ uagents stop <target>
 
 `probe` 不发送 Agent prompt。
 
+普通 Task 的 `execution.observation_timeout_ms` 默认 600000（10 分钟），可在 1000–1200000 范围内覆盖；长任务可设为 20 分钟。`run --timeout-ms` 约束 CLI 等待，默认 15 分钟，不替代观察期限。观察超时对 agy 等每任务进程会停止本地进程，对 Windows 持久 OpenCode 和桌面轮询目标只停止观察，不能推断原生或 Provider 已取消。支持的目标可单独设置 `execution_timeout_ms`；该硬执行预算默认不启用。短 probe 与初始化握手的独立期限保持原设置。
+
 ## Resume / Reconcile
 
 ```text
@@ -52,6 +54,8 @@ TRAE 的受管桌面退出后，下一次 `ensure trae` 会在旧网关身份可
 
 CLI、原 stdio MCP 和 HTTP 服务使用同一 Core；只有状态目录相同才共享 Task、Attempt 和 Council。HTTP 调用断开不取消已登记 Task，停止服务也不终止已启动的独立 worker；启动和恢复边界见 [共享本地服务](service.md)。
 
+Worker 在取得任务与执行租约、认领原 Attempt 并启动续约心跳后，才加载目标适配器和初始化宿主控制面。重复 Worker 遇到已持有的任务租约时只返回当前状态；初始化失败由持有有效租约的 Worker 记录为 `queued/not_sent`、`worker_start_failed`，同时清除自身 Attempt 认领信息，修复安装后可 `resume` 原任务。初始化期间的取消在发送前确认，失去租约的旧 Worker 不能发送或覆盖新所有者的状态。
+
 Council 的 submit、validate、adopt 和 cleanup 使用每 Council 的共享 SQLite lease/fencing，操作期间其它进程修改同一 Council 会遇到 `lease_conflict`。验证预算覆盖所有选中成员和命令；丢失响应后先查询已有证据并确认旧进程结束，再决定是否显式重试。
 
-组件职责与持久化见 [当前架构](architecture.md)，插件安装见 [快速开始](quick-start.md)，仓库构建与检查见 [开发与验证](../development.md)。
+组件职责与持久化见 [当前架构](architecture.md)，安装见 [快速开始](quick-start.md)，仓库构建与检查见 [开发与验证](../development.md)。
