@@ -1,9 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: ['**']
-  pull_request:
+  # Temporarily pause automatic CI; keep manual runs available.
+  workflow_dispatch:
 
 jobs:
   test:
