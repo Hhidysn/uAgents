@@ -70,6 +70,12 @@ test('OpenCode v2 discovery lists every native provider without v1 flags', async
   assert.deepEqual(catalog.models.map(model => model.route_id), ['commandcode-goat/deepseek/deepseek-v4.1-flash', 'opencode-go/deepseek-v4-flash', 'opencode-go/glm-5.3-flash', 'other/model']);
 });
 
+test('OpenCode catalog preserves native aliases without an invented character allowlist', () => {
+  assert.deepEqual(parseOpenCodeModelList('Model catalog\nopenrouter/~deepseek/deepseek-flash-latest\nnew-provider/model@preview\ninvalid row/model\n').map(row => row.route_id), [
+    'openrouter/~deepseek/deepseek-flash-latest', 'new-provider/model@preview',
+  ]);
+});
+
 test('OpenCode v1 discovery lists all providers with its native pure flag', async () => {
   const calls = [];
   const entry = path.join(mkdtempSync(path.join(tmpdir(), 'uagents-opencode-v1-')), 'opencode.exe');

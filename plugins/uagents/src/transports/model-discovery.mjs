@@ -89,7 +89,7 @@ export function parseWorkBuddyModelHelp(text) {
 
 export function parseOpenCodeModelList(text, provider) {
   const prefix = provider ? `${provider}/` : '';
-  return dedupe(stripAnsi(String(text)).split(/\r?\n/).map(line => line.trim()).filter(line => line.startsWith(prefix) && /^[A-Za-z0-9][A-Za-z0-9._:-]*(?:\/[A-Za-z0-9][A-Za-z0-9._:-]*)+$/.test(line)).map(routeId => ({
+  return dedupe(stripAnsi(String(text)).split(/\r?\n/).map(line => line.trim()).filter(line => line.startsWith(prefix) && /^[^\s/]+(?:\/[^\s/]+)+$/.test(line)).map(routeId => ({
     id: routeId.split('/').at(-1),
     route_id: routeId,
     provider: routeId.split('/').slice(0, -1).join('/'),
