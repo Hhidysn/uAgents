@@ -58,7 +58,7 @@ resume <task-id>
 
 `--timeout-ms` 只约束**本地等待**，它不控制 native 进程。真正影响 native 的是请求里的两个期限，含义不同：
 
-- `--observation-timeout-ms <ms>`（1000–1200000，默认 600000，即 10 分钟）转发 `observation_timeout_ms`：**观察期限**，超过就不再继续观察，任务以 `indeterminate` 结束且可能没有回复文本。对**每任务一个进程**的目标（agy 等）到点会停掉该进程；对**持久 native 进程**的目标（OpenCode V2）**不会**停止原生进程，它可能继续运行并继续改文件，只是结果不再被观测到。默认 10 分钟适用于常规任务；长任务可显式设为 1200000（20 分钟）。未显式给 `--timeout-ms` 时本地等待自动跟随（取 `max(900000, observation + 60000)`）。
+- `--observation-timeout-ms <ms>`（1000–3600000，默认 1200000，即 20 分钟）转发 `observation_timeout_ms`：**观察期限**，超过就不再继续观察，任务以 `indeterminate` 结束且可能没有回复文本。对**每任务一个进程**的目标（agy 等）到点会停掉该进程；对**持久 native 进程**的目标（OpenCode V2）**不会**停止原生进程，它可能继续运行并继续改文件，只是结果不再被观测到。长任务可显式设为 3600000（60 分钟）。未显式给 `--timeout-ms` 时本地等待自动跟随有效观察预算（取 `max(900000, observation + 60000)`，默认 21 分钟，至少 15 分钟）。
 - `--execution-timeout-ms <ms>`（1000–86400000）转发 `execution_timeout_ms`：**执行期限**，到点由 guardian 终止本次执行所拥有的进程树（证据不足时记为 `execution_timeout_termination_unconfirmed`）。仅对能强制该预算的目标有效，其余目标直接 `unsupported_capability` 拒绝而不是静默忽略。
 
 两者可以同时给：观察期限决定你等多久，执行期限决定进程活多久。

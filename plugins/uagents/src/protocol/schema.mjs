@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { fail } from './errors.mjs';
 
 export const SCHEMA_VERSION = '1.0';
-export const DEFAULT_OBSERVATION_TIMEOUT_MS = 600_000;
+export const DEFAULT_OBSERVATION_TIMEOUT_MS = 1_200_000;
 export const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const REQUEST_FIELD_NAMES = Object.freeze(['schema_version', 'request_id', 'target', 'model', 'mode', 'prompt', 'workspace', 'inputs', 'expected_outputs', 'execution', 'policy', 'session']);
@@ -30,7 +30,7 @@ export const REQUEST_LIMITS = Object.freeze({
   attachment_name_bytes: 255,
   attachment_blob_base64_bytes: 44_739_244,
   observation_timeout_min_ms: 1_000,
-  observation_timeout_max_ms: 1_200_000,
+  observation_timeout_max_ms: 3_600_000,
   execution_timeout_min_ms: 1_000,
   execution_timeout_max_ms: 86_400_000,
   output_default_max_bytes: 10_485_760,

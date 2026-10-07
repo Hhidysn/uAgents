@@ -16,7 +16,7 @@ uAgents never signs in, approves native dialogs, buys quota or relaxes a target'
 The package is not published to the public npm registry yet. Install the tarball built from the repository:
 
 ```powershell
-npm install -g ./uagents-0.2.0-alpha.1.tgz
+npm install -g ./uagents-0.2.0-alpha.4.tgz
 ```
 
 Build instructions and the full documentation live in the repository: <https://github.com/Hhidysn/uAgents>.
@@ -59,7 +59,7 @@ For one short task, the same three steps collapse into one command:
 uagents run codex --model gpt-5.6-luna --workspace F:\project --prompt-file prompt.txt
 ```
 
-`run` defaults to `--mode analysis`, uses the current directory when `--workspace` is omitted, and prints the same payload as `result`. Its `--timeout-ms` bounds only the local wait. The observation deadline (`--observation-timeout-ms`, 600 s (10 minutes) by default) bounds observation: a process-per-task target is stopped there, a durable target (OpenCode V2) is only left unobserved and keeps running. Pass a longer value for longer multi-step work, or `--execution-timeout-ms` where the target can enforce a real termination deadline. It exits 0 only when the final status is `succeeded`. `--prompt-file` and `--prompt-stdin` keep the prompt out of process arguments; `-p` does not. If the wait times out or the target stops at `waiting_user`, it returns the last persisted status with a `run_wait_timeout` / `run_waiting_user` warning and never resends. If the local worker cannot start the target, the task stays recoverable (`queued`, `not_sent`, `error.code = worker_start_failed`) and `run` returns immediately with a `run_not_started` warning instead of waiting out the timeout.
+`run` defaults to `--mode analysis`, uses the current directory when `--workspace` is omitted, and prints the same payload as `result`. Its `--timeout-ms` bounds only the local wait. The observation deadline (`--observation-timeout-ms`, 1200 s (20 minutes) by default) bounds observation: a process-per-task target is stopped there, a durable target (OpenCode V2) is only left unobserved and keeps running. Pass an explicit shorter value when appropriate, or `--execution-timeout-ms` where the target can enforce a real termination deadline. It exits 0 only when the final status is `succeeded`. `--prompt-file` and `--prompt-stdin` keep the prompt out of process arguments; `-p` does not. If the wait times out or the target stops at `waiting_user`, it returns the last persisted status with a `run_wait_timeout` / `run_waiting_user` warning and never resends. If the local worker cannot start the target, the task stays recoverable (`queued`, `not_sent`, `error.code = worker_start_failed`) and `run` returns immediately with a `run_not_started` warning instead of waiting out the timeout.
 
 ## State and configuration
 

@@ -84,6 +84,38 @@ test('V2 native errors keep HTTP status and type but discard provider bodies', (
   }
 });
 
+test('V2 native success retains failed web tool diagnostics for separate source acceptance', async () => {
+  const p = parser(async () => snapshot());
+  p.event(event('tool_use', { tool: 'webfetch', state: { status: 'error', error: 'certificate verification error; token=fixture-secret', input: { secret: 'fixture-secret' } } }));
+  const outcome = await p.finish(0);
+  assert.equal(outcome.status, 'succeeded');
+  assert.equal(outcome.diagnostics.tool_errors.length, 1);
+  assert.match(outcome.diagnostics.tool_errors[0].message, /certificate/);
+  assert.doesNotMatch(JSON.stringify(outcome), /fixture-secret/);
+});
+
+test('waiting-user persistence retains sanitized OpenCode tool failure and exit evidence', async () => {
+  const control = new ControlDatabase(path.join(workspace, 'approval-state'));
+  try {
+    const service = new TaskService(control);
+    const task = service.submit({ schema_version: '1.0', request_id: randomUUID(), target: 'opencode', model: request.model,
+      workspace, mode: 'analysis', prompt: 'fixture' });
+    const p = parser(null);
+    p.event(event('tool_use', { tool: 'webfetch', state: { status: 'error', error: 'Permission denied: requires approval; Bearer fixture-secret' } }));
+    const outcome = p.finish(0);
+    assert.equal(outcome.status, 'needs_user');
+    service.transition(task.task_id, 'queued', { attemptId: task.attempt.attempt_id });
+    service.transition(task.task_id, 'starting', { attemptId: task.attempt.attempt_id });
+    service.transition(task.task_id, 'waiting_user', { attemptId: task.attempt.attempt_id,
+      event: { ...outcome, diagnostics: { ...outcome.diagnostics, input: 'fixture-secret' } } });
+    const result = service.result(task.task_id);
+    assert.equal(result.diagnostics.native_exit_code, 0);
+    assert.equal(result.diagnostics.tool_errors.length, 1);
+    assert.match(result.diagnostics.tool_errors[0].message, /Permission denied/);
+    assert.doesNotMatch(JSON.stringify(result), /fixture-secret/);
+  } finally { control.close(); }
+});
+
 function recoveredParser(reader) {
   const p = createOpenCodeParser(request, workspace, () => {}, { sessionReader: reader });
   p.event(event('step_start', { messageID: 'interrupted' }));

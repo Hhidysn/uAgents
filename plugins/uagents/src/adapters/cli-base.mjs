@@ -100,7 +100,7 @@ export class CliAdapter {
     if (this.target === 'opencode' && this.testDriver) {
       driver = decorateOpenCodeDriver(driver, legacy, request.workspace);
     }
-    const prepared = { request, legacy, driver, entry, installation, taskDirectory: context.taskDirectory ?? request.workspace };
+    const prepared = { request, legacy, driver, entry, installation, attemptId: context.attemptId ?? null, taskDirectory: context.taskDirectory ?? request.workspace };
     if (this.target === 'opencode' && (process.platform === 'win32' || context.processInspector)) {
       prepared.durable = prepareDurableExecution({
         driver,
@@ -157,7 +157,7 @@ export class CliAdapter {
     const workspace = prepared.request.workspace;
     const directory = prepared.taskDirectory;
     const outcome = this.target === 'agy'
-      ? await invokeAgy(directory, workspace, prepared.legacy, publish, prepared.driver, { entry: prepared.entry })
+      ? await invokeAgy(directory, workspace, prepared.legacy, publish, prepared.driver, { entry: prepared.entry, attemptId: prepared.attemptId })
       : await invokeCli(directory, workspace, prepared.legacy, publish, prepared.driver);
     nativeSessionId ??= outcome.result?.native_session_id ?? null;
     if (!possiblySent) {
@@ -362,6 +362,8 @@ function outcomeEvent(target, request, outcome, modelReported) {
     same_native_identity: true,
     evidence_strength: type === 'indeterminate' ? 1 : 2,
     native_status: outcome.native_status ?? null,
+    native_exit_code: outcome.native_exit_code ?? null,
+    diagnostics: outcome.diagnostics ?? null,
     error: outcome.error ?? null,
     response: outcome.result?.response ?? '',
     usage: outcome.result?.usage ?? null,

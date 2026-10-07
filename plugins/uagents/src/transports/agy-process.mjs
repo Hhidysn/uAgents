@@ -3,6 +3,9 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { childEnvironment } from '../runtime/child-environment.mjs';
+import { errorRecord, UAgentsError } from '../protocol/errors.mjs';
+import { atomicWriteJson } from '../store/task-files.mjs';
+import { diagnosticMessage, recordToolError } from './native-diagnostics.mjs';
 
 export function buildAgyArgs(workspace, request) {
   return [
@@ -10,12 +13,13 @@ export function buildAgyArgs(workspace, request) {
     '--add-dir', workspace,
     ...(request.mode === 'implementation' ? ['--mode', 'accept-edits'] : []),
     '--model', request.model, '--dangerously-skip-permissions',
+    ...(request.effort ? ['--effort', request.effort] : []),
     '--disable-slash-commands', '--print-timeout', `${request.timeout_ms}ms`,
     '--log-file', process.platform === 'win32' ? 'NUL' : '/dev/null',
   ];
 }
 
-export function invokeAgy(directory, workspace, request, publish, testDriver, { entry = null } = {}) {
+export function invokeAgy(directory, workspace, request, publish, testDriver, { entry = null, attemptId = null } = {}) {
   return new Promise(resolve => {
     // `entry` is a supervisor-verified absolute agy executable; without it the
     // bare command name is resolved by the OS (legacy behavior).
@@ -24,11 +28,32 @@ export function invokeAgy(directory, workspace, request, publish, testDriver, { 
     const child = spawn(driver.command, driver.args, { cwd: workspace, windowsHide: true, env: driver.env ?? childEnvironment(), stdio: ['pipe', 'pipe', 'pipe'] });
     let sent = false, init, finalResult, outcome, stopped = false, finished = false, closeTimer, buffer = '', byteCount = 0, stderr = '', permissionDenied = false;
     const decoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
+    const toolErrors = [];
+    let diagnosticStderr = '', diagnosticStderrBytes = 0, stderrTruncated = false;
+    let nativeErrorMessage = null, effortReported = null;
+    const diagnosticsPath = request.kind !== 'probe' && typeof attemptId === 'string' && /^[a-zA-Z0-9-]+$/.test(attemptId)
+      ? path.join(directory, 'native', attemptId, 'diagnostics.json') : null;
     const finish = value => {
       if (finished) return;
       finished = true;
       clearTimeout(timer); clearTimeout(closeTimer); clearInterval(cancellation);
-      resolve(value);
+      if (!stderrTruncated) diagnosticStderr += stderrDecoder.end();
+      const acceptedResult = init && finalResult?.conversation_id === init.conversation_id ? finalResult : null;
+      const diagnostics = {
+        transport: 'agy-stream-json', native_status: acceptedResult?.status ?? null,
+        native_exit_code: value.native_exit_code ?? null,
+        effort_requested: request.effort ?? null, effort_reported: effortReported,
+        native_error_message: diagnosticMessage(acceptedResult?.error) ?? nativeErrorMessage,
+        stderr_tail: stderrTruncated ? null : diagnosticMessage(diagnosticStderr, { tail: true }),
+        stderr_truncated: stderrTruncated, tool_errors: toolErrors,
+        native_close_confirmed: value.native_close_confirmed ?? value.native_exit_code !== undefined,
+      };
+      if (diagnosticsPath) {
+        try { atomicWriteJson(diagnosticsPath, diagnostics); }
+        catch { diagnostics.persistence_error = 'native_diagnostics_write_failed'; }
+      }
+      resolve({ ...value, diagnostics });
     };
     const stop = (status, error) => {
       if (stopped || finished) return;
@@ -47,7 +72,16 @@ export function invokeAgy(directory, workspace, request, publish, testDriver, { 
     }, 100);
     child.stdin.on('error', () => stop(sent ? 'unknown' : 'failed', 'stdin_failed'));
     child.on('error', () => { if (!stopped && !finished) outcome = { status: sent ? 'unknown' : 'failed', error: 'native_process_error', retry_safe: false }; });
-    child.stderr.on('data', chunk => { stderr = (stderr + chunk.toString('utf8')).slice(-8192); });
+    child.stderr.on('data', chunk => {
+      const text = stderrDecoder.write(chunk);
+      stderr = (stderr + text).slice(-8192);
+      if (stderrTruncated) return;
+      diagnosticStderrBytes += chunk.length;
+      // Keep complete input until redaction. A raw rolling tail could discard a
+      // credential/payload marker while retaining its private contents.
+      if (diagnosticStderrBytes > 64 * 1024) { diagnosticStderr = ''; stderrTruncated = true; }
+      else diagnosticStderr += text;
+    });
     const line = text => {
       if (!text.trim() || stopped || finished) return;
       let event;
@@ -55,10 +89,15 @@ export function invokeAgy(directory, workspace, request, publish, testDriver, { 
       if (!event || typeof event !== 'object' || Array.isArray(event) || typeof event.event !== 'string') {
         stop(sent ? 'unknown' : 'failed', 'invalid_event'); return;
       }
+      const eventSession = event.event === 'result' ? event.result?.conversation_id : event.conversation_id;
+      if (sent && event.event !== 'init' && (eventSession === undefined || eventSession === init?.conversation_id)) {
+        nativeErrorMessage = diagnosticMessage(event.error ?? event.step_update?.error ?? event.step_update?.error_info ?? event.step_update?.error_details) ?? nativeErrorMessage;
+      }
       if (event.event === 'init') {
         if (init) { stop(sent ? 'unknown' : 'blocked', 'duplicate_init'); return; }
         init = event;
         const settings = event.init;
+        effortReported = typeof settings?.effort === 'string' ? settings.effort : null;
         if (!settings || settings.model !== request.model ||
             typeof event.conversation_id !== 'string' || !event.conversation_id ||
             typeof settings.cwd !== 'string' || path.resolve(settings.cwd).toLowerCase() !== path.resolve(workspace).toLowerCase()) {
@@ -90,9 +129,13 @@ export function invokeAgy(directory, workspace, request, publish, testDriver, { 
         if (!init) stop('failed', typeof finalResult.error === 'string' && finalResult.error.includes('Eligibility') ? 'native_eligibility_failed' : 'native_preflight_failed');
       } else if (event.event === 'step_update' && event.step_update?.step_type === 'tool') {
         if (!sent) { stop('blocked', 'tool_before_submission'); return; }
+        if (event.conversation_id !== undefined && event.conversation_id !== init?.conversation_id) {
+          stop('unknown', 'native_session_mismatch'); return;
+        }
         const step = event.step_update;
         const toolError = step.tool_info?.error;
         const toolErrorMessage = typeof toolError === 'string' ? toolError : toolError?.message;
+        recordToolError(toolErrors, step.tool_name, toolError);
         if (typeof toolErrorMessage === 'string' && /permission.*(denied|requires|approval)|soft.denied/i.test(toolErrorMessage)) permissionDenied = true;
         publish({ last_tool: typeof step.tool_name === 'string' ? step.tool_name : null });
       }
@@ -114,15 +157,15 @@ export function invokeAgy(directory, workspace, request, publish, testDriver, { 
       if (finished) return;
       buffer += decoder.end(); if (buffer) safeLine(buffer);
       if (outcome) {
-        if (outcome.scope === 'preflight_only' && (code !== 0 || finalResult?.status === 'ERROR')) finish({ status: 'failed', error: 'native_preflight_failed', submission: 'not_sent' });
-        else finish(outcome);
+        if (outcome.scope === 'preflight_only' && (code !== 0 || finalResult?.status === 'ERROR')) finish({ status: 'failed', error: 'native_preflight_failed', submission: 'not_sent', native_exit_code: code });
+        else finish({ ...outcome, native_exit_code: code });
         return;
       }
       if (!sent) {
-        finish({ status: 'failed', error: 'preflight_incomplete', submission: 'not_sent' }); return;
+        finish({ status: 'failed', error: 'preflight_incomplete', submission: 'not_sent', native_exit_code: code }); return;
       }
       if (!finalResult || finalResult.conversation_id !== init?.conversation_id) {
-        finish({ status: 'unknown', error: 'missing_or_mismatched_result', retry_safe: false }); return;
+        finish({ status: 'unknown', error: 'missing_or_mismatched_result', retry_safe: false, native_exit_code: code }); return;
       }
       const nativeStatus = finalResult.status;
       let status = nativeStatus === 'SUCCESS' && code === 0 && typeof finalResult.response === 'string' && finalResult.response.trim() ? 'succeeded'
@@ -130,7 +173,13 @@ export function invokeAgy(directory, workspace, request, publish, testDriver, { 
         : nativeStatus === 'ERROR' ? 'failed' : 'unknown';
       // A zero exit or success response does not erase a native approval failure.
       if (permissionDenied || /permission.*(denied|requires|approval)|soft.denied/i.test(stderr)) status = 'needs_user';
-      finish({ status, ...(status === 'needs_user' ? { error: 'native_approval_required' } : {}), native_status: nativeStatus, native_exit_code: code, retry_safe: false,
+      const reason = diagnosticMessage(finalResult.error) ?? nativeErrorMessage;
+      const error = status === 'needs_user' ? 'native_approval_required'
+        : status === 'failed' ? errorRecord(new UAgentsError('native_error', reason ?? 'agy reported ERROR without a native error reason.', {
+          category: 'target', submission: 'sent', retryable: false,
+          details: { native_status: nativeStatus, native_exit_code: code, reason_available: Boolean(reason) },
+        })) : status === 'unknown' ? 'native_completion_unconfirmed' : null;
+      finish({ status, ...(error ? { error } : {}), native_status: nativeStatus, native_exit_code: code, retry_safe: false,
         result: { native_session_id: finalResult.conversation_id, response: finalResult.response ?? '', usage: finalResult.usage ?? null } });
     });
   });

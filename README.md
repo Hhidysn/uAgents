@@ -11,7 +11,7 @@ uAgents 是供各类 Agent 宿主使用的本地统一调度层。CLI、MCP 和�
 ```powershell
 cd plugins/uagents
 npm pack
-npm install -g ./uagents-0.2.0-alpha.1.tgz
+npm install -g ./uagents-0.2.0-alpha.4.tgz
 ```
 
 之后在任意目录查询目标和模型：

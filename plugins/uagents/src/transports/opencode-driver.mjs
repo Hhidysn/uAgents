@@ -3,6 +3,7 @@ import { errorRecord, fail, UAgentsError } from '../protocol/errors.mjs';
 import { childEnvironment } from '../runtime/child-environment.mjs';
 import { runNoPromptCommand } from './no-prompt-command.mjs';
 import { readOpenCodeSession } from './opencode-session.mjs';
+import { recordToolError } from './native-diagnostics.mjs';
 
 const OPENCODE_PROTOCOL_FLAGS = Object.freeze(['--model', '--format', '--dir', '--title']);
 
@@ -99,6 +100,7 @@ export function createOpenCodeDriver(request, workspace, entry, { majorVersion =
 export function createOpenCodeParser(request, workspace, publish, { sessionReader = null } = {}) {
   let session, finalStep, stepMessage, approval = false, nativeError, nativeErrorMessage;
   const textParts = new Map();
+  const toolErrors = [];
   const expectedSession = request.continue_session_id ?? null;
   const forbiddenSession = request.fork_session_id ?? null;
 
@@ -144,6 +146,7 @@ export function createOpenCodeParser(request, workspace, publish, { sessionReade
       } else if (event.type === 'tool_use') {
         const state = object(part.state) ? part.state : null;
         const toolError = state?.error;
+        recordToolError(toolErrors, part.tool, toolError);
         publish({
           last_tool: typeof part.tool === 'string' ? part.tool : null,
           ...(state ? { native_tool_state: state.status ?? null } : {}),
@@ -176,6 +179,7 @@ export function createOpenCodeParser(request, workspace, publish, { sessionReade
         ...(error ? { error } : {}),
         native_status: nativeStatus,
         native_exit_code: code,
+        diagnostics: { transport: 'opencode-jsonl', native_exit_code: code, tool_errors: toolErrors },
         retry_safe: false,
         ...(session ? { result: { native_session_id: session, response, usage } } : {}),
       };

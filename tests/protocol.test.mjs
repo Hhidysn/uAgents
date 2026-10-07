@@ -34,14 +34,16 @@ test('request schema is strict and normalizes optional collections', () => {
   assert.throws(() => parseRequest(request({ prompt: '   ' })), { code: 'invalid_request' });
 });
 
-test('ordinary task observation defaults to ten minutes and keeps explicit limits', () => {
-  assert.equal(parseRequest(request({ execution: {} })).execution.observation_timeout_ms, 600_000);
+test('ordinary task observation defaults to twenty minutes and keeps explicit limits', () => {
+  assert.equal(parseRequest(request({ execution: {} })).execution.observation_timeout_ms, 1_200_000);
   const { execution: omitted, ...withoutExecution } = request();
-  assert.equal(parseRequest(withoutExecution).execution.observation_timeout_ms, 600_000);
-  assert.equal(requestJsonSchema().properties.execution.properties.observation_timeout_ms.default, 600_000);
+  assert.equal(parseRequest(withoutExecution).execution.observation_timeout_ms, 1_200_000);
+  assert.equal(requestJsonSchema().properties.execution.properties.observation_timeout_ms.default, 1_200_000);
   assert.equal(parseRequest(request()).execution.observation_timeout_ms, 30_000);
   assert.equal(parseRequest(request({ execution: {} })).execution.execution_timeout_ms, null);
   assert.equal(parseRequest(request({ execution: { observation_timeout_ms: 1_200_000 } })).execution.observation_timeout_ms, 1_200_000);
+  assert.equal(parseRequest(request({ execution: { observation_timeout_ms: 3_600_000 } })).execution.observation_timeout_ms, 3_600_000);
+  assert.throws(() => parseRequest(request({ execution: { observation_timeout_ms: 3_600_001 } })), { code: 'invalid_request' });
 });
 
 test('execution native args preserve caller order and validate bounds', () => {

@@ -39,7 +39,7 @@ Council is the thin multi-Agent fan-out/fan-in layer over ordinary Tasks. Its li
   ],
   "expected_outputs": [{ "type": "file", "path": "result.md", "required": true, "max_bytes": 10485760 }],
   "execution": {
-    "observation_timeout_ms": 600000,
+    "observation_timeout_ms": 1200000,
     "execution_timeout_ms": null,
     "effort": "medium",
     "permission": "native",

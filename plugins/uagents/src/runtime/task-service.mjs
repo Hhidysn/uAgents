@@ -13,6 +13,7 @@ import { transitionState } from './state-machine.mjs';
 import { ingestAttachmentInputs } from '../artifacts/attachments.mjs';
 import { canonicalWorkspace } from './workspace-key.mjs';
 import { targetDescriptor } from '../registry/registry.mjs';
+import { readOpenCodeDiagnostics, sanitizeNativeDiagnostics } from '../transports/native-diagnostics.mjs';
 
 // One row per task with the native session identity that `status()` also reports:
 // the latest attempt's latest native session row. Used by session grouping so the
@@ -28,7 +29,7 @@ const TASK_NATIVE_CTE = `WITH task_native AS (
 const PRE_DISPATCH_WAIT_PHASES = new Set(['preflight_login', 'native_dialog_required']);
 
 export class TaskService {
-  constructor(control, { registry, health = null, coreVersion = '0.2.0-alpha.1', clock = () => Date.now() } = {}) {
+  constructor(control, { registry, health = null, coreVersion = '0.2.0-alpha.4', clock = () => Date.now() } = {}) {
     this.control = control;
     this.registry = registry;
     this.health = health;
@@ -336,8 +337,42 @@ export class TaskService {
     const responseFile = path.join(directory, 'response.txt');
     const usageFile = path.join(directory, 'usage.json');
     const artifactsFile = path.join(directory, 'artifacts.json');
+    const terminalEvent = this.control.raw.prepare('SELECT payload_json FROM events WHERE task_id = ? AND attempt_id = ? AND type = ? ORDER BY sequence DESC LIMIT 1')
+      .get(taskId, status.attempt?.attempt_id ?? null, `task.${status.status}`);
+    const terminal = terminalEvent ? JSON.parse(terminalEvent.payload_json) : {};
+    const nativeDirectory = status.attempt ? path.join(directory, 'native', status.attempt.attempt_id) : null;
+    const existing = file => file && fs.existsSync(file) ? file : null;
+    const evidence = {
+      request: existing(path.join(directory, 'request.json')), response: existing(responseFile), usage: existing(usageFile),
+      diagnostics: existing(nativeDirectory && path.join(nativeDirectory, 'diagnostics.json')),
+      stdout: existing(nativeDirectory && path.join(nativeDirectory, 'stdout.log')),
+      stderr: existing(nativeDirectory && path.join(nativeDirectory, 'stderr.log')),
+      exit: existing(nativeDirectory && path.join(nativeDirectory, 'exit.json')),
+    };
+    let diagnostics = terminal.diagnostics ?? null;
+    if (!diagnostics && evidence.diagnostics) {
+      try {
+        if (fs.statSync(evidence.diagnostics).size <= 256 * 1024) diagnostics = JSON.parse(fs.readFileSync(evidence.diagnostics, 'utf8'));
+      } catch { /* A diagnostic file is optional evidence, not a task outcome. */ }
+    }
+    let exitCode = [terminal.native_exit_code, diagnostics?.native_exit_code].find(Number.isInteger) ?? null;
+    if (status.target === 'opencode' && evidence.stdout) {
+      const observed = readOpenCodeDiagnostics(evidence.stdout, { sessionId: status.native?.session_id ?? null });
+      diagnostics = { ...observed, ...(diagnostics ?? {}), native_errors: observed.native_errors,
+        tool_errors: diagnostics?.tool_errors ?? observed.tool_errors, transcript: observed.transcript };
+    }
+    if (exitCode === null && evidence.exit) {
+      try {
+        if (fs.statSync(evidence.exit).size <= 4096) {
+          const exit = JSON.parse(fs.readFileSync(evidence.exit, 'utf8'));
+          if (Number.isInteger(exit.exit_code)) exitCode = exit.exit_code;
+        }
+      } catch { /* Missing/invalid exit metadata is not proof of a native exit. */ }
+    }
     return {
       ...status,
+      diagnostics: { ...(sanitizeNativeDiagnostics(diagnostics) ?? {}), native_exit_code: exitCode },
+      evidence,
       response: { text: fs.existsSync(responseFile) ? fs.readFileSync(responseFile, 'utf8') : '' },
       usage: fs.existsSync(usageFile) ? JSON.parse(fs.readFileSync(usageFile, 'utf8')) : null,
       artifacts: fs.existsSync(artifactsFile) ? JSON.parse(fs.readFileSync(artifactsFile, 'utf8')).artifacts : [],
@@ -682,6 +717,7 @@ export class TaskService {
     if (!task) fail('task_not_found', `Unknown task: ${taskId}`);
     const attempt = database.prepare('SELECT * FROM attempts WHERE task_id = ? ORDER BY ordinal DESC LIMIT 1').get(taskId);
     const native = attempt ? database.prepare('SELECT * FROM native_sessions WHERE attempt_id = ? ORDER BY id DESC LIMIT 1').get(attempt.attempt_id) : null;
+    const process = attempt ? database.prepare('SELECT process_state, workspace_guard_state, exit_code, observed_at_ms, exited_at_ms FROM native_processes WHERE attempt_id = ?').get(attempt.attempt_id) : null;
     const statusEvent = database.prepare('SELECT payload_json FROM events WHERE task_id = ? AND type = ? ORDER BY sequence DESC LIMIT 1')
       .get(taskId, `task.${task.status}`);
     const persistedError = statusEvent ? JSON.parse(statusEvent.payload_json).error : null;
@@ -698,8 +734,15 @@ export class TaskService {
         fencing_token: attempt.fencing_token, heartbeat_at_ms: attempt.heartbeat_at_ms === null ? null : Number(attempt.heartbeat_at_ms),
       } : null,
       native: native ? { session_id: native.native_session_id, task_id: native.native_task_id, status: native.native_status, evidence_ref: native.evidence_ref } : null,
+      native_execution: process ? {
+        process_state: process.process_state, workspace_guard_state: process.workspace_guard_state,
+        exit_code: process.exit_code, observed_at_ms: process.observed_at_ms, exited_at_ms: process.exited_at_ms,
+      } : null,
       session: decision?.session ?? null,
-      error: taskErrorRecord(persistedError, attempt?.submission ?? 'not_sent'),
+      error: taskErrorRecord(persistedError ?? (task.status === 'failed' && native?.native_status === 'ERROR' ? {
+        code: 'native_error', message: 'The native Agent reported ERROR; this older task did not preserve its error reason.',
+        details: { native_status: 'ERROR', reason_available: false },
+      } : null), attempt?.submission ?? 'not_sent'),
       lifecycle: this.#latestLifecycle(database, taskId),
       created_at_ms: Number(task.created_at_ms), updated_at_ms: Number(task.updated_at_ms),
     };
@@ -769,10 +812,13 @@ function sanitizeWaitingEvent(event) {
   const nativeStatus = typeof event?.native_status === 'string' && event.native_status ? event.native_status : null;
   const error = typeof event?.error === 'string' && event.error ? redactText(event.error).slice(0, 200) : null;
   const lifecycle = event?.lifecycle && typeof event.lifecycle === 'object' && !Array.isArray(event.lifecycle) ? event.lifecycle : null;
+  const diagnostics = sanitizeNativeDiagnostics(event?.diagnostics);
   return {
     interaction: { phase: typeof interaction.phase === 'string' ? interaction.phase : null },
     ...(nativeStatus ? { native_status: nativeStatus } : {}),
     ...(error ? { error } : {}),
+    ...(Number.isInteger(event?.native_exit_code) ? { native_exit_code: event.native_exit_code } : {}),
+    ...(diagnostics ? { diagnostics } : {}),
     // Pre-sanitized managed-lifecycle summary from the worker (state,
     // instance/installation ids, generation, flags). Never contains prompts.
     ...(lifecycle ? { lifecycle } : {}),

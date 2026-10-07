@@ -8,4 +8,6 @@ agy performs a pre-send native handshake and verifies the reported model, cwd, a
 
 The CLI must already be installed and authenticated. Probe checks only the preflight handshake and does not submit a user message. A model or cwd mismatch, permission request, malformed stream, timeout, or lost final identity is not silently retried.
 
+An explicit `execution.effort` is forwarded as native `--effort`; the caller's own reasoning setting is independent. `result.diagnostics` records requested/reported effort separately (reported is `null` when native initialization does not report it), native exit evidence, redacted native error detail and bounded tool failures. Native `ERROR` always produces an error record, including an explicit missing-reason fallback. agy can internally retry provider calls; one uAgents attempt does not prove one provider HTTP request. uAgents does not add a second attempt automatically.
+
 Declare every required output in `expected_outputs` and provide the intended project as `workspace` when the Agent should edit it. uAgents snapshots declared inputs, serializes overlapping write-capable workspaces, captures outputs after completion, and verifies captured copies; this is acceptance evidence, not a security sandbox against a same-user process.

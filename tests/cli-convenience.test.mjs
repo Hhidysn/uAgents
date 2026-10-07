@@ -27,8 +27,8 @@ test('run discovery exposes one prompt source and no request file', async () => 
   ]);
   assert.equal(described.data.effect, 'may_send_prompt');
   const observation = described.data.options.find(option => option.name === '--observation-timeout-ms');
-  assert.deepEqual([observation.type, observation.minimum, observation.maximum], ['integer', 1_000, 1_200_000]);
-  assert.equal(observation.default, 600_000);
+  assert.deepEqual([observation.type, observation.minimum, observation.maximum], ['integer', 1_000, 3_600_000]);
+  assert.equal(observation.default, 1_200_000);
 });
 
 test('run forwards the native deadlines into the request', async () => {
@@ -48,15 +48,16 @@ test('run forwards the native deadlines into the request', async () => {
 
   // Omitted flags stay absent, so the request keeps the schema defaults.
   const plain = await execute(['run', 'agy', '--model', 'smoke/model', '-p', 'default', '--no-wait', '--state-dir', controlRoot], { env: {}, spawnWorker: noWorker });
-  assert.equal(JSON.parse(fs.readFileSync(path.join(taskFiles(controlRoot, plain.data.task_id), 'request.json'), 'utf8')).execution.observation_timeout_ms, 600_000);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(taskFiles(controlRoot, plain.data.task_id), 'request.json'), 'utf8')).execution.observation_timeout_ms, 1_200_000);
 });
 
-test('the run wait follows an explicitly raised native deadline', () => {
-  assert.equal(resolveRunWaitTimeoutMs(undefined, undefined), 900_000);
-  // The default wait already covers the default 120s deadline.
+test('the run wait follows the effective observation deadline, including the omitted default', () => {
+  assert.equal(resolveRunWaitTimeoutMs(undefined, undefined), 1_260_000);
+  // Explicit shorter deadlines still retain the minimum local wait.
   assert.equal(resolveRunWaitTimeoutMs(undefined, 120_000), 900_000);
   assert.equal(resolveRunWaitTimeoutMs(undefined, 600_000), 900_000);
   assert.equal(resolveRunWaitTimeoutMs(undefined, 1_200_000), 1_260_000);
+  assert.equal(resolveRunWaitTimeoutMs(undefined, 3_600_000), 3_660_000);
   // An explicit --timeout-ms always wins, even when it is shorter.
   assert.equal(resolveRunWaitTimeoutMs('100', 600_000), 100);
 });
@@ -98,7 +99,7 @@ test('the observation and execution deadlines describe different consequences', 
 
 test('run rejects a native deadline outside the request schema range', async () => {
   const controlRoot = stateDir();
-  for (const bad of ['999', '1200001', 'abc', '1.5']) {
+  for (const bad of ['999', '3600001', 'abc', '1.5']) {
     await assert.rejects(() => execute(['run', 'agy', '--model', 'smoke/model', '-p', 'x', '--observation-timeout-ms', bad, '--no-wait', '--state-dir', controlRoot], { env: {}, spawnWorker: noWorker }), { code: 'invalid_request' });
   }
   await assert.rejects(() => execute(['run', 'agy', '--model', 'smoke/model', '-p', 'x', '--execution-timeout-ms', '0', '--no-wait', '--state-dir', controlRoot], { env: {}, spawnWorker: noWorker }), { code: 'invalid_request' });

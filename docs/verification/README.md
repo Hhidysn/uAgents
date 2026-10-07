@@ -4,6 +4,10 @@
 
 ## 主要入口
 
+- [分发诊断](2026-10-07-dispatch-diagnostics.md)：agy effort、错误与证据摘要、旧结果查询和提交复检。
+- [项目调用配置](2026-10-07-aigame-dispatch-profile.md)：60 分钟显式观察预算、native execution 状态与诊断归因。
+- [默认观察预算](2026-10-07-observation-default.md)：20 分钟默认值和 CLI 等待计算。
+- [Flash 实机调用](2026-10-07-flash-e2e.md)：三项独立文件与网页工具调用、模型核验及 alpha.2 实测边界。
 - [pi CLI 接入](2026-10-06-pi-cli.md)：原生 JSONL 事件流、模型目录与安装校验、续接/分叉、文件与图片附件的真实调用与 provider 限制。
 - [目标修复与登录后实机核对](2026-10-06-target-repair.md)：Claude 重试成功、Codex 账号模型限制、WorkBuddy 新入口与认证边界、豆包及 TRAE 原任务对账成功。
 - [全 Target 与默认观察期限](2026-10-06-all-targets-timeout.md)：八项连接尝试、OpenCode/agy 四项真实任务、默认改为 10 分钟及本机安装验证。

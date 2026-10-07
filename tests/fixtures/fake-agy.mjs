@@ -18,6 +18,14 @@ createInterface({ input: process.stdin }).on('line', line => {
   if (message.event !== 'user') return;
   received = true;
   fs.appendFileSync('received.txt', 'submitted\n');
+  if (scenario === 'stderr-echo' || scenario === 'stderr-oversize') {
+    process.stderr.write('Native failure\n  Arguments prov');
+    setTimeout(() => process.stderr.write('ided:\n' + 'x'.repeat(scenario === 'stderr-oversize' ? 70_000 : 9_000) + ' fixture-private-message'), 20);
+  }
+  if (scenario === 'stderr-token') {
+    process.stderr.write('warning {"accessToken":"fixture');
+    setTimeout(() => process.stderr.write('-secret"}'), 20);
+  }
   if (scenario === 'tool' || scenario === 'tool-denied') {
     emit({ event: 'step_update', step_update: { step_type: 'tool', tool_name: 'write_to_file',
       tool_info: { error: scenario === 'tool-denied' ? { type: 'permission', message: 'Permission denied: requires approval' } : null, parameters: { sensitive: 'do not persist tool arguments' } } } });
@@ -32,16 +40,21 @@ createInterface({ input: process.stdin }).on('line', line => {
     if (scenario === 'null') { emit(null); return; }
     if (scenario === 'missing-fields') { emit({ event: 'result', result: {} }); return; }
     const result = { event: 'result', result: {
-      conversation_id: scenario === 'wrong-session' ? 'unrelated-session' : session,
-      status: scenario === 'error-zero' ? 'ERROR' : scenario === 'waiting' ? 'WAITING' : 'SUCCESS',
-      response: '可归属的中文结果 ✓', usage: { total_tokens: 0 },
+      conversation_id: scenario.startsWith('wrong-session') ? 'unrelated-session' : session,
+      status: scenario.startsWith('error-') || scenario === 'wrong-session-error' ? 'ERROR' : scenario === 'waiting' ? 'WAITING' : 'SUCCESS',
+      response: scenario.startsWith('error-') || scenario === 'empty-success' ? '' : '可归属的中文结果 ✓', usage: { total_tokens: 0 },
+      ...(scenario === 'error-string' ? { error: 'provider connection EOF; token=fixture-secret' } : {}),
+      ...(scenario === 'error-object' ? { error: { message: 'provider connection EOF', body: 'fixture-secret' } } : {}),
+      ...(scenario === 'wrong-session-error' ? { error: 'foreign-provider-failure' } : {}),
     } };
+    if (scenario === 'wrong-session-error') result.error = 'foreign-provider-failure';
     if (scenario === 'unicode') {
       const bytes = Buffer.from(JSON.stringify(result) + '\n');
       const index = bytes.indexOf(Buffer.from('中文')) + 1;
       process.stdout.write(bytes.subarray(0, index));
       setTimeout(() => process.stdout.write(bytes.subarray(index)), 20);
     } else { emit(result); if (scenario === 'duplicate-result') emit(result); }
+    if (scenario === 'error-exit-one') process.exitCode = 1;
   }, 600);
 }).on('close', () => {
   if (!received && scenario === 'probe-error') {

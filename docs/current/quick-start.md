@@ -11,7 +11,7 @@ Windows 下 uAgents 启动会检查已登录的 TRAE / WorkBuddy，并注册或�
 ```powershell
 cd plugins/uagents
 npm pack
-npm install -g ./uagents-0.2.0-alpha.1.tgz
+npm install -g ./uagents-0.2.0-alpha.4.tgz
 ```
 
 CLI 入口为：

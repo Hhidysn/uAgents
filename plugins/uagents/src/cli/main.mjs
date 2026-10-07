@@ -8,7 +8,7 @@ import { fail } from '../protocol/errors.mjs';
 import { targetDescriptor } from '../registry/registry.mjs';
 import { loadRegistry } from '../registry/config-file.mjs';
 import { CLI_PARSE_OPTIONS, describeCli, isKnownCliCommand } from './discovery.mjs';
-import { REQUEST_LIMITS } from '../protocol/schema.mjs';
+import { DEFAULT_OBSERVATION_TIMEOUT_MS, REQUEST_LIMITS } from '../protocol/schema.mjs';
 import { requestJsonSchema } from '../protocol/request-json-schema.mjs';
 import { councilJsonSchema } from '../protocol/council-schema.mjs';
 import { councilValidationJsonSchema } from '../protocol/council-validation-schema.mjs';
@@ -22,7 +22,7 @@ const RUN_TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled', 'indete
 // reason. Both codes stay recoverable through `resume`.
 const RUN_STALLED_ERRORS = new Set(['worker_launch_failed', 'worker_start_failed']);
 const DEFAULT_RUN_TIMEOUT_MS = 900_000;
-// Extra wait granted on top of an explicitly raised native deadline.
+// Extra wait granted on top of the effective observation deadline.
 const RUN_WAIT_MARGIN_MS = 60_000;
 
 export async function execute(argv, options = {}) {
@@ -244,10 +244,10 @@ const RUN_EXECUTION_FLAGS = Object.freeze([
 
 // Raising the native deadline without raising the wait would only turn a
 // finished task into a premature `run_wait_timeout`, so the wait follows an
-// explicitly raised deadline unless the caller sets `--timeout-ms` itself.
+// effective deadline unless the caller sets `--timeout-ms` itself.
 export function resolveRunWaitTimeoutMs(explicitTimeoutMs, observationTimeoutMs) {
   if (explicitTimeoutMs !== undefined) return Number(explicitTimeoutMs);
-  return Math.max(DEFAULT_RUN_TIMEOUT_MS, (observationTimeoutMs ?? 0) + RUN_WAIT_MARGIN_MS);
+  return Math.max(DEFAULT_RUN_TIMEOUT_MS, (observationTimeoutMs ?? DEFAULT_OBSERVATION_TIMEOUT_MS) + RUN_WAIT_MARGIN_MS);
 }
 
 function runExecution(values) {

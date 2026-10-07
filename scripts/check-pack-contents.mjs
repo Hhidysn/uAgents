@@ -20,6 +20,7 @@ const required = [
   'skills/agent-dispatch/SKILL.md',
   'src/transports/pi-driver.mjs',
   'src/transports/pi-session-guard.mjs',
+  'src/transports/native-diagnostics.mjs',
   'mcp/unified/dist/server.mjs',
   'mcp/unified/dist/service.mjs',
   'mcp/unified/dist/bridge.mjs',

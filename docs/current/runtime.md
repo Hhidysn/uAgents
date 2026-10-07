@@ -9,6 +9,14 @@ uAgents 使用统一 Task runtime 管理 CLI、SDK 和桌面 target。用户层�
 - 一旦 prompt 可能已经发送但终态不确定，uAgents 不会自动换 UUID、模型或 Provider 重放。
 - `status`、`result`、`list` 只读取本地持久化状态。
 
+`result` 的 `evidence` 给出当前 Attempt 已存在的请求、回答、usage、diagnostics 或 stdout/stderr/exit 的本机绝对路径；没有证据时为 `null`。`diagnostics.native_exit_code` 只在已知时给出，不能把退出码 0 当作模型任务或研究成功。agy 保存有界、脱敏的诊断摘要，保留明确的原生错误原因、工具失败和请求/自报 effort，不保存完整工具参数；旧任务丢失的原生细节无法凭空补回。OpenCode 的工具失败也进入结果诊断，即使原生最终状态为成功。
+
+agy 的 stderr 在完整捕获不超过 64 KiB 时先脱敏再取摘要尾部；超过该界限时省略整个尾部并记录 `stderr_truncated:true`。被拒绝会话的结果不提供原生状态或错误原因；诊断解析遇到缺失、格式错误或仅含外来会话的 transcript 时，`identity_verified` 保持 false。
+
+`status/result.native_execution` 提供本机持久进程状态、工作区守卫状态、退出码和观察时间；`attempt=running/native=accepted` 不能证明实时存活。`released` 只针对该 Attempt，不证明整个项目没有其它执行者。OpenCode result 从至多 1 MiB 原 stdout 提取有界、脱敏的工具/原生错误及覆盖范围，超时也可显示；该诊断读取不改变生命周期、回复或模型核验，也不发送模型请求。
+
+`native_outcome` 表示原生执行结果；`objective_verdict` 目前只覆盖原生状态和声明的输出文件检查，不验证来源是否实际读入、语义正确性或引用质量。调用方必须按任务验收要求单独判断。输出 token 可能包含推理和前序工具步骤，不等于最终回答字数。一个 uAgents Attempt 内，三方 CLI 仍可能自行重试 HTTP 请求；uAgents 的“不重放 prompt”不限制供应商内部重试。
+
 ## Agent 安装
 
 ```text
@@ -21,7 +29,7 @@ uagents stop <target>
 
 `probe` 不发送 Agent prompt。
 
-普通 Task 的 `execution.observation_timeout_ms` 默认 600000（10 分钟），可在 1000–1200000 范围内覆盖；长任务可设为 20 分钟。`run --timeout-ms` 约束 CLI 等待，默认 15 分钟，不替代观察期限。观察超时对 agy 等每任务进程会停止本地进程，对 Windows 持久 OpenCode 和桌面轮询目标只停止观察，不能推断原生或 Provider 已取消。支持的目标可单独设置 `execution_timeout_ms`；该硬执行预算默认不启用。短 probe 与初始化握手的独立期限保持原设置。
+普通 Task 的 `execution.observation_timeout_ms` 默认 1200000（20 分钟），可在 1000–3600000 范围内显式覆盖。`run --timeout-ms` 约束 CLI 等待；未指定时覆盖观察期限并增加 1 分钟收尾时间，至少等待 15 分钟（默认 21 分钟），不替代观察期限。观察超时对 agy 等每任务进程会停止本地进程，对 Windows 持久 OpenCode 和桌面轮询目标只停止观察，不能推断原生或 Provider 已取消。支持的目标可单独设置 `execution_timeout_ms`；该硬执行预算默认不启用。短 probe 与初始化握手的独立期限保持原设置。
 
 ## Resume / Reconcile
 

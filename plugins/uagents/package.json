@@ -1,6 +1,6 @@
 {
   "name": "uagents",
-  "version": "0.2.0-alpha.1",
+  "version": "0.2.0-alpha.4",
   "description": "Unified local dispatch for agy, Codex CLI, Claude Code CLI, WorkBuddy, DeepSeek Harness, OpenCode, pi, Doubao Work and TRAE CN through one tracked task protocol.",
   "type": "module",
   "license": "MIT",
